@@ -126,6 +126,7 @@ def documents_by_incidents(request):
                     'document_type_display': 'Reporte de Visita',
                     'version': '1.0',
                     'is_final': True,
+                    'incident_id': incident_id,
                     'created_by': {
                         'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
                         'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
@@ -165,6 +166,7 @@ def documents_by_incidents(request):
                     'document_type_display': 'Reporte de Laboratorio',
                     'version': '1.0',
                     'is_final': True,
+                    'incident_id': incident_id,
                     'created_by': {
                         'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
                         'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
@@ -202,6 +204,7 @@ def documents_by_incidents(request):
                     'document_type_display': 'Reporte de Proveedor',
                     'version': '1.0',
                     'is_final': True,
+                    'incident_id': incident_id,
                     'created_by': {
                         'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
                         'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
