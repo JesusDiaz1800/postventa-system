@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.161
+      - DATABASE_URL=mssql://sa:YourPassword@sqlserver:1433/postventa_system
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SHARED_FOLDER_PATH=//192.168.1.161/Y:/CONTROL DE CALIDAD/postventa
+    volumes:
+      - shared-folder:/app/shared
+    depends_on:
+      - sqlserver
+      - redis
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # Celery Worker
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A postventa_system worker --loglevel=info
+    environment:
+      - DEBUG=False
+      - DATABASE_URL=mssql://sa:YourPassword@sqlserver:1433/postventa_system
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SHARED_FOLDER_PATH=//192.168.1.161/Y:/CONTROL DE CALIDAD/postventa
+    volumes:
+      - shared-folder:/app/shared
+    depends_on:
+      - sqlserver
+      - redis
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A postventa_system beat --loglevel=info
+    environment:
+      - DEBUG=False
+      - DATABASE_URL=mssql://sa:YourPassword@sqlserver:1433/postventa_system
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - sqlserver
+      - redis
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # SQL Server
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourPassword123!
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+  # Nginx (Reverse Proxy)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - postventa-network
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:
+  redis-data:
+  shared-folder:
+    driver: local
+    driver_opts:
+      type: cifs
+      o: username=your_username,password=your_password,uid=1000,gid=1000
+      device: "//192.168.1.161/Y:/CONTROL DE CALIDAD/postventa"
+
+networks:
+  postventa-network:
+    driver: bridge

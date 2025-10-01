@@ -1,0 +1,155 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Informe de Visita Técnica - {{order_number}}</title>
+    <style>
+        body { 
+            font-family: 'Helvetica', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            color: #333;
+            line-height: 1.6;
+        }
+        .header { 
+            background: linear-gradient(135deg, #10B981 0%, #126FCC 100%);
+            color: white; 
+            padding: 30px; 
+            text-align: center; 
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .header h2 {
+            margin: 10px 0 0 0;
+            font-size: 18px;
+            font-weight: normal;
+            opacity: 0.9;
+        }
+        .content { 
+            margin: 20px 0; 
+        }
+        .section { 
+            margin: 25px 0; 
+            border-left: 4px solid #10B981; 
+            padding-left: 20px;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 0 8px 8px 0;
+        }
+        .section h3 {
+            color: #10B981;
+            margin-top: 0;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .table th, .table td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left; 
+        }
+        .table th { 
+            background: linear-gradient(135deg, #10B981 0%, #126FCC 100%);
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .table td {
+            background-color: white;
+        }
+        .table tr:nth-child(even) td {
+            background-color: #f8f9fa;
+        }
+        .footer { 
+            margin-top: 40px; 
+            padding-top: 20px; 
+            border-top: 2px solid #10B981; 
+            font-size: 10px; 
+            color: #666;
+            text-align: center;
+        }
+        .observations {
+            background-color: #e8f5e8;
+            padding: 15px;
+            border-left: 4px solid #10B981;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>INFORME DE VISITA TÉCNICA</h1>
+        <h2>{{order_number}} - {{client_name}}</h2>
+    </div>
+    
+    <div class="content">
+        <div class="section">
+            <h3>🏢 Información de la Visita</h3>
+            <table class="table">
+                <tr><th>Número de Orden:</th><td>{{order_number}}</td></tr>
+                <tr><th>Cliente:</th><td>{{client_name}}</td></tr>
+                <tr><th>Proyecto:</th><td>{{project_name}}</td></tr>
+                <tr><th>Dirección:</th><td>{{address}}</td></tr>
+                <tr><th>Fecha de Visita:</th><td>{{visit_date}}</td></tr>
+                <tr><th>Técnico:</th><td>{{technician}}</td></tr>
+                <tr><th>Vendedor:</th><td>{{salesperson}}</td></tr>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h3>📝 Observaciones Generales</h3>
+            <div class="observations">
+                <p>{{general_observations}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>🔧 Observaciones Técnicas</h3>
+            <h4>🏗️ Muro:</h4>
+            <div class="observations">
+                <p>{{wall_observations}}</p>
+            </div>
+            <h4>🔲 Matriz:</h4>
+            <div class="observations">
+                <p>{{matrix_observations}}</p>
+            </div>
+            <h4>🏢 Losa:</h4>
+            <div class="observations">
+                <p>{{slab_observations}}</p>
+            </div>
+            <h4>📦 Almacenamiento:</h4>
+            <div class="observations">
+                <p>{{storage_observations}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>⚙️ Datos de Máquinas</h3>
+            {{machine_data_table}}
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p><strong>Documento generado el {{generation_date}} por {{generated_by}}</strong></p>
+        <p>Polifusión S.A. - Sistema de Control de Calidad</p>
+        <p>Confidencial - Documento interno</p>
+    </div>
+</body>
+</html>
+        

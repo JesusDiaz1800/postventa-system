@@ -1,0 +1,155 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Informe para Proveedor - {{report_number}}</title>
+    <style>
+        body { 
+            font-family: 'Helvetica', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            color: #333;
+            line-height: 1.6;
+        }
+        .header { 
+            background: linear-gradient(135deg, #1C3664 0%, #126FCC 100%);
+            color: white; 
+            padding: 30px; 
+            text-align: center; 
+            border-radius: 8px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .header h2 {
+            margin: 10px 0 0 0;
+            font-size: 18px;
+            font-weight: normal;
+            opacity: 0.9;
+        }
+        .content { 
+            margin: 20px 0; 
+        }
+        .section { 
+            margin: 25px 0; 
+            border-left: 4px solid #1C3664; 
+            padding-left: 20px;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 0 8px 8px 0;
+        }
+        .section h3 {
+            color: #1C3664;
+            margin-top: 0;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .table th, .table td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left; 
+        }
+        .table th { 
+            background: linear-gradient(135deg, #1C3664 0%, #126FCC 100%);
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .table td {
+            background-color: white;
+        }
+        .table tr:nth-child(even) td {
+            background-color: #f8f9fa;
+        }
+        .footer { 
+            margin-top: 40px; 
+            padding-top: 20px; 
+            border-top: 2px solid #1C3664; 
+            font-size: 10px; 
+            color: #666;
+            text-align: center;
+        }
+        .supplier-info {
+            background-color: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #1C3664;
+            margin: 15px 0;
+            border-radius: 0 4px 4px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>INFORME PARA PROVEEDOR</h1>
+        <h2>{{report_number}} - {{supplier_name}}</h2>
+    </div>
+    
+    <div class="content">
+        <div class="section">
+            <h3>🏢 Información del Proveedor</h3>
+            <table class="table">
+                <tr><th>Proveedor:</th><td>{{supplier_name}}</td></tr>
+                <tr><th>Contacto:</th><td>{{supplier_contact}}</td></tr>
+                <tr><th>Email:</th><td>{{supplier_email}}</td></tr>
+                <tr><th>Asunto:</th><td>{{subject}}</td></tr>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h3>📝 Introducción</h3>
+            <div class="supplier-info">
+                <p>{{introduction}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>🔍 Descripción del Problema</h3>
+            <div class="supplier-info">
+                <p>{{problem_description}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>🔬 Análisis Técnico</h3>
+            <div class="supplier-info">
+                <p>{{technical_analysis}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>💡 Recomendaciones</h3>
+            <div class="supplier-info">
+                <p>{{recommendations}}</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>🚀 Mejoras Esperadas</h3>
+            <div class="supplier-info">
+                <p>{{expected_improvements}}</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p><strong>Documento generado el {{generation_date}} por {{generated_by}}</strong></p>
+        <p>Polifusión S.A. - Sistema de Control de Calidad</p>
+        <p>Confidencial - Documento interno</p>
+    </div>
+</body>
+</html>
+        

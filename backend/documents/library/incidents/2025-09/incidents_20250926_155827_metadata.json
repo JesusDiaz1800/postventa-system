@@ -1,0 +1,27 @@
+{
+  "tipo_documento": "incidents",
+  "fecha_creacion": "2025-09-26T15:58:27.716415",
+  "archivo_docx": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_155827.docx",
+  "archivo_pdf": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_155827.pdf",
+  "contexto": {
+    "incident_code": "INC-2025-0005",
+    "client_name": "Constructora del Norte S.A.",
+    "project_name": "Proyecto no especificado",
+    "detection_date": "17/09/2025",
+    "priority": "media",
+    "responsible": "patricio_morales",
+    "description": "Defecto en acabado superficial de tubería de 40mm. Presencia de rayas longitudinales que pueden afectar el flujo.",
+    "product_category": "No especificada",
+    "product_subcategory": "No especificada",
+    "product_sku": "No especificado",
+    "product_lot": "No especificado",
+    "product_provider": "Polietileno del Norte S.A.",
+    "actions_taken": "Acciones tomadas según el sistema",
+    "recommendations": "Recomendaciones del sistema",
+    "generated_by": "admin",
+    "generation_date": "26/09/2025 12:55"
+  },
+  "tamaño_docx": 37296,
+  "tamaño_pdf": 2932,
+  "version": "alternativa_1.0.0"
+}

@@ -1,0 +1,17 @@
+# Dependencias para el módulo de gestión de documentos
+# Generación de documentos
+weasyprint>=60.0
+jinja2>=3.1.0
+python-docx>=0.8.11
+docxtpl>=0.16.0
+
+# Procesamiento de imágenes
+Pillow>=9.0.0
+
+# IA y análisis
+transformers>=4.20.0
+torch>=1.12.0
+requests>=2.28.0
+
+# Utilidades
+pathlib2>=2.3.0

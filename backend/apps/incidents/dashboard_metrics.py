@@ -1,0 +1,514 @@
+"""
+Dashboard metrics and KPIs for incident management
+Provides comprehensive analytics and reporting
+"""
+
+import logging
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+from django.db.models import Count, Avg, Q, Sum, F
+from django.utils import timezone
+from .models import Incident, IncidentImage
+from apps.users.models import User
+from apps.audit.models import AuditLog
+
+logger = logging.getLogger(__name__)
+
+class DashboardMetrics:
+    """Dashboard metrics and KPIs calculator"""
+    
+    def __init__(self):
+        self.now = timezone.now()
+        self.today = self.now.date()
+        self.this_month = self.now.replace(day=1)
+        self.this_year = self.now.replace(month=1, day=1)
+    
+    def get_overview_metrics(self) -> Dict:
+        """Get overview metrics for dashboard"""
+        try:
+            # Total incidents
+            total_incidents = Incident.objects.count()
+            
+            # Incidents by status
+            incidents_by_status = Incident.objects.values('status').annotate(count=Count('id'))
+            status_counts = {item['status']: item['count'] for item in incidents_by_status}
+            
+            # Incidents by priority
+            incidents_by_priority = Incident.objects.values('priority').annotate(count=Count('id'))
+            priority_counts = {item['priority']: item['count'] for item in incidents_by_priority}
+            
+            # Recent incidents (last 7 days)
+            recent_incidents = Incident.objects.filter(
+                created_at__gte=self.now - timedelta(days=7)
+            ).count()
+            
+            # Pending incidents
+            pending_incidents = Incident.objects.filter(
+                status__in=['nuevo', 'en_proceso', 'pendiente']
+            ).count()
+            
+            # Overdue incidents
+            overdue_incidents = Incident.objects.filter(
+                status__in=['nuevo', 'en_proceso', 'pendiente'],
+                fecha_deteccion__lt=self.now - timedelta(days=30)
+            ).count()
+            
+            return {
+                'total_incidents': total_incidents,
+                'recent_incidents': recent_incidents,
+                'pending_incidents': pending_incidents,
+                'overdue_incidents': overdue_incidents,
+                'incidents_by_status': status_counts,
+                'incidents_by_priority': priority_counts,
+                'completion_rate': self._calculate_completion_rate(),
+                'average_resolution_time': self._calculate_average_resolution_time()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting overview metrics: {e}")
+            return {}
+    
+    def get_incident_trends(self, days: int = 30) -> Dict:
+        """Get incident trends over time"""
+        try:
+            start_date = self.now - timedelta(days=days)
+            
+            # Daily incident counts
+            daily_incidents = Incident.objects.filter(
+                created_at__gte=start_date
+            ).extra(
+                select={'day': 'date(created_at)'}
+            ).values('day').annotate(count=Count('id')).order_by('day')
+            
+            # Weekly incident counts
+            weekly_incidents = Incident.objects.filter(
+                created_at__gte=start_date
+            ).extra(
+                select={'week': 'strftime("%Y-%W", created_at)'}
+            ).values('week').annotate(count=Count('id')).order_by('week')
+            
+            # Monthly incident counts
+            monthly_incidents = Incident.objects.filter(
+                created_at__gte=start_date
+            ).extra(
+                select={'month': 'strftime("%Y-%m", created_at)'}
+            ).values('month').annotate(count=Count('id')).order_by('month')
+            
+            return {
+                'daily_trends': list(daily_incidents),
+                'weekly_trends': list(weekly_incidents),
+                'monthly_trends': list(monthly_incidents),
+                'trend_period': f"{days} days"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting incident trends: {e}")
+            return {}
+    
+    def get_sku_analysis(self) -> Dict:
+        """Get SKU analysis and statistics"""
+        try:
+            # Top problematic SKUs
+            top_problematic_skus = Incident.objects.values('sku').annotate(
+                incident_count=Count('id'),
+                avg_resolution_time=Avg('resolution_time')
+            ).order_by('-incident_count')[:10]
+            
+            # SKUs with highest re-incident rate
+            sku_reincident_rate = Incident.objects.values('sku').annotate(
+                total_incidents=Count('id'),
+                re_incidents=Count('id', filter=Q(is_re_incident=True))
+            ).annotate(
+                re_incident_rate=F('re_incidents') * 100.0 / F('total_incidents')
+            ).order_by('-re_incident_rate')[:10]
+            
+            # SKUs by category
+            skus_by_category = Incident.objects.values('categoria', 'sku').annotate(
+                count=Count('id')
+            ).order_by('categoria', '-count')
+            
+            return {
+                'top_problematic_skus': list(top_problematic_skus),
+                'sku_reincident_rates': list(sku_reincident_rate),
+                'skus_by_category': list(skus_by_category)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting SKU analysis: {e}")
+            return {}
+    
+    def get_batch_analysis(self) -> Dict:
+        """Get batch analysis and statistics"""
+        try:
+            # Top problematic batches
+            top_problematic_batches = Incident.objects.values('lote').annotate(
+                incident_count=Count('id'),
+                affected_skus=Count('sku', distinct=True)
+            ).order_by('-incident_count')[:10]
+            
+            # Batch quality trends
+            batch_quality_trends = Incident.objects.values('lote').annotate(
+                total_incidents=Count('id'),
+                quality_issues=Count('id', filter=Q(categoria='calidad'))
+            ).annotate(
+                quality_issue_rate=F('quality_issues') * 100.0 / F('total_incidents')
+            ).order_by('-quality_issue_rate')[:10]
+            
+            return {
+                'top_problematic_batches': list(top_problematic_batches),
+                'batch_quality_trends': list(batch_quality_trends)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting batch analysis: {e}")
+            return {}
+    
+    def get_user_performance(self) -> Dict:
+        """Get user performance metrics"""
+        try:
+            # User incident handling
+            user_incidents = Incident.objects.values('assigned_to__username').annotate(
+                total_incidents=Count('id'),
+                resolved_incidents=Count('id', filter=Q(status='resuelto')),
+                avg_resolution_time=Avg('resolution_time')
+            ).order_by('-total_incidents')
+            
+            # User response times
+            user_response_times = Incident.objects.values('assigned_to__username').annotate(
+                avg_response_time=Avg('response_time'),
+                avg_resolution_time=Avg('resolution_time')
+            ).order_by('avg_response_time')
+            
+            # User workload
+            user_workload = Incident.objects.filter(
+                status__in=['nuevo', 'en_proceso', 'pendiente']
+            ).values('assigned_to__username').annotate(
+                pending_incidents=Count('id')
+            ).order_by('-pending_incidents')
+            
+            return {
+                'user_incident_handling': list(user_incidents),
+                'user_response_times': list(user_response_times),
+                'user_workload': list(user_workload)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting user performance: {e}")
+            return {}
+    
+    def get_category_analysis(self) -> Dict:
+        """Get incident category analysis"""
+        try:
+            # Incidents by category
+            incidents_by_category = Incident.objects.values('categoria').annotate(
+                count=Count('id'),
+                avg_resolution_time=Avg('resolution_time')
+            ).order_by('-count')
+            
+            # Incidents by subcategory
+            incidents_by_subcategory = Incident.objects.values('categoria', 'subcategoria').annotate(
+                count=Count('id')
+            ).order_by('categoria', '-count')
+            
+            # Category trends over time
+            category_trends = Incident.objects.filter(
+                created_at__gte=self.now - timedelta(days=30)
+            ).values('categoria').annotate(
+                count=Count('id')
+            ).order_by('-count')
+            
+            return {
+                'incidents_by_category': list(incidents_by_category),
+                'incidents_by_subcategory': list(incidents_by_subcategory),
+                'category_trends': list(category_trends)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting category analysis: {e}")
+            return {}
+    
+    def get_resolution_metrics(self) -> Dict:
+        """Get resolution metrics and KPIs"""
+        try:
+            # Average resolution time by category
+            resolution_by_category = Incident.objects.values('categoria').annotate(
+                avg_resolution_time=Avg('resolution_time'),
+                count=Count('id')
+            ).order_by('avg_resolution_time')
+            
+            # Resolution time trends
+            resolution_trends = Incident.objects.filter(
+                status='resuelto',
+                created_at__gte=self.now - timedelta(days=30)
+            ).extra(
+                select={'week': 'strftime("%Y-%W", created_at)'}
+            ).values('week').annotate(
+                avg_resolution_time=Avg('resolution_time')
+            ).order_by('week')
+            
+            # First-time resolution rate
+            first_time_resolution = Incident.objects.filter(
+                status='resuelto'
+            ).aggregate(
+                total_resolved=Count('id'),
+                first_time_resolved=Count('id', filter=Q(is_re_incident=False))
+            )
+            
+            first_time_rate = 0
+            if first_time_resolution['total_resolved'] > 0:
+                first_time_rate = (first_time_resolution['first_time_resolved'] / 
+                                 first_time_resolution['total_resolved']) * 100
+            
+            return {
+                'resolution_by_category': list(resolution_by_category),
+                'resolution_trends': list(resolution_trends),
+                'first_time_resolution_rate': first_time_rate,
+                'total_resolved': first_time_resolution['total_resolved'],
+                'first_time_resolved': first_time_resolution['first_time_resolved']
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting resolution metrics: {e}")
+            return {}
+    
+    def get_ai_analysis_metrics(self) -> Dict:
+        """Get AI analysis metrics"""
+        try:
+            # Incidents with AI analysis
+            incidents_with_ai = Incident.objects.filter(
+                ai_analysis__isnull=False
+            ).count()
+            
+            total_incidents = Incident.objects.count()
+            ai_usage_rate = 0
+            if total_incidents > 0:
+                ai_usage_rate = (incidents_with_ai / total_incidents) * 100
+            
+            # AI analysis accuracy (based on user feedback)
+            ai_accuracy = Incident.objects.filter(
+                ai_analysis__isnull=False,
+                ai_analysis_accuracy__isnull=False
+            ).aggregate(
+                avg_accuracy=Avg('ai_analysis_accuracy')
+            )
+            
+            # AI analysis by category
+            ai_by_category = Incident.objects.filter(
+                ai_analysis__isnull=False
+            ).values('categoria').annotate(
+                count=Count('id')
+            ).order_by('-count')
+            
+            return {
+                'incidents_with_ai': incidents_with_ai,
+                'total_incidents': total_incidents,
+                'ai_usage_rate': ai_usage_rate,
+                'ai_accuracy': ai_accuracy.get('avg_accuracy', 0),
+                'ai_by_category': list(ai_by_category)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting AI analysis metrics: {e}")
+            return {}
+    
+    def get_document_metrics(self) -> Dict:
+        """Get document generation metrics"""
+        try:
+            # Documents generated from existing tables
+            from apps.documents.models import VisitReport, SupplierReport, LabReport, QualityReport
+            
+            visit_count = VisitReport.objects.count()
+            supplier_count = SupplierReport.objects.count()
+            lab_count = LabReport.objects.count()
+            quality_count = QualityReport.objects.count()
+            
+            total_documents = visit_count + supplier_count + lab_count + quality_count
+            
+            documents_by_type = [
+                {'document_type': 'visit_report', 'count': visit_count},
+                {'document_type': 'supplier_report', 'count': supplier_count},
+                {'document_type': 'lab_report', 'count': lab_count},
+                {'document_type': 'quality_report', 'count': quality_count}
+            ]
+            
+            # Recent document generation
+            recent_visits = VisitReport.objects.filter(
+                created_at__gte=self.now - timedelta(days=7)
+            ).count()
+            recent_suppliers = SupplierReport.objects.filter(
+                created_at__gte=self.now - timedelta(days=7)
+            ).count()
+            recent_labs = LabReport.objects.filter(
+                created_at__gte=self.now - timedelta(days=7)
+            ).count()
+            recent_quality = QualityReport.objects.filter(
+                created_at__gte=self.now - timedelta(days=7)
+            ).count()
+            
+            recent_documents = recent_visits + recent_suppliers + recent_labs + recent_quality
+            
+            # Document generation by incident
+            from django.db.models import Q
+            from apps.incidents.models import Incident
+            
+            # Obtener incidencias con documentos
+            incidents_with_docs = Incident.objects.filter(
+                Q(visitreport__isnull=False) | 
+                Q(supplierreport__isnull=False) | 
+                Q(labreport__isnull=False) |
+                Q(qualityreport__isnull=False)
+            ).distinct()
+            
+            documents_per_incident = []
+            for incident in incidents_with_docs:
+                doc_count = (
+                    incident.visitreport_set.count() + 
+                    incident.supplierreport_set.count() + 
+                    incident.labreport_set.count() + 
+                    incident.qualityreport_set.count()
+                )
+                documents_per_incident.append({
+                    'incident_id': incident.id,
+                    'count': doc_count
+                })
+            
+            documents_per_incident.sort(key=lambda x: x['count'], reverse=True)
+            
+            return {
+                'total_documents': total_documents,
+                'recent_documents': recent_documents,
+                'documents_by_type': list(documents_by_type),
+                'documents_per_incident': list(documents_per_incident)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting document metrics: {e}")
+            return {}
+    
+    def get_workflow_metrics(self) -> Dict:
+        """Get workflow metrics"""
+        try:
+            from apps.workflows.models import WorkflowInstance
+            
+            # Workflow instances
+            total_workflows = WorkflowInstance.objects.count()
+            active_workflows = WorkflowInstance.objects.filter(status='active').count()
+            completed_workflows = WorkflowInstance.objects.filter(status='completed').count()
+            
+            # Workflow completion rates
+            workflow_completion_rate = 0
+            if total_workflows > 0:
+                workflow_completion_rate = (completed_workflows / total_workflows) * 100
+            
+            # Average workflow duration
+            avg_workflow_duration = WorkflowInstance.objects.filter(
+                status='completed'
+            ).aggregate(
+                avg_duration=Avg('completed_at' - F('created_at'))
+            )
+            
+            return {
+                'total_workflows': total_workflows,
+                'active_workflows': active_workflows,
+                'completed_workflows': completed_workflows,
+                'workflow_completion_rate': workflow_completion_rate,
+                'avg_workflow_duration': avg_workflow_duration.get('avg_duration', 0)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting workflow metrics: {e}")
+            return {}
+    
+    def get_security_metrics(self) -> Dict:
+        """Get security and audit metrics"""
+        try:
+            # Login attempts
+            login_attempts = AuditLog.objects.filter(
+                action='login',
+                timestamp__gte=self.now - timedelta(days=7)
+            ).count()
+            
+            # Failed login attempts
+            failed_logins = AuditLog.objects.filter(
+                action='login',
+                success=False,
+                timestamp__gte=self.now - timedelta(days=7)
+            ).count()
+            
+            # Security events
+            security_events = AuditLog.objects.filter(
+                resource_type='security',
+                timestamp__gte=self.now - timedelta(days=7)
+            ).count()
+            
+            # User activity
+            active_users = AuditLog.objects.filter(
+                timestamp__gte=self.now - timedelta(days=7)
+            ).values('user').distinct().count()
+            
+            return {
+                'login_attempts': login_attempts,
+                'failed_logins': failed_logins,
+                'security_events': security_events,
+                'active_users': active_users,
+                'login_success_rate': ((login_attempts - failed_logins) / login_attempts * 100) if login_attempts > 0 else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting security metrics: {e}")
+            return {}
+    
+    def _calculate_completion_rate(self) -> float:
+        """Calculate incident completion rate"""
+        try:
+            total_incidents = Incident.objects.count()
+            completed_incidents = Incident.objects.filter(status='resuelto').count()
+            
+            if total_incidents > 0:
+                return (completed_incidents / total_incidents) * 100
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error calculating completion rate: {e}")
+            return 0
+    
+    def _calculate_average_resolution_time(self) -> float:
+        """Calculate average resolution time in hours"""
+        try:
+            avg_time = Incident.objects.filter(
+                status='resuelto',
+                resolution_time__isnull=False
+            ).aggregate(avg_time=Avg('resolution_time'))
+            
+            if avg_time['avg_time']:
+                return avg_time['avg_time'].total_seconds() / 3600  # Convert to hours
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error calculating average resolution time: {e}")
+            return 0
+    
+    def get_comprehensive_dashboard(self) -> Dict:
+        """Get comprehensive dashboard data"""
+        try:
+            return {
+                'overview': self.get_overview_metrics(),
+                'trends': self.get_incident_trends(),
+                'sku_analysis': self.get_sku_analysis(),
+                'batch_analysis': self.get_batch_analysis(),
+                'user_performance': self.get_user_performance(),
+                'category_analysis': self.get_category_analysis(),
+                'resolution_metrics': self.get_resolution_metrics(),
+                'ai_metrics': self.get_ai_analysis_metrics(),
+                'document_metrics': self.get_document_metrics(),
+                'workflow_metrics': self.get_workflow_metrics(),
+                'security_metrics': self.get_security_metrics(),
+                'generated_at': self.now.isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting comprehensive dashboard: {e}")
+            return {}
+
+# Global instance
+dashboard_metrics = DashboardMetrics()

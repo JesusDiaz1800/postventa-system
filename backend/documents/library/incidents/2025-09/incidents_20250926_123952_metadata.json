@@ -1,0 +1,27 @@
+{
+  "tipo_documento": "incidents",
+  "fecha_creacion": "2025-09-26T12:39:52.191394",
+  "archivo_docx": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_123952.docx",
+  "archivo_pdf": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_123952.pdf",
+  "contexto": {
+    "incident_code": "INC-2025-0001",
+    "client_name": "Constructora San José S.A.",
+    "project_name": "Edificio Residencial Las Flores",
+    "detection_date": "26/09/2025",
+    "priority": "Alta",
+    "responsible": "Carlos Rodríguez",
+    "description": "Se identificó una condición en el proceso de fabricación que requiere atención técnica.",
+    "product_category": "Tubería HDPE",
+    "product_subcategory": "Tubería de 110mm",
+    "product_sku": "HDPE-110-001",
+    "product_lot": "LOTE-2025-001",
+    "product_provider": "Proveedor ABC",
+    "actions_taken": "Se realizó inspección técnica y se tomaron muestras para análisis.",
+    "recommendations": "Se recomienda realizar análisis de laboratorio para determinar las causas.",
+    "generated_by": "Sistema de Pruebas Alternativo",
+    "generation_date": "26/09/2025 12:39"
+  },
+  "tamaño_docx": 37345,
+  "tamaño_pdf": 2978,
+  "version": "alternativa_1.0.0"
+}

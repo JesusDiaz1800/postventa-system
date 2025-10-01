@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Design - Polifusión</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Importar el CSS global */
+        @import url('./src/styles/globals.css');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .demo-section {
+            margin-bottom: 3rem;
+            padding: 2rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            background: white;
+        }
+        
+        .demo-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto py-8">
+        <h1 class="text-4xl font-bold text-center mb-8 text-gray-900">
+            Sistema de Diseño Polifusión
+        </h1>
+        
+        <!-- Botones -->
+        <div class="demo-section">
+            <h2 class="demo-title">Botones</h2>
+            <div class="flex flex-wrap gap-4">
+                <button class="btn btn-primary">Primario</button>
+                <button class="btn btn-secondary">Secundario</button>
+                <button class="btn btn-success">Éxito</button>
+                <button class="btn btn-danger">Peligro</button>
+                <button class="btn btn-warning">Advertencia</button>
+                <button class="btn btn-sm">Pequeño</button>
+                <button class="btn btn-lg">Grande</button>
+            </div>
+        </div>
+        
+        <!-- Cards -->
+        <div class="demo-section">
+            <h2 class="demo-title">Cards</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="text-lg font-semibold">Card Simple</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-gray-600">Contenido del card con diseño moderno y profesional.</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="text-lg font-semibold mb-2">Card sin Header</h3>
+                        <p class="text-gray-600">Card con solo contenido, perfecto para estadísticas.</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="text-lg font-semibold">Card Completo</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-gray-600">Card con header, body y footer.</p>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-primary btn-sm">Acción</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Formularios -->
+        <div class="demo-section">
+            <h2 class="demo-title">Formularios</h2>
+            <div class="max-w-md">
+                <div class="form-group">
+                    <label class="form-label">Nombre</label>
+                    <input type="text" class="form-input" placeholder="Ingresa tu nombre">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" placeholder="tu@email.com">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Mensaje</label>
+                    <textarea class="form-input form-textarea" placeholder="Escribe tu mensaje"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">País</label>
+                    <select class="form-input form-select">
+                        <option>Selecciona un país</option>
+                        <option>Chile</option>
+                        <option>Argentina</option>
+                        <option>Perú</option>
+                    </select>
+                </div>
+                
+                <button class="btn btn-primary">Enviar</button>
+            </div>
+        </div>
+        
+        <!-- Tablas -->
+        <div class="demo-section">
+            <h2 class="demo-title">Tablas</h2>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Estado</th>
+                        <th>Fecha</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>001</td>
+                        <td>Constructora ABC</td>
+                        <td><span class="badge badge-success">Activo</span></td>
+                        <td>2025-09-25</td>
+                    </tr>
+                    <tr>
+                        <td>002</td>
+                        <td>Empresa XYZ</td>
+                        <td><span class="badge badge-warning">Pendiente</span></td>
+                        <td>2025-09-24</td>
+                    </tr>
+                    <tr>
+                        <td>003</td>
+                        <td>Corporación DEF</td>
+                        <td><span class="badge badge-danger">Cerrado</span></td>
+                        <td>2025-09-23</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Badges -->
+        <div class="demo-section">
+            <h2 class="demo-title">Badges</h2>
+            <div class="flex flex-wrap gap-4">
+                <span class="badge badge-primary">Primario</span>
+                <span class="badge badge-success">Éxito</span>
+                <span class="badge badge-warning">Advertencia</span>
+                <span class="badge badge-danger">Peligro</span>
+                <span class="badge badge-gray">Gris</span>
+            </div>
+        </div>
+        
+        <!-- Grid System -->
+        <div class="demo-section">
+            <h2 class="demo-title">Sistema de Grid</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="p-4 bg-blue-50 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-blue-600">1</div>
+                    <div class="text-sm text-blue-800">Columna 1</div>
+                </div>
+                <div class="p-4 bg-green-50 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-green-600">2</div>
+                    <div class="text-sm text-green-800">Columna 2</div>
+                </div>
+                <div class="p-4 bg-purple-50 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-purple-600">3</div>
+                    <div class="text-sm text-purple-800">Columna 3</div>
+                </div>
+                <div class="p-4 bg-orange-50 rounded-lg text-center">
+                    <div class="text-2xl font-bold text-orange-600">4</div>
+                    <div class="text-sm text-orange-800">Columna 4</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="text-center py-8 text-gray-500">
+            <p>Sistema de Diseño Polifusión S.A. - 2025</p>
+        </div>
+    </div>
+</body>
+</html>

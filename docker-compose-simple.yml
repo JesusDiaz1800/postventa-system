@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: TuPassword123!
+      MSSQL_PID: Express
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P TuPassword123! -Q 'SELECT 1'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.sqlserver
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=MDqUwcHCWfVRib_l65f14s8pZVrJ1nye_3Wt8U6JWQ4reWvMdNg0_bz_MncC8mlJVqA
+      - DB_NAME=postventa_system
+      - DB_USER=sa
+      - DB_PASSWORD=TuPassword123!
+      - DB_HOST=sqlserver
+      - DB_PORT=1433
+      - REDIS_URL=redis://redis:6379/0
+      - SHARED_FOLDER_PATH=/shared/postventa
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    volumes:
+      - ./backend:/app
+      - shared_folder:/shared/postventa
+      - static_files:/app/staticfiles
+    ports:
+      - "8000:8000"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "python manage.py migrate --settings=postventa_system.settings-sqlserver &&
+             python manage.py collectstatic --noinput --settings=postventa_system.settings-sqlserver &&
+             python manage.py runserver 0.0.0.0:8000 --settings=postventa_system.settings-sqlserver"
+
+  # Celery Worker
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.sqlserver
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=MDqUwcHCWfVRib_l65f14s8pZVrJ1nye_3Wt8U6JWQ4reWvMdNg0_bz_MncC8mlJVqA
+      - DB_NAME=postventa_system
+      - DB_USER=sa
+      - DB_PASSWORD=TuPassword123!
+      - DB_HOST=sqlserver
+      - DB_PORT=1433
+      - REDIS_URL=redis://redis:6379/0
+      - SHARED_FOLDER_PATH=/shared/postventa
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    volumes:
+      - ./backend:/app
+      - shared_folder:/shared/postventa
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A postventa_system worker --loglevel=info --settings=postventa_system.settings-sqlserver
+
+volumes:
+  sqlserver_data:
+  redis_data:
+  shared_folder:
+  static_files:
+
+networks:
+  default:
+    name: postventa_network

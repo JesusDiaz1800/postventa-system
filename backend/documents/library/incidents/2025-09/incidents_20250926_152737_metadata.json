@@ -1,0 +1,27 @@
+{
+  "tipo_documento": "incidents",
+  "fecha_creacion": "2025-09-26T15:27:37.660628",
+  "archivo_docx": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_152737.docx",
+  "archivo_pdf": "C:\\Users\\Jesus Diaz\\postventa-system\\backend\\documents\\library\\incidents\\2025-09\\incidents_20250926_152737.pdf",
+  "contexto": {
+    "incident_code": "INC-2025-0002",
+    "client_name": "Inmobiliaria Los Robles Ltda.",
+    "project_name": "Proyecto no especificado",
+    "detection_date": "16/09/2025",
+    "priority": "media",
+    "responsible": "patricio_morales",
+    "description": "Defecto en espesor de pared de tubería de 20mm. Medición con calibre indica espesor inferior al especificado en norma.",
+    "product_category": "No especificada",
+    "product_subcategory": "No especificada",
+    "product_sku": "No especificado",
+    "product_lot": "No especificado",
+    "product_provider": "Tubos del Sur S.A.",
+    "actions_taken": "Acciones tomadas según el sistema",
+    "recommendations": "Recomendaciones del sistema",
+    "generated_by": "admin",
+    "generation_date": "26/09/2025 12:55"
+  },
+  "tamaño_docx": 37292,
+  "tamaño_pdf": 2921,
+  "version": "alternativa_1.0.0"
+}
