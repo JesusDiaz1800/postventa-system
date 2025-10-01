@@ -296,7 +296,7 @@ const VisitReportsList = () => {
   const handleOpenDocument = async (report) => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`/api/documents/open/visit_report/${report.related_incident?.id}/${report.pdf_filename || 'documento.pdf'}`, {
+      const response = await fetch(`/api/documents/open/visit-report/${report.related_incident?.id}/${report.pdf_filename || 'documento.pdf'}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

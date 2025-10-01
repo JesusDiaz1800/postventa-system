@@ -52,7 +52,7 @@ const BulkDocumentActions = ({
       for (const doc of selectedDocs) {
         try {
           const response = await api.get(
-            `/documents/open/${doc.type}/${doc.incident_id}/${doc.filename}/`,
+            `/documents/open/${doc.type.replace('_', '-')}/${doc.incident_id}/${doc.filename}/`,
             { responseType: 'blob' }
           );
           

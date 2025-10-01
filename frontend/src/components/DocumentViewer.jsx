@@ -27,7 +27,7 @@ const DocumentViewer = ({ isOpen, onClose, document, onError }) => {
     
     try {
       const response = await api.get(
-        `/documents/open/${document.type}/${document.incident_id}/${document.filename}/`,
+        `/documents/open/${document.type.replace('_', '-')}/${document.incident_id}/${document.filename}/`,
         { responseType: 'blob' }
       );
       
