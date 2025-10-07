@@ -1,17 +1,24 @@
-"""
-URLs para el sistema de auditoría
-"""
-from django.urls import path
-from . import views, views_simple, views_fixed
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    AuditLogViewSet,
+    AuditRuleViewSet,
+    AuditReportViewSet,
+    AuditDashboardViewSet,
+    AuditAlertViewSet,
+    AuditStatsViewSet,
+    AuditSearchViewSet
+)
+
+router = DefaultRouter()
+router.register(r'logs', AuditLogViewSet, basename='audit-log')
+router.register(r'rules', AuditRuleViewSet, basename='audit-rule')
+router.register(r'reports', AuditReportViewSet, basename='audit-report')
+router.register(r'dashboards', AuditDashboardViewSet, basename='audit-dashboard')
+router.register(r'alerts', AuditAlertViewSet, basename='audit-alert')
+router.register(r'stats', AuditStatsViewSet, basename='audit-stats')
+router.register(r'search', AuditSearchViewSet, basename='audit-search')
 
 urlpatterns = [
-    # Lista y creación de logs
-    path('logs/', views.AuditLogListCreateView.as_view(), name='audit_log_list_create'),
-    path('logs/<int:pk>/', views.AuditLogRetrieveView.as_view(), name='audit_log_retrieve'),
-    
-    # Endpoints específicos
-    path('logs/list/', views_fixed.audit_logs_list_fixed, name='audit_logs_list'),
-    path('logs/simple/', views_fixed.audit_logs_simple, name='audit_logs_list_simple'),
-    path('logs/export/', views.audit_logs_export, name='audit_logs_export'),
-    path('logs/statistics/', views.audit_logs_statistics, name='audit_logs_statistics'),
+    path('api/', include(router.urls)),
 ]

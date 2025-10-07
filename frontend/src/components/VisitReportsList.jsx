@@ -295,20 +295,14 @@ const VisitReportsList = () => {
 
   const handleOpenDocument = async (report) => {
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`/api/documents/open/visit-report/${report.related_incident?.id}/${report.pdf_filename || 'documento.pdf'}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        showSuccess('Documento abierto exitosamente');
-      } else {
-        const errorData = await response.json();
-        showError('Error al abrir documento: ' + (errorData.error || 'Error desconocido'));
-      }
+      const filename = report.pdf_filename || 'documento.pdf';
+      const encodedFilename = encodeURIComponent(filename);
+      const { API_ORIGIN } = await import('../services/api');
+      const url = `${API_ORIGIN}/api/documents/open/visit-report/${report.related_incident?.id}/${encodedFilename}`;
+      
+      // Abrir directamente en el navegador
+      window.open(url, '_blank');
+      showSuccess('Documento abierto exitosamente');
     } catch (error) {
       console.error('Error opening document:', error);
       showError('Error al abrir documento: ' + error.message);

@@ -113,8 +113,12 @@ API_SECURITY_SETTINGS = {
     # CORS mejorado
     'CORS_SECURITY': {
         'ALLOWED_ORIGINS': [
+            # Development
+            'http://localhost:3000',
             'https://localhost:3000',
-            'https://192.168.1.161:3000',
+            # Add production origins before release (example shown)
+            # 'http://192.168.1.234:3000',
+            # 'https://postventa.example.com',
         ],
         'ALLOW_CREDENTIALS': True,
         'ALLOWED_HEADERS': [

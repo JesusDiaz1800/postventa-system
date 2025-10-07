@@ -1,6 +1,6 @@
 import django_filters
 from django.db.models import Q
-from .models import Incident
+from .models import Incident, Category, Responsible
 
 
 class IncidentFilter(django_filters.FilterSet):
@@ -42,9 +42,14 @@ class IncidentFilter(django_filters.FilterSet):
         help_text='Prioridad de la incidencia'
     )
     
-    categoria = django_filters.ChoiceFilter(
-        choices=Incident.CATEGORY_CHOICES,
+    categoria = django_filters.ModelChoiceFilter(
+        queryset=Category.objects.all(),
         help_text='Categoría del producto'
+    )
+
+    responsable = django_filters.ModelChoiceFilter(
+        queryset=Responsible.objects.all(),
+        help_text='Responsable técnico asignado'
     )
     
     # Assignment filters
@@ -100,7 +105,7 @@ class IncidentFilter(django_filters.FilterSet):
     class Meta:
         model = Incident
         fields = [
-            'estado', 'prioridad', 'categoria', 'assigned_to', 'created_by',
+            'estado', 'prioridad', 'categoria', 'responsable', 'assigned_to', 'created_by',
             'fecha_deteccion_from', 'fecha_deteccion_to',
             'created_at_from', 'created_at_to', 'cliente', 'provider', 'obra',
             'sku', 'lote', 'search'

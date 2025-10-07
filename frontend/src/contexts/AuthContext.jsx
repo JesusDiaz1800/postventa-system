@@ -16,7 +16,38 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Forzar inicio sin usuario
+    // Restaurar sesión si existen tokens válidos y perfil
+    try {
+      const authDataRaw = localStorage.getItem('postventa_auth');
+      if (authDataRaw) {
+        const authData = JSON.parse(authDataRaw);
+        if (authData?.token) {
+          api.defaults.headers.common['Authorization'] = `Bearer ${authData.token}`;
+          setUser(authData.user || null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      const access = localStorage.getItem('access_token');
+      if (access) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
+        // Intentar cargar perfil actual
+        api.get('/auth/me/').then((resp) => {
+          setUser(resp?.data?.user || null);
+          // Guardar en almacén unificado
+          const merged = { token: access, user: resp?.data?.user || null };
+          localStorage.setItem('postventa_auth', JSON.stringify(merged));
+          setLoading(false);
+        }).catch(() => {
+          setUser(null);
+          setLoading(false);
+        });
+        return;
+      }
+    } catch (e) {
+      // Si algo falla, continuar como no autenticado
+    }
     setUser(null);
     setLoading(false);
   }, []);
@@ -36,6 +67,8 @@ export const AuthProvider = ({ children }) => {
       
       api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
       setUser(userData);
+      // Guardar almacén unificado
+      localStorage.setItem('postventa_auth', JSON.stringify({ token: access, user: userData }));
       
       return { success: true };
     } catch (error) {
@@ -43,6 +76,7 @@ export const AuthProvider = ({ children }) => {
       
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
+      localStorage.removeItem('postventa_auth');
       delete api.defaults.headers.common['Authorization'];
       
       return { 
@@ -65,6 +99,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
+      localStorage.removeItem('postventa_auth');
       delete api.defaults.headers.common['Authorization'];
       setUser(null);
     }

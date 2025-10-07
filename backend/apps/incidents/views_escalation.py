@@ -303,3 +303,13 @@ def reopen_incident(request, incident_id):
             {'error': f'Error reabriendo incidencia: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+# Backwards compatibility alias
+# Some existing URLs refer to `escalate_incident`; make it an alias to the
+# current `escalate_to_quality` view so we don't break existing routes.
+try:
+    escalate_incident = escalate_to_quality
+except NameError:
+    # If escalate_to_quality isn't defined (unexpected), skip aliasing.
+    pass

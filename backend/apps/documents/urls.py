@@ -14,6 +14,8 @@ from . import views_documents
 from . import views_pdf_generation
 from . import views_pdf
 from . import test_visit_simple
+from . import incident_attachment_views
+from . import report_attachment_views
 
 urlpatterns = [
     # Document templates
@@ -160,5 +162,25 @@ urlpatterns = [
     # Generación de número de orden
     path('generate-order-number/', views.generate_order_number, name='generate_order_number'),
     path('incident/<int:incident_id>/documents-status/', views_pdf.get_incident_documents_status, name='get_incident_documents_status'),
+    
+    # ==================== ADJUNTOS DE INCIDENCIAS ====================
+    
+    # Adjuntos de incidencias
+    path('incident-attachments/<int:incident_id>/', incident_attachment_views.list_incident_attachments, name='list_incident_attachments'),
+    path('incident-attachments/<int:incident_id>/upload/', incident_attachment_views.upload_incident_attachment, name='upload_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/download/', incident_attachment_views.download_incident_attachment, name='download_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/view/', incident_attachment_views.view_incident_attachment, name='view_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/delete/', incident_attachment_views.delete_incident_attachment, name='delete_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/info/', incident_attachment_views.get_incident_attachment_info, name='get_incident_attachment_info'),
+    
+    # ==================== ADJUNTOS DE REPORTES ====================
+    
+    # Adjuntos de reportes
+    path('report-attachments/<int:report_id>/<str:report_type>/', report_attachment_views.list_report_attachments, name='list_report_attachments'),
+    path('report-attachments/<int:report_id>/<str:report_type>/upload/', report_attachment_views.upload_report_attachment, name='upload_report_attachment'),
+    path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/download/', report_attachment_views.download_report_attachment, name='download_report_attachment'),
+    path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/view/', report_attachment_views.view_report_attachment, name='view_report_attachment'),
+    path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/delete/', report_attachment_views.delete_report_attachment, name='delete_report_attachment'),
+    path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/info/', report_attachment_views.get_report_attachment_info, name='get_report_attachment_info'),
     
 ]

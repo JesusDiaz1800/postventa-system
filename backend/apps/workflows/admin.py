@@ -1,17 +1,24 @@
 from django.contrib import admin
-from .models import Workflow, WorkflowState, WorkflowTransition, IncidentWorkflow, WorkflowHistory
+from .models import (
+    WorkflowTemplate, 
+    WorkflowStep, 
+    WorkflowInstance, 
+    WorkflowApproval, 
+    WorkflowHistory,
+    WorkflowRule
+)
 
 
-@admin.register(Workflow)
-class WorkflowAdmin(admin.ModelAdmin):
-    """Admin interface for Workflow model"""
+@admin.register(WorkflowTemplate)
+class WorkflowTemplateAdmin(admin.ModelAdmin):
+    """Admin interface for WorkflowTemplate model"""
     
     list_display = [
-        'name', 'incident_type', 'is_active', 'created_by', 'created_at'
+        'name', 'workflow_type', 'is_active', 'is_default', 'created_by', 'created_at'
     ]
     
     list_filter = [
-        'incident_type', 'is_active', 'created_at'
+        'workflow_type', 'is_active', 'is_default', 'created_at'
     ]
     
     search_fields = [
@@ -22,10 +29,10 @@ class WorkflowAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Información Básica', {
-            'fields': ('name', 'description', 'incident_type')
+            'fields': ('name', 'description', 'workflow_type')
         }),
         ('Configuración', {
-            'fields': ('is_active',)
+            'fields': ('is_active', 'is_default', 'auto_start', 'allow_parallel', 'max_duration')
         }),
         ('Metadatos', {
             'fields': ('created_by', 'created_at', 'updated_at')
@@ -33,131 +40,192 @@ class WorkflowAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(WorkflowState)
-class WorkflowStateAdmin(admin.ModelAdmin):
-    """Admin interface for Workflow State model"""
+@admin.register(WorkflowStep)
+class WorkflowStepAdmin(admin.ModelAdmin):
+    """Admin interface for WorkflowStep model"""
     
     list_display = [
-        'workflow', 'display_name', 'is_initial', 'is_final', 'order'
+        'template', 'name', 'step_type', 'order', 'is_required', 'assigned_to_user'
     ]
     
     list_filter = [
-        'workflow', 'is_initial', 'is_final'
+        'template', 'step_type', 'is_required', 'is_parallel'
     ]
     
     search_fields = [
-        'name', 'display_name', 'workflow__name'
+        'name', 'description', 'template__name'
     ]
     
-    readonly_fields = ['created_at']
+    readonly_fields = ['created_at', 'updated_at']
     
     fieldsets = (
-        ('Estado', {
-            'fields': ('workflow', 'name', 'display_name', 'description')
+        ('Paso', {
+            'fields': ('template', 'name', 'description', 'step_type', 'order')
         }),
         ('Configuración', {
-            'fields': ('is_initial', 'is_final', 'order')
+            'fields': ('is_required', 'is_parallel', 'time_limit', 'auto_advance')
         }),
-        ('Acciones Requeridas', {
-            'fields': ('required_actions',)
-        }),
-        ('Fechas', {
-            'fields': ('created_at',)
-        }),
-    )
-
-
-@admin.register(WorkflowTransition)
-class WorkflowTransitionAdmin(admin.ModelAdmin):
-    """Admin interface for Workflow Transition model"""
-    
-    list_display = [
-        'workflow', 'from_state', 'to_state', 'display_name', 'is_active'
-    ]
-    
-    list_filter = [
-        'workflow', 'is_active'
-    ]
-    
-    search_fields = [
-        'name', 'display_name', 'workflow__name'
-    ]
-    
-    readonly_fields = ['created_at']
-    
-    fieldsets = (
-        ('Transición', {
-            'fields': ('workflow', 'from_state', 'to_state', 'name', 'display_name', 'description')
-        }),
-        ('Configuración', {
-            'fields': ('is_active', 'allowed_roles')
+        ('Asignación', {
+            'fields': ('assigned_to_role', 'assigned_to_user', 'assigned_to_group')
         }),
         ('Condiciones y Acciones', {
-            'fields': ('required_conditions', 'required_actions')
+            'fields': ('condition_expression', 'action_script')
+        }),
+        ('Notificaciones', {
+            'fields': ('notify_on_start', 'notify_on_complete', 'notify_on_timeout')
         }),
         ('Fechas', {
-            'fields': ('created_at',)
+            'fields': ('created_at', 'updated_at')
         }),
     )
 
 
-@admin.register(IncidentWorkflow)
-class IncidentWorkflowAdmin(admin.ModelAdmin):
-    """Admin interface for Incident Workflow model"""
+@admin.register(WorkflowInstance)
+class WorkflowInstanceAdmin(admin.ModelAdmin):
+    """Admin interface for WorkflowInstance model"""
     
     list_display = [
-        'incident', 'workflow', 'current_state', 'started_at'
+        'template', 'status', 'current_step', 'started_by', 'started_at'
     ]
     
     list_filter = [
-        'workflow', 'current_state', 'started_at'
+        'status', 'template', 'started_at'
     ]
     
     search_fields = [
-        'incident__code', 'workflow__name'
+        'template__name', 'started_by__username'
     ]
     
-    readonly_fields = ['started_at', 'updated_at']
+    readonly_fields = ['started_at', 'completed_at', 'created_at', 'updated_at']
     
     fieldsets = (
-        ('Workflow', {
-            'fields': ('incident', 'workflow', 'current_state')
+        ('Instancia', {
+            'fields': ('template', 'status', 'current_step')
+        }),
+        ('Objetos Relacionados', {
+            'fields': ('related_incident', 'related_document')
+        }),
+        ('Usuarios', {
+            'fields': ('started_by', 'completed_by')
         }),
         ('Fechas', {
-            'fields': ('started_at', 'updated_at')
+            'fields': ('started_at', 'completed_at', 'due_date')
+        }),
+        ('Datos', {
+            'fields': ('context_data', 'result_data')
+        }),
+        ('Metadatos', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+
+@admin.register(WorkflowApproval)
+class WorkflowApprovalAdmin(admin.ModelAdmin):
+    """Admin interface for WorkflowApproval model"""
+    
+    list_display = [
+        'instance', 'step', 'approver', 'status', 'assigned_at'
+    ]
+    
+    list_filter = [
+        'status', 'step', 'assigned_at'
+    ]
+    
+    search_fields = [
+        'instance__template__name', 'approver__username'
+    ]
+    
+    readonly_fields = ['assigned_at', 'completed_at']
+    
+    fieldsets = (
+        ('Aprobación', {
+            'fields': ('instance', 'step', 'approver', 'status')
+        }),
+        ('Comentarios', {
+            'fields': ('comments', 'justification')
+        }),
+        ('Delegación', {
+            'fields': ('delegated_to',)
+        }),
+        ('Fechas', {
+            'fields': ('assigned_at', 'completed_at', 'due_date')
+        }),
+        ('Metadatos', {
+            'fields': ('metadata',)
         }),
     )
 
 
 @admin.register(WorkflowHistory)
 class WorkflowHistoryAdmin(admin.ModelAdmin):
-    """Admin interface for Workflow History model"""
+    """Admin interface for WorkflowHistory model"""
     
     list_display = [
-        'incident_workflow', 'from_state', 'to_state', 'user', 'created_at'
+        'instance', 'step', 'action', 'user', 'timestamp'
     ]
     
     list_filter = [
-        'created_at'
+        'action', 'timestamp'
     ]
     
     search_fields = [
-        'incident_workflow__incident__code', 'user__username'
+        'instance__template__name', 'user__username', 'description'
     ]
     
-    readonly_fields = ['created_at']
+    readonly_fields = ['timestamp']
     
     fieldsets = (
-        ('Transición', {
-            'fields': ('incident_workflow', 'from_state', 'to_state', 'transition')
+        ('Historial', {
+            'fields': ('instance', 'step', 'action', 'description')
         }),
         ('Usuario', {
             'fields': ('user',)
         }),
-        ('Detalles', {
-            'fields': ('description', 'metadata')
+        ('Cambios', {
+            'fields': ('old_values', 'new_values')
         }),
-        ('Fechas', {
-            'fields': ('created_at',)
+        ('Metadatos', {
+            'fields': ('metadata', 'timestamp')
+        }),
+    )
+
+
+@admin.register(WorkflowRule)
+class WorkflowRuleAdmin(admin.ModelAdmin):
+    """Admin interface for WorkflowRule model"""
+    
+    list_display = [
+        'name', 'rule_type', 'is_active', 'priority', 'created_by'
+    ]
+    
+    list_filter = [
+        'rule_type', 'is_active', 'priority'
+    ]
+    
+    search_fields = [
+        'name', 'description'
+    ]
+    
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Regla', {
+            'fields': ('name', 'description', 'rule_type')
+        }),
+        ('Condiciones', {
+            'fields': ('condition_expression',)
+        }),
+        ('Acciones', {
+            'fields': ('action_script',)
+        }),
+        ('Configuración', {
+            'fields': ('is_active', 'priority')
+        }),
+        ('Aplicación', {
+            'fields': ('workflow_template', 'step')
+        }),
+        ('Metadatos', {
+            'fields': ('created_by', 'created_at', 'updated_at')
         }),
     )

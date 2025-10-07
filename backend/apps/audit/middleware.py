@@ -1,12 +1,18 @@
 """
-Middleware para auditoría automática de acciones
-"""
+Middleware para auditoría automática de acc            # Registrar en el log de auditoría
+            AuditLogManager.log_action(
+                user=request.user,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                description=self._create_action_description(request, response),
+                metadata={"""
 import json
 import logging
 import time
 from django.utils.deprecation import MiddlewareMixin
 from django.contrib.auth import get_user_model
-from .models import AuditLogManager
+from .models import AuditLogManager, AuditLog
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -54,7 +60,6 @@ class AuditMiddleware(MiddlewareMixin):
                 resource_id=resource_id,
                 details=details,
                 ip_address=self._get_client_ip(request),
-                user_agent=request.META.get('HTTP_USER_AGENT', ''),
                 metadata={
                     'method': request.method,
                     'path': request.path,

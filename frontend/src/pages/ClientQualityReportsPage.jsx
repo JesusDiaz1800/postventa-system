@@ -19,6 +19,7 @@ import {
   ArrowPathIcon,
   ArrowUpIcon
 } from '@heroicons/react/24/outline';
+import QualityReportForm from '../components/QualityReportForm';
 
 const ClientQualityReportsPage = () => {
   const queryClient = useQueryClient();
@@ -34,22 +35,32 @@ const ClientQualityReportsPage = () => {
   const [uploadedDocuments, setUploadedDocuments] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Query para obtener reportes de calidad para cliente
+  // Query para obtener reportes de calidad para cliente con datos de incidencia
   const { data: reports, isLoading: reportsLoading } = useQuery({
     queryKey: ['quality-reports', { report_type: 'cliente' }],
     queryFn: async () => {
       const response = await api.get('/documents/quality-reports/', {
-        params: { report_type: 'cliente' }
+        params: { 
+          report_type: 'cliente',
+          include_incident_data: true,
+          expand: 'incident'
+        }
       });
+      console.log('Reports response:', response.data); // Debug
       return response.data;
     }
   });
 
-  // Query para obtener incidencias escaladas a calidad
+  // Query para obtener incidencias escaladas a calidad (sin reporte de calidad existente)
   const { data: openIncidents, isLoading: incidentsLoading } = useQuery({
     queryKey: ['escalatedIncidents'],
     queryFn: async () => {
-      const response = await api.get('/incidents/escalated/');
+      const response = await api.get('/incidents/escalated/', {
+        params: { 
+          without_quality_report: true,
+          report_type: 'cliente'
+        }
+      });
       return response.data;
     }
   });
@@ -123,9 +134,125 @@ const ClientQualityReportsPage = () => {
   };
 
   // Manejar apertura de documento
-  const handleOpenDocument = (report) => {
-    const url = `http://localhost:8000/api/documents/open/quality-report/${report.incident_id}/${report.filename}`;
-    window.open(url, '_blank');
+  const handleOpenDocument = async (report) => {
+    console.log('Report data:', report); // Debug
+    
+    try {
+      // Intentar diferentes formas de obtener el documento
+      const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
+      const filename = report.filename || report.report_number || `quality_report_${report.id}`;
+      
+      if (!incidentId) {
+        // Si no hay incident_id, intentar usar el endpoint directo del reporte
+  const { API_ORIGIN } = await import('../services/api');
+        const directUrl = `${API_ORIGIN}/api/documents/quality-reports/${report.id}/view/`;
+        window.open(directUrl, '_blank');
+        return;
+      }
+      
+      // Intentar diferentes endpoints
+  const { API_ORIGIN } = await import('../services/api');
+      const urls = [
+        `${API_ORIGIN}/api/documents/open/quality-report/${incidentId}/${encodeURIComponent(filename)}`,
+        `${API_ORIGIN}/api/documents/quality-reports/${report.id}/view/`,
+        `${API_ORIGIN}/api/documents/real-files/quality-report/${encodeURIComponent(filename)}/serve/`
+      ];
+      
+      // Intentar el primer endpoint
+      try {
+        const response = await fetch(urls[0]);
+        if (response.ok) {
+          window.open(urls[0], '_blank');
+          return;
+        }
+      } catch (error) {
+        console.log('First URL failed, trying second...');
+      }
+      
+      // Intentar el segundo endpoint
+      try {
+        const response = await fetch(urls[1]);
+        if (response.ok) {
+          window.open(urls[1], '_blank');
+          return;
+        }
+      } catch (error) {
+        console.log('Second URL failed, trying third...');
+      }
+      
+      // Intentar el tercer endpoint
+      window.open(urls[2], '_blank');
+      
+    } catch (error) {
+      console.error('Error opening document:', error);
+      alert('Error al abrir el documento. Verifique que el archivo existe.');
+    }
+  };
+
+  // Manejar descarga de documento
+  const handleDownloadDocument = async (report) => {
+    try {
+      const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
+      const filename = report.filename || report.report_number || `quality_report_${report.id}`;
+      
+      // Intentar diferentes endpoints para descarga
+  const { API_ORIGIN } = await import('../services/api');
+      const urls = [
+        incidentId ? `${API_ORIGIN}/api/documents/open/quality-report/${incidentId}/${encodeURIComponent(filename)}` : null,
+        `${API_ORIGIN}/api/documents/quality-reports/${report.id}/download/`,
+        `${API_ORIGIN}/api/documents/real-files/quality-report/${encodeURIComponent(filename)}/serve/`
+      ].filter(Boolean);
+      
+      // Intentar cada URL hasta que una funcione
+      for (const url of urls) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            link.click();
+            return;
+          }
+        } catch (error) {
+          console.log(`URL ${url} failed, trying next...`);
+        }
+      }
+      
+      alert('No se pudo descargar el documento. Verifique que el archivo existe.');
+      
+    } catch (error) {
+      console.error('Error downloading document:', error);
+      alert('Error al descargar el documento.');
+    }
+  };
+
+  // Manejar generación de documento PDF
+  const handleGenerateDocument = async (report) => {
+    try {
+      const response = await api.post(`/documents/quality-reports/${report.id}/generate/`);
+      if (response.data.success) {
+        alert('Documento PDF generado exitosamente');
+        queryClient.invalidateQueries(['quality-reports']);
+      }
+    } catch (error) {
+      console.error('Error generating document:', error);
+      alert('Error al generar el documento PDF');
+    }
+  };
+
+  // Manejar visualización de trazabilidad e interconexión
+  const handleViewTraceability = (report) => {
+    const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
+    
+    if (!incidentId) {
+      alert('No se pudo obtener el ID de la incidencia para mostrar la trazabilidad');
+      return;
+    }
+    
+    // Abrir página de trazabilidad en nueva ventana
+    const traceabilityUrl = `/traceability/${incidentId}?report_id=${report.id}&report_type=quality`;
+    window.open(traceabilityUrl, '_blank');
   };
 
   // Manejar eliminación de reporte
@@ -317,16 +444,33 @@ const ClientQualityReportsPage = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{report.incident_code}</div>
-                        <div className="text-sm text-gray-500">{report.provider}</div>
-                        <div className="text-xs text-blue-600 font-medium">{report.categoria}</div>
-                        {report.subcategoria && (
-                          <div className="text-xs text-gray-500">{report.subcategoria}</div>
+                        <div className="text-sm text-gray-900">
+                          {report.incident?.code || report.incident_code || report.related_incident?.code || 'N/A'}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {report.incident?.provider || report.provider || report.related_incident?.provider || 'N/A'}
+                        </div>
+                        <div className="text-xs text-blue-600 font-medium">
+                          {report.incident?.categoria || report.categoria || report.related_incident?.categoria || 'N/A'}
+                        </div>
+                        {(report.incident?.subcategoria || report.related_incident?.subcategoria) && (
+                          <div className="text-xs text-gray-500">
+                            {report.incident?.subcategoria || report.related_incident?.subcategoria}
+                          </div>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{report.cliente}</div>
-                        <div className="text-sm text-gray-500">{report.obra}</div>
+                        <div className="text-sm text-gray-900">
+                          {report.incident?.cliente || report.cliente || report.related_incident?.cliente || 'N/A'}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {report.incident?.obra || report.obra || report.related_incident?.obra || 'N/A'}
+                        </div>
+                        {(report.incident?.proyecto || report.related_incident?.proyecto) && (
+                          <div className="text-xs text-gray-500">
+                            {report.incident?.proyecto || report.related_incident?.proyecto}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
@@ -338,12 +482,10 @@ const ClientQualityReportsPage = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          report.status === 'aprobado' ? 'bg-green-100 text-green-800' :
-                          report.status === 'en_revision' ? 'bg-yellow-100 text-yellow-800' :
-                          report.status === 'publicado' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
+                          report.status === 'cerrado' ? 'bg-green-100 text-green-800' :
+                          'bg-blue-100 text-blue-800'
                         }`}>
-                          {report.status?.toUpperCase() || 'BORRADOR'}
+                          {report.status === 'cerrado' ? 'CERRADO' : 'ABIERTO'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -355,21 +497,26 @@ const ClientQualityReportsPage = () => {
                           >
                             <EyeIcon className="h-4 w-4" />
                           </button>
-                          {!report.escalated_to_supplier && (
-                            <button
-                              onClick={() => handleEscalateToSupplier(report.incident_id)}
-                              className="text-orange-600 hover:text-orange-900 p-1 rounded-md hover:bg-orange-50"
-                              title="Escalar a Proveedor"
-                            >
-                              <ArrowUpIcon className="h-4 w-4" />
-                            </button>
-                          )}
                           <button
-                            onClick={() => handleCloseIncident(report.incident_id)}
+                            onClick={() => handleDownloadDocument(report)}
                             className="text-green-600 hover:text-green-900 p-1 rounded-md hover:bg-green-50"
-                            title="Cerrar Incidencia"
+                            title="Descargar reporte"
                           >
-                            <CheckCircleIcon className="h-4 w-4" />
+                            <DocumentArrowUpIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleGenerateDocument(report)}
+                            className="text-purple-600 hover:text-purple-900 p-1 rounded-md hover:bg-purple-50"
+                            title="Generar documento PDF"
+                          >
+                            <DocumentTextIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleViewTraceability(report)}
+                            className="text-indigo-600 hover:text-indigo-900 p-1 rounded-md hover:bg-indigo-50"
+                            title="Ver trazabilidad e interconexión"
+                          >
+                            <ArrowPathIcon className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteReport(report.id)}
@@ -408,59 +555,12 @@ const ClientQualityReportsPage = () => {
 
       {/* Modal de Crear Reporte */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <PlusIcon className="h-5 w-5 mr-2" />
-                  Crear Reporte de Calidad
-                </h3>
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="text-white hover:text-gray-200 transition-colors duration-200"
-                >
-                  <XMarkIcon className="h-6 w-6" />
-                </button>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Seleccionar Incidencia
-                </label>
-                <select
-                  value={selectedIncidentId}
-                  onChange={(e) => setSelectedIncidentId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Seleccionar incidencia...</option>
-                  {(openIncidents?.incidents || []).map((incident) => (
-                    <option key={incident.id} value={incident.id}>
-                      {incident.code} - {incident.cliente} - {incident.provider}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-gray-200">
-                <button
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-6 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 mr-3"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleCreateReport}
-                  disabled={!selectedIncidentId}
-                  className="px-6 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Crear Reporte
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <QualityReportForm
+          incidents={openIncidents?.incidents || []}
+          onSubmit={handleCreateReport}
+          onClose={() => setShowCreateModal(false)}
+          reportType="cliente"
+        />
       )}
 
       {/* Modal de Subida de Documento */}

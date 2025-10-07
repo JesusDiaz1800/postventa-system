@@ -1,16 +1,75 @@
 {
+  "name": "Sistema de Postventa",
   "short_name": "Postventa",
-  "name": "Sistema de Gestión de Incidencias Postventa",
+  "description": "Sistema integral de gestión de postventa",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "es",
+  "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "/icons/app.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#1e40af",
-  "background_color": "#0f172a",
-  "service_worker": "/sw.js"
+  "screenshots": [
+    
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuevo Incidente",
+      "short_name": "Incidente",
+      "description": "Crear un nuevo incidente",
+      "url": "/incidents/new",
+      "icons": [
+        {
+          "src": "/icons/shortcut-incident.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Documentos",
+      "short_name": "Docs",
+      "description": "Ver documentos",
+      "url": "/documents",
+      "icons": [
+        {
+          "src": "/icons/shortcut-documents.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Reportes",
+      "short_name": "Reports",
+      "description": "Ver reportes",
+      "url": "/reports",
+      "icons": [
+        {
+          "src": "/icons/shortcut-reports.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://postventa-system.com/manifest.json"
+    }
+  ],
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
 }

@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 def find_real_filename(document_type, incident_id, report_number):
     """
-    Buscar el nombre real del archivo en la carpeta compartida
+    Buscar el nombre real del archivo en la carpeta de documentos del proyecto
     """
-    shared_base = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
-    if not shared_base:
+    documents_base = getattr(settings, 'DOCUMENTS_PATH', None)
+    if not documents_base:
         return None
     
     # Mapear tipos de documento a carpetas
@@ -34,7 +34,7 @@ def find_real_filename(document_type, incident_id, report_number):
     if not folder_name:
         return None
     
-    folder_path = os.path.join(shared_base, folder_name)
+    folder_path = os.path.join(documents_base, folder_name)
     incident_folder = os.path.join(folder_path, f'incident_{incident_id}')
     
     if not os.path.exists(incident_folder):
@@ -42,16 +42,44 @@ def find_real_filename(document_type, incident_id, report_number):
     
     try:
         files = os.listdir(incident_folder)
+        if not files:
+            return None
+        
         # Buscar archivos que contengan el report_number o el tipo de documento
         for file in files:
             if (str(report_number) in file or 
                 document_type.replace('_', '') in file.lower() or
                 'report' in file.lower()):
                 return file
+        
+        # Si no encuentra coincidencia específica, usar el primer archivo disponible
+        if files:
+            return files[0]
+            
     except Exception:
         pass
     
     return None
+
+def get_direct_file_url(document_type, incident_id, filename):
+    """
+    Generar URL directa para acceder al archivo del proyecto
+    """
+    documents_url = getattr(settings, 'DOCUMENTS_URL', '/documents/')
+    
+    # Mapear tipos de documento a carpetas
+    folder_mapping = {
+        'visit_report': 'visit_reports',
+        'lab_report': 'lab_reports', 
+        'supplier_report': 'supplier_reports',
+        'quality_report': 'quality_reports'
+    }
+    
+    folder_name = folder_mapping.get(document_type, 'documents')
+    
+    # Construir URL directa
+    direct_url = f"{documents_url}{folder_name}/incident_{incident_id}/{filename}"
+    return direct_url
 
 from .models import DocumentTemplate, Document, DocumentVersion, DocumentConversion, VisitReport, LabReport, SupplierReport
 from apps.incidents.models import Incident
@@ -160,10 +188,14 @@ def documents_by_incidents(request):
                 real_filename = find_real_filename('visit_report', incident_id, report.report_number)
                 filename = real_filename or f"visit_report_{report.report_number}.pdf"
                 
+                # Generar URL directa al archivo
+                direct_url = get_direct_file_url('visit_report', incident_id, filename)
+                
                 incidents_data[incident_id]['documents'].append({
                     'id': f"visit_report_{report.id}",
                     'title': f"Reporte de Visita - {report.report_number}",
                     'filename': filename,
+                    'direct_url': direct_url,
                     'type': 'visit_report',
                     'document_type': 'visit_report',
                     'document_type_display': 'Reporte de Visita',
@@ -204,10 +236,14 @@ def documents_by_incidents(request):
                 real_filename = find_real_filename('lab_report', incident_id, report.report_number)
                 filename = real_filename or f"lab_report_{report.report_number}.pdf"
                 
+                # Generar URL directa al archivo
+                direct_url = get_direct_file_url('lab_report', incident_id, filename)
+                
                 incidents_data[incident_id]['documents'].append({
                     'id': f"lab_report_{report.id}",
                     'title': f"Reporte de Laboratorio - {report.report_number}",
                     'filename': filename,
+                    'direct_url': direct_url,
                     'type': 'lab_report',
                     'document_type': 'lab_report',
                     'document_type_display': 'Reporte de Laboratorio',
@@ -246,10 +282,14 @@ def documents_by_incidents(request):
                 real_filename = find_real_filename('supplier_report', incident_id, report.report_number)
                 filename = real_filename or f"supplier_report_{report.report_number}.pdf"
                 
+                # Generar URL directa al archivo
+                direct_url = get_direct_file_url('supplier_report', incident_id, filename)
+                
                 incidents_data[incident_id]['documents'].append({
                     'id': f"supplier_report_{report.id}",
                     'title': f"Reporte de Proveedor - {report.report_number}",
                     'filename': filename,
+                    'direct_url': direct_url,
                     'type': 'supplier_report',
                     'document_type': 'supplier_report',
                     'document_type_display': 'Reporte de Proveedor',

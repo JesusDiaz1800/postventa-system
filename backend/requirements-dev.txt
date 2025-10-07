@@ -1,0 +1,14 @@
+# Development and Testing Tools
+# Install these in your local environment using: pip install -r requirements-dev.txt
+
+# For enhanced Django management commands
+django-extensions==3.2.3
+
+# For running tests
+pytest==7.4.3
+pytest-django==4.7.0
+coverage==7.3.2
+
+# For code formatting and linting
+black==23.12.1
+ruff==0.1.9

@@ -5,6 +5,7 @@ Script para restaurar el sistema a su estado funcional anterior
 import os
 import sys
 import django
+# WARNING: Local development helper for SQLite only. Do NOT use in production.
 import sqlite3
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def restore_system():
     print("🔄 Restaurando sistema a estado funcional...")
     
     # 1. Eliminar base de datos actual
+    # Local-only SQLite path (not used in production)
     db_path = "db.sqlite3"
     if os.path.exists(db_path):
         os.remove(db_path)

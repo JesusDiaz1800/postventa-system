@@ -141,13 +141,15 @@ const QualityReportsPage = () => {
   };
 
   // Manejar apertura de documento
-  const handleOpenDocument = (filename) => {
+  const handleOpenDocument = async (filename) => {
     if (!selectedIncident) return;
     
     // Intentar abrir desde documentos subidos primero
     const uploadedDoc = uploadedDocuments.find(doc => doc.filename === filename);
     if (uploadedDoc) {
-      const url = `http://localhost:8000/api/documents/open/quality-report/${selectedIncident.id}/${filename}`;
+      const encodedFilename = encodeURIComponent(filename);
+  const { API_ORIGIN } = await import('../services/api');
+      const url = `${API_ORIGIN}/api/documents/open/quality-report/${selectedIncident.id}/${encodedFilename}`;
       window.open(url, '_blank');
       return;
     }
@@ -155,7 +157,9 @@ const QualityReportsPage = () => {
     // Si no está en documentos subidos, intentar abrir desde reportes generados
     const report = qualityReports?.results?.find(r => r.incident_id === selectedIncident.id);
     if (report) {
-      const url = `http://localhost:8000/api/documents/open/quality-report/${selectedIncident.id}/${filename}`;
+      const encodedFilename = encodeURIComponent(filename);
+  const { API_ORIGIN } = await import('../services/api');
+      const url = `${API_ORIGIN}/api/documents/open/quality-report/${selectedIncident.id}/${encodedFilename}`;
       window.open(url, '_blank');
     }
   };

@@ -1,5 +1,31 @@
 # 🚀 Guía de Despliegue - Sistema Postventa
 
+## ✅ Checklist de Producción (resumen)
+
+1) Backend (SQL Server + Python 3.12)
+- Instalar Python 3.12 (x64) y ODBC Driver 18.
+- Configurar `backend/.env` desde `backend/env.example` con `DATABASE_URL` a SQL Server.
+- Ejecutar: `scripts\\setup_backend_env.ps1`.
+- Establecer `DJANGO_SETTINGS_MODULE=postventa_system.settings-sqlserver` y `DEBUG=False`.
+- Configurar `ALLOWED_HOSTS` y CORS (dominio/IP de prod).
+
+2) Frontend (Vite)
+- Crear `frontend/.env` desde `frontend/env.example` con `VITE_API_URL=https://TU-DOMINIO-O-IP/api`.
+- Build: `npm run build`.
+- Servir con Nginx/otro, con gzip/brotli y cache estáticos.
+
+3) Seguridad y PWA
+- Activar HTTPS y HSTS (solo prod).
+- Confirmar que el Service Worker no cachee endpoints autenticados.
+
+4) Documentos/Media
+- Asignar permisos de lectura/escritura a la carpeta compartida configurada.
+- Validar límites de tamaño y tipos de archivo permitidos.
+
+5) Monitoreo y backups
+- Configurar logs y rotación.
+- Programar backups de BD y documentos.
+
 ## 📋 Requisitos del Sistema
 
 ### Hardware Mínimo

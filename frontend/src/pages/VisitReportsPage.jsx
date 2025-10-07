@@ -195,7 +195,7 @@ const VisitReportsPage = () => {
   };
 
   // Manejar apertura de documento
-  const handleOpenDocument = (report) => {
+  const handleOpenDocument = async (report) => {
     // Verificar que los valores necesarios estén disponibles
     if (!report.related_incident) {
       alert('No se puede abrir el documento: faltan datos del reporte');
@@ -208,8 +208,9 @@ const VisitReportsPage = () => {
     
     // Usar la URL de descarga del reporte si está disponible
     if (report.download_url) {
-      const url = `http://localhost:8000${report.download_url}`;
-    window.open(url, '_blank');
+      const { API_ORIGIN } = await import('../services/api');
+      const url = `${API_ORIGIN}${report.download_url}`;
+      window.open(url, '_blank');
     } else {
       alert('No hay documento disponible para este reporte');
     }

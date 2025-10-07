@@ -1,313 +1,456 @@
-"""
-Modelos para el sistema de auditoría
-"""
 from django.db import models
-from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-import json
 
 User = get_user_model()
 
-class AuditLog(models.Model):
-    """
-    Modelo para registrar todas las acciones del sistema
-    """
-    ACTION_CHOICES = [
-        ('create', 'Crear'),
-        ('update', 'Actualizar'),
-        ('delete', 'Eliminar'),
-        ('login', 'Iniciar Sesión'),
-        ('logout', 'Cerrar Sesión'),
-        ('view', 'Ver'),
-        ('export', 'Exportar'),
-        ('import', 'Importar'),
-        ('approve', 'Aprobar'),
-        ('reject', 'Rechazar'),
-        ('assign', 'Asignar'),
-        ('unassign', 'Desasignar'),
-        ('close', 'Cerrar'),
-        ('reopen', 'Reabrir'),
-        ('generate', 'Generar'),
-        ('download', 'Descargar'),
-        ('upload', 'Subir'),
-    ]
-    
-    RESOURCE_TYPE_CHOICES = [
-        ('incident', 'Incidencia'),
-        ('user', 'Usuario'),
-        ('document', 'Documento'),
-        ('workflow', 'Workflow'),
-        ('report', 'Reporte'),
-        ('attachment', 'Adjunto'),
-        ('image', 'Imagen'),
-        ('lab_report', 'Informe de Laboratorio'),
-        ('visit_report', 'Reporte de Visita'),
-        ('supplier_report', 'Informe para Proveedor'),
-        ('audit_log', 'Log de Auditoría'),
-        ('system', 'Sistema'),
-    ]
-    
-    # Información básica
-    user = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='audit_logs',
-        help_text='Usuario que realizó la acción'
-    )
-    
-    action = models.CharField(
-        max_length=20,
-        choices=ACTION_CHOICES,
-        help_text='Tipo de acción realizada'
-    )
-    
-    resource_type = models.CharField(
-        max_length=30,
-        choices=RESOURCE_TYPE_CHOICES,
-        help_text='Tipo de recurso afectado'
-    )
-    
-    resource_id = models.CharField(
-        max_length=100,
-        help_text='ID del recurso afectado'
-    )
-    
-    # Información del recurso (opcional, para referencias más específicas)
-    content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text='Tipo de contenido del recurso'
-    )
-    
-    object_id = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text='ID del objeto específico'
-    )
-    
-    content_object = GenericForeignKey('content_type', 'object_id')
-    
-    # Detalles de la acción
-    details = models.TextField(
-        help_text='Descripción detallada de la acción'
-    )
-    
-    # Información técnica
-    ip_address = models.GenericIPAddressField(
-        null=True,
-        blank=True,
-        help_text='Dirección IP del usuario'
-    )
-    
-    user_agent = models.TextField(
-        null=True,
-        blank=True,
-        help_text='User Agent del navegador'
-    )
-    
-    # Metadatos adicionales
-    metadata = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text='Metadatos adicionales en formato JSON'
-    )
-    
-    # Timestamps
-    created_at = models.DateTimeField(
-        default=timezone.now,
-        help_text='Fecha y hora de la acción'
-    )
-    
-    class Meta:
-        db_table = 'audit_logs'
-        verbose_name = 'Log de Auditoría'
-        verbose_name_plural = 'Logs de Auditoría'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user', 'created_at']),
-            models.Index(fields=['action', 'created_at']),
-            models.Index(fields=['resource_type', 'created_at']),
-            models.Index(fields=['created_at']),
-        ]
-    
-    def __str__(self):
-        return f"{self.user or 'Sistema'} - {self.get_action_display()} - {self.resource_type} #{self.resource_id}"
-    
-    @property
-    def action_display(self):
-        """Retorna el nombre legible de la acción"""
-        return dict(self.ACTION_CHOICES).get(self.action, self.action)
-    
-    @property
-    def resource_type_display(self):
-        """Retorna el nombre legible del tipo de recurso"""
-        return dict(self.RESOURCE_TYPE_CHOICES).get(self.resource_type, self.resource_type)
-    
-    @property
-    def user_display(self):
-        """Retorna el nombre del usuario o 'Sistema' si es None"""
-        return self.user.username if self.user else 'Sistema'
-    
-    @property
-    def created_at_display(self):
-        """Retorna la fecha formateada"""
-        return self.created_at.strftime('%d/%m/%Y %H:%M:%S')
-
-
 class AuditLogManager:
-    """
-    Manager para facilitar la creación de logs de auditoría
-    """
-    
     @staticmethod
-    def log_action(user, action, resource_type, resource_id, details, 
-                   ip_address=None, user_agent=None, metadata=None, 
-                   content_object=None):
-        """
-        Crear un log de auditoría
-        
-        Args:
-            user: Usuario que realizó la acción
-            action: Tipo de acción (create, update, delete, etc.)
-            resource_type: Tipo de recurso afectado
-            resource_id: ID del recurso
-            details: Descripción de la acción
-            ip_address: IP del usuario (opcional)
-            user_agent: User Agent (opcional)
-            metadata: Metadatos adicionales (opcional)
-            content_object: Objeto específico afectado (opcional)
-        """
+    def log_action(user, action, resource_type=None, resource_id=None, metadata=None, ip_address=None, description=None):
+        """Registrar una acción en el log de auditoría"""
         try:
-            # Determinar content_type y object_id si se proporciona content_object
-            content_type = None
-            object_id = None
-            if content_object:
-                content_type = ContentType.objects.get_for_model(content_object)
-                object_id = content_object.pk
-            
-            # Crear el log
+            # Crear el registro de auditoría
             audit_log = AuditLog.objects.create(
                 user=user,
                 action=action,
-                resource_type=resource_type,
-                resource_id=str(resource_id),
-                content_type=content_type,
-                object_id=object_id,
-                details=details,
+                module=resource_type,  # Usar resource_type como módulo
+                description=description or f'Acción {action} en {resource_type}',
                 ip_address=ip_address,
-                user_agent=user_agent,
-                metadata=metadata or {}
+                metadata=metadata or {},
+                timestamp=timezone.now(),
+                severity='medium',  # Valor por defecto
+                category='data_access'  # Valor por defecto
             )
             
-            return audit_log
+            # Si hay un objeto relacionado, intentar configurarlo
+            if resource_type and resource_id:
+                try:
+                    from django.apps import apps
+                    model = apps.get_model(resource_type)
+                    obj = model.objects.get(id=resource_id)
+                    audit_log.content_type = ContentType.objects.get_for_model(obj)
+                    audit_log.object_id = obj.id
+                    audit_log.save()
+                except Exception as e:
+                    print(f'Error al configurar objeto relacionado: {e}')
             
+            return audit_log
+                
         except Exception as e:
-            # En caso de error, intentar crear un log básico
-            try:
-                return AuditLog.objects.create(
-                    user=user,
-                    action=action,
-                    resource_type=resource_type,
-                    resource_id=str(resource_id),
-                    details=f"{details} (Error al crear log completo: {str(e)})",
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    metadata={'error': str(e)}
-                )
-            except Exception:
-                # Si falla completamente, no hacer nada para evitar errores en cascada
-                pass
+            print(f'Error al registrar auditoría: {e}')
+            return None
+
+
+class AuditLog(models.Model):
+    # ADVERTENCIA: Revisa los tipos de datos y relaciones para compatibilidad total con SQL Server. Evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.
+    """Registro de auditoría para todas las acciones del sistema"""
     
-    @staticmethod
-    def log_user_action(user, action, details, request=None):
-        """
-        Log específico para acciones de usuario
-        
-        Args:
-            user: Usuario
-            action: Acción realizada
-            details: Detalles de la acción
-            request: Request object (opcional, para extraer IP y User Agent)
-        """
-        ip_address = None
-        user_agent = None
-        
-        if request:
-            ip_address = request.META.get('REMOTE_ADDR')
-            user_agent = request.META.get('HTTP_USER_AGENT')
-        
-        return AuditLogManager.log_action(
-            user=user,
-            action=action,
-            resource_type='user',
-            resource_id=str(user.id) if user else '0',
-            details=details,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
+    ACTION_TYPES = [
+        ('create', 'Crear'),
+        ('update', 'Actualizar'),
+        ('delete', 'Eliminar'),
+        ('view', 'Ver'),
+        ('login', 'Iniciar Sesión'),
+        ('logout', 'Cerrar Sesión'),
+        ('approve', 'Aprobar'),
+        ('reject', 'Rechazar'),
+        ('escalate', 'Escalar'),
+        ('assign', 'Asignar'),
+        ('upload', 'Subir'),
+        ('download', 'Descargar'),
+        ('export', 'Exportar'),
+        ('import', 'Importar'),
+        ('search', 'Buscar'),
+        ('filter', 'Filtrar'),
+        ('sort', 'Ordenar'),
+        ('print', 'Imprimir'),
+        ('share', 'Compartir'),
+        ('comment', 'Comentar'),
+        ('tag', 'Etiquetar'),
+        ('archive', 'Archivar'),
+        ('restore', 'Restaurar'),
+        ('backup', 'Respaldo'),
+        ('restore_backup', 'Restaurar Respaldo'),
+        ('system_action', 'Acción del Sistema'),
+        ('error', 'Error'),
+        ('warning', 'Advertencia'),
+        ('info', 'Información'),
+        ('debug', 'Debug'),
+    ]
     
-    @staticmethod
-    def log_incident_action(user, action, incident, details, request=None):
-        """
-        Log específico para acciones de incidencias
-        
-        Args:
-            user: Usuario
-            action: Acción realizada
-            incident: Objeto de incidencia
-            details: Detalles de la acción
-            request: Request object (opcional)
-        """
-        ip_address = None
-        user_agent = None
-        
-        if request:
-            ip_address = request.META.get('REMOTE_ADDR')
-            user_agent = request.META.get('HTTP_USER_AGENT')
-        
-        return AuditLogManager.log_action(
-            user=user,
-            action=action,
-            resource_type='incident',
-            resource_id=str(incident.id),
-            details=details,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            content_object=incident
-        )
+    RESULT_TYPES = [
+        ('success', 'Éxito'),
+        ('failure', 'Fallo'),
+        ('partial', 'Parcial'),
+        ('cancelled', 'Cancelado'),
+        ('timeout', 'Tiempo Agotado'),
+        ('unauthorized', 'No Autorizado'),
+        ('forbidden', 'Prohibido'),
+        ('not_found', 'No Encontrado'),
+        ('error', 'Error'),
+    ]
     
-    @staticmethod
-    def log_document_action(user, action, document, details, request=None):
-        """
-        Log específico para acciones de documentos
+    # Información básica
+    action = models.CharField(max_length=50, choices=ACTION_TYPES, verbose_name='Acción')
+    result = models.CharField(max_length=20, choices=RESULT_TYPES, default='success', verbose_name='Resultado')
+    description = models.TextField(verbose_name='Descripción')
+    
+    # Usuario y sesión
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
+    session_key = models.CharField(max_length=40, blank=True, verbose_name='Clave de Sesión')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name='Dirección IP')
+    user_agent = models.TextField(blank=True, verbose_name='User Agent')
+    
+    # Objeto relacionado (Generic Foreign Key)
+    content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True, blank=True)
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    content_object = GenericForeignKey('content_type', 'object_id')
+    
+    # Datos de la acción
+    old_values = models.JSONField(default=dict, blank=True, verbose_name='Valores Anteriores')
+    new_values = models.JSONField(default=dict, blank=True, verbose_name='Valores Nuevos')
+    metadata = models.JSONField(default=dict, blank=True, verbose_name='Metadatos')
+    
+    # Información de tiempo y ubicación
+    timestamp = models.DateTimeField(auto_now_add=True, verbose_name='Timestamp')
+    duration = models.DurationField(null=True, blank=True, verbose_name='Duración')
+    
+    # Información adicional
+    module = models.CharField(max_length=100, blank=True, verbose_name='Módulo')
+    function = models.CharField(max_length=100, blank=True, verbose_name='Función')
+    line_number = models.PositiveIntegerField(null=True, blank=True, verbose_name='Número de Línea')
+    
+    # Clasificación
+    severity = models.CharField(max_length=20, choices=[
+        ('low', 'Bajo'),
+        ('medium', 'Medio'),
+        ('high', 'Alto'),
+        ('critical', 'Crítico'),
+    ], default='medium', verbose_name='Severidad')
+    
+    category = models.CharField(max_length=50, choices=[
+        ('authentication', 'Autenticación'),
+        ('authorization', 'Autorización'),
+        ('data_access', 'Acceso a Datos'),
+        ('data_modification', 'Modificación de Datos'),
+        ('system_config', 'Configuración del Sistema'),
+        ('user_management', 'Gestión de Usuarios'),
+        ('security', 'Seguridad'),
+        ('performance', 'Rendimiento'),
+        ('error', 'Error'),
+        ('business_logic', 'Lógica de Negocio'),
+        ('integration', 'Integración'),
+        ('backup', 'Respaldo'),
+        ('audit', 'Auditoría'),
+    ], default='data_access', verbose_name='Categoría')
+    
+    # Información de contexto
+    request_id = models.CharField(max_length=100, blank=True, verbose_name='ID de Request')
+    correlation_id = models.CharField(max_length=100, blank=True, verbose_name='ID de Correlación')
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['action', 'timestamp']),
+            models.Index(fields=['result', 'timestamp']),
+            models.Index(fields=['severity', 'timestamp']),
+            models.Index(fields=['category', 'timestamp']),
+            models.Index(fields=['content_type', 'object_id']),
+            models.Index(fields=['ip_address', 'timestamp']),
+        ]
+        verbose_name = 'Registro de Auditoría'
+        verbose_name_plural = 'Registros de Auditoría'
+    
+    def __str__(self):
+        return f"{self.get_action_display()} - {self.user or 'Sistema'} - {self.timestamp}"
+    
+    @property
+    def is_successful(self):
+        """Verificar si la acción fue exitosa"""
+        return self.result == 'success'
+    
+    @property
+    def is_failure(self):
+        """Verificar si la acción falló"""
+        return self.result == 'failure'
+    
+    @property
+    def is_high_severity(self):
+        """Verificar si es de alta severidad"""
+        return self.severity in ['high', 'critical']
+    
+    @property
+    def formatted_timestamp(self):
+        """Timestamp formateado"""
+        return self.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    
+    @property
+    def formatted_duration(self):
+        """Duración formateada"""
+        if not self.duration:
+            return 'N/A'
         
-        Args:
-            user: Usuario
-            action: Acción realizada
-            document: Objeto de documento
-            details: Detalles de la acción
-            request: Request object (opcional)
-        """
-        ip_address = None
-        user_agent = None
+        total_seconds = int(self.duration.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
         
-        if request:
-            ip_address = request.META.get('REMOTE_ADDR')
-            user_agent = request.META.get('HTTP_USER_AGENT')
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+    
+    def get_changes_summary(self):
+        """Obtener resumen de cambios"""
+        if not self.old_values and not self.new_values:
+            return "Sin cambios"
         
-        return AuditLogManager.log_action(
-            user=user,
-            action=action,
-            resource_type='document',
-            resource_id=str(document.id),
-            details=details,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            content_object=document
-        )
+        changes = []
+        all_keys = set(self.old_values.keys()) | set(self.new_values.keys())
+        
+        for key in all_keys:
+            old_value = self.old_values.get(key)
+            new_value = self.new_values.get(key)
+            
+            if old_value != new_value:
+                changes.append(f"{key}: {old_value} → {new_value}")
+        
+        return "; ".join(changes) if changes else "Sin cambios"
+
+
+class AuditRule(models.Model):
+    """Reglas de auditoría para configurar qué eventos auditar"""
+    
+    RULE_TYPES = [
+        ('include', 'Incluir'),
+        ('exclude', 'Excluir'),
+        ('alert', 'Alerta'),
+        ('block', 'Bloquear'),
+    ]
+    
+    name = models.CharField(max_length=100, verbose_name='Nombre')
+    description = models.TextField(verbose_name='Descripción', blank=True)
+    rule_type = models.CharField(max_length=20, choices=RULE_TYPES, verbose_name='Tipo de Regla')
+    
+    # Condiciones
+    action_filter = models.CharField(max_length=50, blank=True, verbose_name='Filtro de Acción')
+    user_filter = models.CharField(max_length=100, blank=True, verbose_name='Filtro de Usuario')
+    ip_filter = models.CharField(max_length=100, blank=True, verbose_name='Filtro de IP')
+    module_filter = models.CharField(max_length=100, blank=True, verbose_name='Filtro de Módulo')
+    severity_filter = models.CharField(max_length=20, blank=True, verbose_name='Filtro de Severidad')
+    category_filter = models.CharField(max_length=50, blank=True, verbose_name='Filtro de Categoría')
+    
+    # Configuración
+    is_active = models.BooleanField(default=True, verbose_name='Activo')
+    priority = models.PositiveIntegerField(default=0, verbose_name='Prioridad')
+    
+    # Acciones
+    alert_email = models.EmailField(blank=True, verbose_name='Email de Alerta')
+    alert_webhook = models.URLField(blank=True, verbose_name='Webhook de Alerta')
+    block_action = models.BooleanField(default=False, verbose_name='Bloquear Acción')
+    
+    # Metadatos
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_audit_rules')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-priority', 'name']
+        verbose_name = 'Regla de Auditoría'
+        verbose_name_plural = 'Reglas de Auditoría'
+    
+    def __str__(self):
+        return f"{self.name} - {self.get_rule_type_display()}"
+
+
+class AuditReport(models.Model):
+    """Reportes de auditoría generados"""
+    
+    REPORT_TYPES = [
+        ('daily', 'Diario'),
+        ('weekly', 'Semanal'),
+        ('monthly', 'Mensual'),
+        ('quarterly', 'Trimestral'),
+        ('yearly', 'Anual'),
+        ('custom', 'Personalizado'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pendiente'),
+        ('generating', 'Generando'),
+        ('completed', 'Completado'),
+        ('failed', 'Fallido'),
+        ('cancelled', 'Cancelado'),
+    ]
+    
+    name = models.CharField(max_length=200, verbose_name='Nombre')
+    description = models.TextField(verbose_name='Descripción', blank=True)
+    report_type = models.CharField(max_length=20, choices=REPORT_TYPES, verbose_name='Tipo de Reporte')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='Estado')
+    
+    # Filtros del reporte
+    date_from = models.DateTimeField(verbose_name='Fecha Desde')
+    date_to = models.DateTimeField(verbose_name='Fecha Hasta')
+    user_filter = models.CharField(max_length=100, blank=True, verbose_name='Filtro de Usuario')
+    action_filter = models.CharField(max_length=50, blank=True, verbose_name='Filtro de Acción')
+    severity_filter = models.CharField(max_length=20, blank=True, verbose_name='Filtro de Severidad')
+    category_filter = models.CharField(max_length=50, blank=True, verbose_name='Filtro de Categoría')
+    
+    # Configuración
+    include_details = models.BooleanField(default=True, verbose_name='Incluir Detalles')
+    include_changes = models.BooleanField(default=True, verbose_name='Incluir Cambios')
+    include_metadata = models.BooleanField(default=False, verbose_name='Incluir Metadatos')
+    group_by = models.CharField(max_length=50, blank=True, verbose_name='Agrupar Por')
+    
+    # Resultados
+    total_records = models.PositiveIntegerField(default=0, verbose_name='Total de Registros')
+    file_path = models.CharField(max_length=500, blank=True, verbose_name='Ruta del Archivo')
+    file_size = models.PositiveIntegerField(default=0, verbose_name='Tamaño del Archivo')
+    
+    # Metadatos
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_audit_reports')
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Reporte de Auditoría'
+        verbose_name_plural = 'Reportes de Auditoría'
+    
+    def __str__(self):
+        return f"{self.name} - {self.get_status_display()}"
+    
+    @property
+    def is_completed(self):
+        """Verificar si el reporte está completado"""
+        return self.status == 'completed'
+    
+    @property
+    def is_generating(self):
+        """Verificar si el reporte se está generando"""
+        return self.status == 'generating'
+    
+    @property
+    def formatted_file_size(self):
+        """Tamaño del archivo formateado"""
+        if not self.file_size:
+            return 'N/A'
+        
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if self.file_size < 1024.0:
+                return f"{self.file_size:.1f} {unit}"
+            self.file_size /= 1024.0
+        
+        return f"{self.file_size:.1f} TB"
+
+
+class AuditDashboard(models.Model):
+    # ADVERTENCIA: Para compatibilidad con SQL Server, evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.
+    """Configuración del dashboard de auditoría"""
+    
+    name = models.CharField(max_length=100, verbose_name='Nombre')
+    description = models.TextField(verbose_name='Descripción', blank=True)
+    
+    # Configuración de widgets
+    widgets_config = models.JSONField(default=dict, verbose_name='Configuración de Widgets')
+    
+    # Filtros por defecto
+    default_filters = models.JSONField(default=dict, verbose_name='Filtros por Defecto')
+    
+    # Configuración de actualización
+    auto_refresh = models.BooleanField(default=True, verbose_name='Actualización Automática')
+    refresh_interval = models.PositiveIntegerField(default=300, verbose_name='Intervalo de Actualización (segundos)')
+    
+    # Metadatos
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_audit_dashboards')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Dashboard de Auditoría'
+        verbose_name_plural = 'Dashboards de Auditoría'
+    
+    def __str__(self):
+        return self.name
+
+
+class AuditAlert(models.Model):
+    # ADVERTENCIA: Para compatibilidad con SQL Server, evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.
+    """Alertas de auditoría"""
+    
+    SEVERITY_LEVELS = [
+        ('low', 'Bajo'),
+        ('medium', 'Medio'),
+        ('high', 'Alto'),
+        ('critical', 'Crítico'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('active', 'Activo'),
+        ('acknowledged', 'Reconocido'),
+        ('resolved', 'Resuelto'),
+        ('dismissed', 'Descartado'),
+    ]
+    
+    title = models.CharField(max_length=200, verbose_name='Título')
+    description = models.TextField(verbose_name='Descripción')
+    severity = models.CharField(max_length=20, choices=SEVERITY_LEVELS, verbose_name='Severidad')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active', verbose_name='Estado')
+    
+    # Relación con registro de auditoría
+    audit_log = models.ForeignKey(AuditLog, on_delete=models.CASCADE, related_name='alerts')
+    
+    # Información de resolución
+    resolved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='resolved_audit_alerts')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_notes = models.TextField(blank=True, verbose_name='Notas de Resolución')
+    
+    # Metadatos
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Alerta de Auditoría'
+        verbose_name_plural = 'Alertas de Auditoría'
+    
+    def __str__(self):
+        return f"{self.title} - {self.get_severity_display()}"
+    
+    @property
+    def is_active(self):
+        """Verificar si la alerta está activa"""
+        return self.status == 'active'
+    
+    @property
+    def is_resolved(self):
+        """Verificar si la alerta está resuelta"""
+        return self.status == 'resolved'
+    
+    def resolve(self, user, notes=''):
+        """Resolver alerta"""
+        self.status = 'resolved'
+        self.resolved_by = user
+        self.resolved_at = timezone.now()
+        self.resolution_notes = notes
+        self.save()
+    
+    def acknowledge(self, user):
+        """Reconocer alerta"""
+        self.status = 'acknowledged'
+        self.resolved_by = user
+        self.resolved_at = timezone.now()
+        self.save()
+    
+    def dismiss(self, user):
+        """Descartar alerta"""
+        self.status = 'dismissed'
+        self.resolved_by = user
+        self.resolved_at = timezone.now()
+        self.save()

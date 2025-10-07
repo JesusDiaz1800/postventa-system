@@ -24,8 +24,9 @@ const IncidentDocuments = ({ incidentId, incidentCode }) => {
     window.open(apiUrl, '_blank');
   };
 
-  const handleGeneratePDF = (documentType, documentId) => {
-    const generateUrl = `http://localhost:8000/api/documents/generate/${documentType}/${documentId}/`;
+  const handleGeneratePDF = async (documentType, documentId) => {
+    const { API_ORIGIN } = await import('../services/api');
+    const generateUrl = `${API_ORIGIN}/api/documents/generate/${documentType}/${documentId}/`;
     window.open(generateUrl, '_blank');
   };
 

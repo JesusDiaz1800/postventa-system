@@ -318,7 +318,8 @@ export const brandConfig = {
 
   // Configuración de la API
   api: {
-    baseUrl: (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api',
+    // Use relative base URL by default so Vite dev proxy handles backend calls
+    baseUrl: (import.meta as any).env?.VITE_API_URL || '/api',
     timeout: 30000,
     retries: 3,
   },

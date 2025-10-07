@@ -46,7 +46,7 @@ const Profile = () => {
 
   const handleChangePassword = async (passwordData) => {
     try {
-      const { usersAPI } = await import('../services/api');
+  const { usersAPI } = await import('../services/api');
       await usersAPI.changeOwnPassword(passwordData);
       showSuccess('Contraseña cambiada exitosamente');
       setShowChangePasswordModal(false);

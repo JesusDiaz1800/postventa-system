@@ -1,305 +1,379 @@
-"""
-Vistas para el sistema de auditoría
-"""
-from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser, BasePermission
-from apps.users.permissions import RoleBasedPermission
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from django_filters.rest_framework import DjangoFilterBackend
-from django_filters import rest_framework as filters
-from django.db.models import Q, Count
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q, Count, Avg
 from django.utils import timezone
-from datetime import datetime, timedelta
-import logging
+from datetime import timedelta
+from django.shortcuts import get_object_or_404
+from django.http import HttpResponse, JsonResponse
+import csv
+import json
+from io import StringIO
 
-from .models import AuditLog
-from .serializers import AuditLogSerializer, AuditLogListSerializer, AuditLogFilterSerializer
-
-logger = logging.getLogger(__name__)
-
-
-class AuditPermission(BasePermission):
-    """
-    Permiso para acceder a logs de auditoría
-    Solo administradores y supervisores pueden ver los logs
-    """
-    
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        
-        # Permitir acceso a administradores y supervisores
-        return request.user.role in ['admin', 'supervisor']
-
-
-class AuditLogFilter(filters.FilterSet):
-    """Filtros para logs de auditoría"""
-    user = filters.CharFilter(field_name='user__username', lookup_expr='icontains')
-    action = filters.ChoiceFilter(choices=AuditLog.ACTION_CHOICES)
-    resource_type = filters.ChoiceFilter(choices=AuditLog.RESOURCE_TYPE_CHOICES)
-    start_date = filters.DateFilter(field_name='created_at', lookup_expr='gte')
-    end_date = filters.DateFilter(field_name='created_at', lookup_expr='lte')
-    search = filters.CharFilter(method='filter_search')
-    
-    class Meta:
-        model = AuditLog
-        fields = ['user', 'action', 'resource_type', 'start_date', 'end_date', 'search']
-    
-    def filter_search(self, queryset, name, value):
-        """Filtro de búsqueda general"""
-        if not value:
-            return queryset
-        
-        return queryset.filter(
-            Q(user__username__icontains=value) |
-            Q(action__icontains=value) |
-            Q(resource_type__icontains=value) |
-            Q(details__icontains=value) |
-            Q(resource_id__icontains=value)
-        )
+from .models import AuditLog, AuditRule, AuditReport, AuditDashboard, AuditAlert
+from .serializers import (
+    AuditLogSerializer,
+    AuditLogCreateSerializer,
+    AuditRuleSerializer,
+    AuditReportSerializer,
+    AuditReportCreateSerializer,
+    AuditDashboardSerializer,
+    AuditAlertSerializer,
+    AuditAlertActionSerializer,
+    AuditStatsSerializer,
+    AuditSearchSerializer,
+    AuditExportSerializer,
+    AuditRealTimeSerializer
+)
+from .services import AuditService
 
 
-class AuditLogListCreateView(generics.ListCreateAPIView):
-    """Vista para listar y crear logs de auditoría"""
-    queryset = AuditLog.objects.all()
-    serializer_class = AuditLogListSerializer
-    permission_classes = [IsAuthenticated, AuditPermission]
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = AuditLogFilter
-    ordering = ['-created_at']
+class AuditLogViewSet(viewsets.ModelViewSet):
+    """ViewSet para registros de auditoría"""
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        """Obtener queryset con filtros aplicados"""
-        queryset = super().get_queryset()
+        """Obtener registros de auditoría con filtros"""
+        queryset = AuditLog.objects.all()
         
-        # Aplicar filtros adicionales si es necesario
-        return queryset.select_related('user')
+        # Filtros básicos
+        action = self.request.query_params.get('action')
+        result = self.request.query_params.get('result')
+        user_id = self.request.query_params.get('user')
+        severity = self.request.query_params.get('severity')
+        category = self.request.query_params.get('category')
+        ip_address = self.request.query_params.get('ip_address')
+        module = self.request.query_params.get('module')
+        
+        if action:
+            queryset = queryset.filter(action=action)
+        if result:
+            queryset = queryset.filter(result=result)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        if severity:
+            queryset = queryset.filter(severity=severity)
+        if category:
+            queryset = queryset.filter(category=category)
+        if ip_address:
+            queryset = queryset.filter(ip_address=ip_address)
+        if module:
+            queryset = queryset.filter(module=module)
+        
+        # Filtros de fecha
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        
+        if date_from:
+            queryset = queryset.filter(timestamp__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(timestamp__lte=date_to)
+        
+        return queryset
+    
+    def get_serializer_class(self):
+        """Usar serializer de creación para POST"""
+        if self.action == 'create':
+            return AuditLogCreateSerializer
+        return AuditLogSerializer
+    
+    @action(detail=False, methods=['get'])
+    def recent(self, request):
+        """Obtener registros recientes"""
+        limit = int(request.query_params.get('limit', 50))
+        logs = self.get_queryset()[:limit]
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def high_severity(self, request):
+        """Obtener registros de alta severidad"""
+        logs = self.get_queryset().filter(severity__in=['high', 'critical'])
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def failed_actions(self, request):
+        """Obtener acciones fallidas"""
+        logs = self.get_queryset().filter(result='failure')
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_user(self, request):
+        """Obtener registros por usuario"""
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'error': 'user_id requerido'}, status=400)
+        
+        logs = self.get_queryset().filter(user_id=user_id)
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_ip(self, request):
+        """Obtener registros por IP"""
+        ip_address = request.query_params.get('ip_address')
+        if not ip_address:
+            return Response({'error': 'ip_address requerido'}, status=400)
+        
+        logs = self.get_queryset().filter(ip_address=ip_address)
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def search(self, request):
+        """Buscar registros de auditoría"""
+        serializer = AuditSearchSerializer(data=request.data)
+        if serializer.is_valid():
+            results = AuditService.search_audit_logs(serializer.validated_data)
+            return Response(results)
+        return Response(serializer.errors, status=400)
+    
+    @action(detail=False, methods=['post'])
+    def export(self, request):
+        """Exportar registros de auditoría"""
+        serializer = AuditExportSerializer(data=request.data)
+        if serializer.is_valid():
+            export_data = AuditService.export_audit_logs(serializer.validated_data)
+            
+            format_type = serializer.validated_data['format']
+            
+            if format_type == 'csv':
+                response = HttpResponse(content_type='text/csv')
+                response['Content-Disposition'] = 'attachment; filename="audit_logs.csv"'
+                
+                writer = csv.writer(response)
+                writer.writerow(['Timestamp', 'Action', 'User', 'Result', 'Severity', 'Category', 'Description', 'IP Address', 'Module'])
+                
+                for log in export_data:
+                    writer.writerow([
+                        log.formatted_timestamp,
+                        log.get_action_display(),
+                        log.user.username if log.user else 'Sistema',
+                        log.get_result_display(),
+                        log.get_severity_display(),
+                        log.get_category_display(),
+                        log.description,
+                        log.ip_address,
+                        log.module
+                    ])
+                
+                return response
+            
+            elif format_type == 'json':
+                response = HttpResponse(content_type='application/json')
+                response['Content-Disposition'] = 'attachment; filename="audit_logs.json"'
+                
+                data = AuditLogSerializer(export_data, many=True).data
+                response.write(json.dumps(data, indent=2))
+                return response
+            
+            else:
+                return Response({'error': 'Formato no soportado'}, status=400)
+        
+        return Response(serializer.errors, status=400)
 
 
-class AuditLogRetrieveView(generics.RetrieveAPIView):
-    """Vista para obtener un log de auditoría específico"""
-    queryset = AuditLog.objects.all()
-    serializer_class = AuditLogSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+class AuditRuleViewSet(viewsets.ModelViewSet):
+    """ViewSet para reglas de auditoría"""
+    serializer_class = AuditRuleSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = AuditRule.objects.filter(is_active=True)
+    
+    @action(detail=True, methods=['post'])
+    def test(self, request, pk=None):
+        """Probar regla de auditoría"""
+        rule = self.get_object()
+        test_data = request.data
+        
+        result = AuditService.test_audit_rule(rule, test_data)
+        return Response(result)
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, AuditPermission])
-def audit_logs_list(request):
-    """Listar logs de auditoría con filtros"""
-    try:
-        # Obtener parámetros de filtro
-        start_date = request.GET.get('start_date', '')
-        end_date = request.GET.get('end_date', '')
+class AuditReportViewSet(viewsets.ModelViewSet):
+    """ViewSet para reportes de auditoría"""
+    serializer_class = AuditReportSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Obtener reportes del usuario"""
+        return AuditReport.objects.filter(created_by=self.request.user)
+    
+    def get_serializer_class(self):
+        """Usar serializer de creación para POST"""
+        if self.action == 'create':
+            return AuditReportCreateSerializer
+        return AuditReportSerializer
+    
+    @action(detail=True, methods=['post'])
+    def generate(self, request, pk=None):
+        """Generar reporte"""
+        report = self.get_object()
+        if report.status != 'pending':
+            return Response({'error': 'Reporte ya generado'}, status=400)
         
-        filters_data = {
-            'user': request.GET.get('user', ''),
-            'action': request.GET.get('action', ''),
-            'resource_type': request.GET.get('resource_type', ''),
-            'start_date': start_date if start_date else None,
-            'end_date': end_date if end_date else None,
-            'search': request.GET.get('search', ''),
-        }
+        AuditService.generate_audit_report(report)
+        serializer = self.get_serializer(report)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """Descargar reporte"""
+        report = self.get_object()
+        if not report.is_completed or not report.file_path:
+            return Response({'error': 'Reporte no disponible'}, status=404)
         
-        # Validar filtros
-        filter_serializer = AuditLogFilterSerializer(data=filters_data)
-        if not filter_serializer.is_valid():
-            return Response(
-                {'error': 'Filtros inválidos', 'details': filter_serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Construir queryset
-        queryset = AuditLog.objects.select_related('user').order_by('-created_at')
-        
-        # Aplicar filtros
-        if filters_data['user']:
-            queryset = queryset.filter(user__username__icontains=filters_data['user'])
-        
-        if filters_data['action']:
-            queryset = queryset.filter(action=filters_data['action'])
-        
-        if filters_data['resource_type']:
-            queryset = queryset.filter(resource_type=filters_data['resource_type'])
-        
-        if filters_data['start_date']:
-            start_date = datetime.strptime(filters_data['start_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(created_at__date__gte=start_date)
-        
-        if filters_data['end_date']:
-            end_date = datetime.strptime(filters_data['end_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(created_at__date__lte=end_date)
-        
-        if filters_data['search']:
-            search_term = filters_data['search']
-            queryset = queryset.filter(
-                Q(user__username__icontains=search_term) |
-                Q(action__icontains=search_term) |
-                Q(resource_type__icontains=search_term) |
-                Q(details__icontains=search_term) |
-                Q(resource_id__icontains=search_term)
-            )
-        
-        # Paginación
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 50))
-        
-        start_index = (page - 1) * page_size
-        end_index = start_index + page_size
-        
-        total_count = queryset.count()
-        logs = queryset[start_index:end_index]
-        
-        # Serializar datos
-        serializer = AuditLogListSerializer(logs, many=True)
-        
-        return Response({
-            'success': True,
-            'results': serializer.data,
-            'count': total_count,
-            'page': page,
-            'page_size': page_size,
-            'total_pages': (total_count + page_size - 1) // page_size
-        })
-        
-    except Exception as e:
-        logger.error(f"Error listando logs de auditoría: {e}")
-        return Response(
-            {'error': 'Error interno del servidor'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, AuditPermission])
-def audit_logs_export(request):
-    """Exportar logs de auditoría"""
-    try:
-        # Obtener parámetros de filtro (mismo que en list)
-        filters_data = {
-            'user': request.GET.get('user', ''),
-            'action': request.GET.get('action', ''),
-            'resource_type': request.GET.get('resource_type', ''),
-            'start_date': request.GET.get('start_date', ''),
-            'end_date': request.GET.get('end_date', ''),
-            'search': request.GET.get('search', ''),
-        }
-        
-        # Construir queryset (mismo filtrado que en list)
-        queryset = AuditLog.objects.select_related('user').order_by('-created_at')
-        
-        # Aplicar filtros
-        if filters_data['user']:
-            queryset = queryset.filter(user__username__icontains=filters_data['user'])
-        
-        if filters_data['action']:
-            queryset = queryset.filter(action=filters_data['action'])
-        
-        if filters_data['resource_type']:
-            queryset = queryset.filter(resource_type=filters_data['resource_type'])
-        
-        if filters_data['start_date']:
-            start_date = datetime.strptime(filters_data['start_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(created_at__date__gte=start_date)
-        
-        if filters_data['end_date']:
-            end_date = datetime.strptime(filters_data['end_date'], '%Y-%m-%d').date()
-            queryset = queryset.filter(created_at__date__lte=end_date)
-        
-        if filters_data['search']:
-            search_term = filters_data['search']
-            queryset = queryset.filter(
-                Q(user__username__icontains=search_term) |
-                Q(action__icontains=search_term) |
-                Q(resource_type__icontains=search_term) |
-                Q(details__icontains=search_term) |
-                Q(resource_id__icontains=search_term)
-            )
-        
-        # Limitar a los últimos 1000 registros para exportación
-        logs = queryset[:1000]
-        
-        # Serializar datos
-        serializer = AuditLogListSerializer(logs, many=True)
-        
-        # Log de la exportación
-        from .models import AuditLogManager
-        AuditLogManager.log_user_action(
-            user=request.user,
-            action='export',
-            details=f'Exportó {len(logs)} logs de auditoría',
-            request=request
-        )
-        
-        return Response({
-            'success': True,
-            'data': serializer.data,
-            'exported_at': timezone.now().isoformat(),
-            'total_exported': len(logs)
-        })
-        
-    except Exception as e:
-        logger.error(f"Error exportando logs de auditoría: {e}")
-        return Response(
-            {'error': 'Error interno del servidor'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, IsAdminUser])
-def audit_logs_statistics(request):
-    """Obtener estadísticas de logs de auditoría"""
-    try:
-        # Estadísticas generales
-        total_logs = AuditLog.objects.count()
-        
-        # Logs por acción
-        action_stats = {}
-        for action, _ in AuditLog.ACTION_CHOICES:
-            count = AuditLog.objects.filter(action=action).count()
-            if count > 0:
-                action_stats[action] = count
-        
-        # Logs por tipo de recurso
-        resource_stats = {}
-        for resource_type, _ in AuditLog.RESOURCE_TYPE_CHOICES:
-            count = AuditLog.objects.filter(resource_type=resource_type).count()
-            if count > 0:
-                resource_stats[resource_type] = count
-        
-        # Logs por usuario (top 10)
-        user_stats = AuditLog.objects.values('user__username').annotate(
-            count=Count('id')
-        ).order_by('-count')[:10]
-        
-        # Logs por día (últimos 30 días) - simplificado
-        thirty_days_ago = timezone.now() - timedelta(days=30)
         try:
-            daily_stats = AuditLog.objects.filter(
-                created_at__gte=thirty_days_ago
-            ).values('created_at__date').annotate(
-                count=Count('id')
-            ).order_by('created_at__date')
-        except Exception as e:
-            logger.warning(f"Error en consulta diaria: {e}")
-            daily_stats = []
-        
-        return Response({
-            'success': True,
-            'statistics': {
-                'total_logs': total_logs,
-                'action_stats': action_stats,
-                'resource_stats': resource_stats,
-                'user_stats': list(user_stats),
-                'daily_stats': list(daily_stats)
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"Error obteniendo estadísticas de auditoría: {e}")
-        return Response(
-            {'error': 'Error interno del servidor'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            with open(report.file_path, 'rb') as f:
+                response = HttpResponse(f.read(), content_type='application/octet-stream')
+                response['Content-Disposition'] = f'attachment; filename="{report.name}.pdf"'
+                return response
+        except FileNotFoundError:
+            return Response({'error': 'Archivo no encontrado'}, status=404)
+    
+    @action(detail=False, methods=['get'])
+    def templates(self, request):
+        """Obtener plantillas de reporte"""
+        templates = AuditService.get_report_templates()
+        return Response(templates)
+
+
+class AuditDashboardViewSet(viewsets.ModelViewSet):
+    """ViewSet para dashboards de auditoría"""
+    serializer_class = AuditDashboardSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Obtener dashboards del usuario"""
+        return AuditDashboard.objects.filter(created_by=self.request.user)
+    
+    @action(detail=True, methods=['get'])
+    def data(self, request, pk=None):
+        """Obtener datos del dashboard"""
+        dashboard = self.get_object()
+        data = AuditService.get_dashboard_data(dashboard, request.query_params)
+        return Response(data)
+
+
+class AuditAlertViewSet(viewsets.ModelViewSet):
+    """ViewSet para alertas de auditoría"""
+    serializer_class = AuditAlertSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = AuditAlert.objects.all()
+    
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """Obtener alertas activas"""
+        alerts = self.get_queryset().filter(status='active')
+        serializer = self.get_serializer(alerts, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def high_severity(self, request):
+        """Obtener alertas de alta severidad"""
+        alerts = self.get_queryset().filter(severity__in=['high', 'critical'])
+        serializer = self.get_serializer(alerts, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, pk=None):
+        """Resolver alerta"""
+        alert = self.get_object()
+        notes = request.data.get('notes', '')
+        alert.resolve(request.user, notes)
+        serializer = self.get_serializer(alert)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def acknowledge(self, request, pk=None):
+        """Reconocer alerta"""
+        alert = self.get_object()
+        alert.acknowledge(request.user)
+        serializer = self.get_serializer(alert)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def dismiss(self, request, pk=None):
+        """Descartar alerta"""
+        alert = self.get_object()
+        alert.dismiss(request.user)
+        serializer = self.get_serializer(alert)
+        return Response(serializer.data)
+
+
+class AuditStatsViewSet(viewsets.ViewSet):
+    """ViewSet para estadísticas de auditoría"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def overview(self, request):
+        """Obtener estadísticas generales"""
+        stats = AuditService.get_audit_stats()
+        return Response(stats)
+    
+    @action(detail=False, methods=['get'])
+    def real_time(self, request):
+        """Obtener datos en tiempo real"""
+        data = AuditService.get_real_time_data()
+        return Response(data)
+    
+    @action(detail=False, methods=['get'])
+    def trends(self, request):
+        """Obtener tendencias"""
+        period = request.query_params.get('period', '24h')
+        trends = AuditService.get_audit_trends(period)
+        return Response(trends)
+    
+    @action(detail=False, methods=['get'])
+    def top_users(self, request):
+        """Obtener top usuarios"""
+        limit = int(request.query_params.get('limit', 10))
+        top_users = AuditService.get_top_users(limit)
+        return Response(top_users)
+    
+    @action(detail=False, methods=['get'])
+    def top_actions(self, request):
+        """Obtener top acciones"""
+        limit = int(request.query_params.get('limit', 10))
+        top_actions = AuditService.get_top_actions(limit)
+        return Response(top_actions)
+    
+    @action(detail=False, methods=['get'])
+    def security_events(self, request):
+        """Obtener eventos de seguridad"""
+        events = AuditService.get_security_events()
+        return Response(events)
+    
+    @action(detail=False, methods=['get'])
+    def performance_metrics(self, request):
+        """Obtener métricas de rendimiento"""
+        metrics = AuditService.get_performance_metrics()
+        return Response(metrics)
+
+
+class AuditSearchViewSet(viewsets.ViewSet):
+    """ViewSet para búsqueda avanzada de auditoría"""
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['post'])
+    def advanced(self, request):
+        """Búsqueda avanzada"""
+        search_params = request.data
+        results = AuditService.advanced_search(search_params)
+        return Response(results)
+    
+    @action(detail=False, methods=['get'])
+    def suggestions(self, request):
+        """Obtener sugerencias de búsqueda"""
+        query = request.query_params.get('q', '')
+        suggestions = AuditService.get_search_suggestions(query)
+        return Response(suggestions)
+    
+    @action(detail=False, methods=['get'])
+    def filters(self, request):
+        """Obtener filtros disponibles"""
+        filters = AuditService.get_available_filters()
+        return Response(filters)

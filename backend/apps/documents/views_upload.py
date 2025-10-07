@@ -720,10 +720,21 @@ def open_document(request, document_type, incident_id, filename):
     Abre un documento desde la carpeta compartida
     """
     try:
+        # Decodificar el nombre del archivo para manejar caracteres especiales
+        from urllib.parse import unquote
+        decoded_filename = unquote(filename)
+        
         # Ruta de la carpeta compartida
         shared_base = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
         if not shared_base:
-            raise Http404("Carpeta compartida no configurada")
+            # Usar ruta por defecto si no está configurada
+            shared_base = os.path.join(settings.BASE_DIR, 'documents')
+            logger.warning(f"SHARED_DOCUMENTS_PATH no configurada, usando ruta por defecto: {shared_base}")
+        
+        # Verificar que la carpeta existe
+        if not os.path.exists(shared_base):
+            logger.error(f"Carpeta compartida no existe: {shared_base}")
+            raise Http404(f"Carpeta compartida no existe: {shared_base}")
         
         # Construir ruta del archivo (manejar diferentes formatos de nombres)
         # Convertir visit-report a visit_reports, lab-report a lab_reports, etc.
@@ -738,7 +749,7 @@ def open_document(request, document_type, incident_id, filename):
                     folder_name, 
                     report_type,
                     f'incident_{incident_id}', 
-                    filename
+                    decoded_filename
                 )
                 if os.path.exists(test_path):
                     shared_file_path = test_path
@@ -761,7 +772,7 @@ def open_document(request, document_type, incident_id, filename):
                 shared_base, 
                 folder_name, 
                 f'incident_{incident_id}', 
-                filename
+                decoded_filename
             )
             
             # Verificar que el archivo existe
@@ -780,7 +791,7 @@ def open_document(request, document_type, incident_id, filename):
                             other_folder_path = os.path.join(shared_base, folder_name, other_incident_folder)
                             if os.path.exists(other_folder_path):
                                 for other_file in os.listdir(other_folder_path):
-                                    if filename.lower() in other_file.lower() or other_file.lower() in filename.lower():
+                                    if decoded_filename.lower() in other_file.lower() or other_file.lower() in decoded_filename.lower():
                                         similar_files.append({
                                             'incident_id': other_incident_folder.replace('incident_', ''),
                                             'filename': other_file,
@@ -789,7 +800,7 @@ def open_document(request, document_type, incident_id, filename):
                 except Exception as e:
                     logger.warning(f"Error buscando archivos similares: {str(e)}")
                 
-                error_msg = f"Archivo no encontrado: {filename}. Archivos disponibles en incident_{incident_id}: {available_files}"
+                error_msg = f"Archivo no encontrado: {decoded_filename}. Archivos disponibles en incident_{incident_id}: {available_files}"
                 if similar_files:
                     error_msg += f". Archivos similares encontrados: {similar_files}"
                 
@@ -800,7 +811,7 @@ def open_document(request, document_type, incident_id, filename):
         return FileResponse(
             open(shared_file_path, 'rb'),
             as_attachment=False,
-            filename=filename
+            filename=decoded_filename
         )
         
     except Http404:

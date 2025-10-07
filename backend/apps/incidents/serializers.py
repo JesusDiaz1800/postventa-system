@@ -49,8 +49,8 @@ class IncidentListSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(read_only=True)
     assigned_to = UserSerializer(read_only=True)
     closed_by = UserSerializer(read_only=True)
-    images_count = serializers.SerializerMethodField()
-    documents_count = serializers.SerializerMethodField()
+    images_count = serializers.IntegerField(read_only=True)
+    documents_count = serializers.IntegerField(read_only=True)
     
     class Meta:
         model = Incident
@@ -63,38 +63,6 @@ class IncidentListSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_by', 'created_at', 'updated_at']
-    
-    def get_images_count(self, obj):
-        return obj.images.count()
-    
-    def get_documents_count(self, obj):
-        # Contar documentos de todas las tablas de documentos existentes
-        try:
-            from apps.documents.models import VisitReport, SupplierReport, LabReport
-            
-            visit_count = 0
-            supplier_count = 0
-            lab_count = 0
-            
-            # Intentar filtrar por related_incident, si la columna no existe, devolver 0
-            try:
-                visit_count = VisitReport.objects.filter(related_incident=obj).count()
-            except Exception:
-                pass
-            
-            try:
-                supplier_count = SupplierReport.objects.filter(related_incident=obj).count()
-            except Exception:
-                pass
-            
-            try:
-                lab_count = LabReport.objects.filter(related_incident=obj).count()
-            except Exception:
-                pass
-            
-            return visit_count + supplier_count + lab_count
-        except Exception:
-            return 0
 
 
 class IncidentDetailSerializer(serializers.ModelSerializer):

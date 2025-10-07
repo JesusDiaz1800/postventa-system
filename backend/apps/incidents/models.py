@@ -4,6 +4,35 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.users.models import User
 
 
+class Category(models.Model):
+    """Model for product categories"""
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = 'Categoría'
+        verbose_name_plural = 'Categorías'
+        ordering = ['name']
+
+
+class Responsible(models.Model):
+    """Model for responsible technicians"""
+    name = models.CharField(max_length=100, unique=True)
+    email = models.EmailField(blank=True)
+    active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = 'Responsable'
+        verbose_name_plural = 'Responsables'
+        ordering = ['name']
+
+
 class Incident(models.Model):
     """
     Model for post-sales incidents
@@ -18,25 +47,6 @@ class Incident(models.Model):
         ('media', 'Media'),
         ('alta', 'Alta'),
         ('critica', 'Crítica'),
-    ]
-    
-    RESPONSIBLE_CHOICES = [
-        ('patricio_morales', 'Patricio Morales'),
-        ('marco_montenegro', 'Marco Montenegro'),
-    ]
-    
-    CATEGORY_CHOICES = [
-        ('tuberia_beta', 'Tubería BETA'),
-        ('tuberia_ppr', 'Tubería PPR'),
-        ('tuberia_hdpe', 'Tubería HDPE'),
-        ('fitting_inserto_metalico', 'Fitting con inserto metálico'),
-        ('fitting_ppr', 'Fitting PPR'),
-        ('fitting_hdpe_electrofusion', 'Fitting HDPE Electrofusión'),
-        ('fitting_hdpe_fusion_tope', 'Fitting HDPE Fusión Tope'),
-        ('llave', 'LLave'),
-        ('flange', 'Flange'),
-        ('inserto_metalico', 'Inserto metálico'),
-        ('otro', 'Otro'),
     ]
     
     # Basic incident information
@@ -85,6 +95,7 @@ class Incident(models.Model):
     # Product information
     sku = models.CharField(
         max_length=100,
+        default='N/A',
         help_text='SKU del producto'
     )
     
@@ -130,9 +141,10 @@ class Incident(models.Model):
     )
     
     # Classification
-    categoria = models.CharField(
-        max_length=50,
-        choices=CATEGORY_CHOICES,
+    categoria = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
         help_text='Categoría del producto'
     )
     
@@ -144,7 +156,8 @@ class Incident(models.Model):
     
     prioridad = models.CharField(
         max_length=20,
-        choices=PRIORITY_CHOICES,
+        # Basic incident information
+        # ADVERTENCIA: Revisa los tipos de datos y relaciones para compatibilidad total con SQL Server. Evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.
         default='media',
         help_text='Prioridad de la incidencia'
     )
@@ -167,9 +180,10 @@ class Incident(models.Model):
     )
     
     # Responsable del área técnica
-    responsable = models.CharField(
-        max_length=50,
-        choices=RESPONSIBLE_CHOICES,
+    responsable = models.ForeignKey(
+        Responsible,
+        on_delete=models.SET_NULL,
+        null=True,
         help_text='Responsable técnico asignado'
     )
     
@@ -314,6 +328,298 @@ class Incident(models.Model):
         if photos:
             return "\n".join([f"- {photo.filename}: {photo.caption_ai or 'Sin descripción'}" for photo in photos])
         return "No hay fotos anexas"
+
+
+class IncidentImage(models.Model):
+    """
+    Model for incident images with AI analysis
+    """
+    incident = models.ForeignKey(
+        Incident,
+        on_delete=models.CASCADE,
+        related_name='images',
+        help_text='Incidencia relacionada'
+    )
+    
+    filename = models.CharField(
+        max_length=255,
+        help_text='Nombre del archivo'
+    )
+    
+    path = models.CharField(
+        max_length=500,
+        help_text='Ruta del archivo en el storage'
+    )
+    
+    file_size = models.BigIntegerField(
+        help_text='Tamaño del archivo en bytes'
+    )
+    
+    mime_type = models.CharField(
+        max_length=100,
+        help_text='Tipo MIME del archivo'
+    )
+    
+    # EXIF data
+    exif_json = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Datos EXIF de la imagen'
+    )
+    
+    # AI Analysis
+    caption_ai = models.TextField(
+        blank=True,
+        help_text='Descripción generada por IA'
+    )
+    
+    analysis_json = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Análisis completo de IA (causas sugeridas, confianza, etc.)'
+    )
+    
+    ai_provider_used = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Proveedor de IA utilizado para el análisis'
+    )
+    
+    ai_confidence = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text='Nivel de confianza del análisis de IA (0-1)'
+    )
+    
+    # Metadata
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='Usuario que subió la imagen'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'incident_images'
+        verbose_name = 'Imagen de Incidencia'
+        verbose_name_plural = 'Imágenes de Incidencias'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.incident.code} - {self.filename}"
+
+
+class LabReport(models.Model):
+    """
+    Model for laboratory reports
+    """
+    incident = models.ForeignKey(
+        Incident,
+        on_delete=models.CASCADE,
+        related_name='lab_reports',
+        help_text='Incidencia relacionada'
+    )
+    
+    sample_description = models.TextField(
+        help_text='Descripción de la muestra enviada'
+    )
+    
+    tests_performed = models.JSONField(
+        default=list,
+        help_text='Lista de ensayos realizados'
+    )
+    
+    observations = models.TextField(
+        help_text='Observaciones del laboratorio'
+    )
+    
+    conclusions = models.TextField(
+        help_text='Conclusiones técnicas del laboratorio'
+    )
+    
+    expert_name = models.CharField(
+        max_length=200,
+        help_text='Nombre del experto que realizó el análisis'
+    )
+    
+    expert_signature_path = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text='Ruta de la firma del experto'
+    )
+    
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='Usuario que creó el reporte'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'lab_reports'
+        verbose_name = 'Reporte de Laboratorio'
+        verbose_name_plural = 'Reportes de Laboratorio'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Lab Report - {self.incident.code}"
+
+
+class IncidentTimeline(models.Model):
+    """
+    Model for incident timeline/activity log
+    """
+    ACTION_CHOICES = [
+        ('created', 'Creado'),
+        ('updated', 'Actualizado'),
+        ('assigned', 'Asignado'),
+        ('status_changed', 'Estado Cambiado'),
+        ('image_uploaded', 'Imagen Subida'),
+        ('document_generated', 'Documento Generado'),
+        ('lab_report_added', 'Reporte de Lab Agregado'),
+        ('closed', 'Cerrado'),
+        ('reopened', 'Reabierto'),
+        ('deleted', 'Eliminado'),
+    ]
+    
+    incident = models.ForeignKey(
+        Incident,
+        on_delete=models.CASCADE,
+        related_name='timeline',
+        help_text='Incidencia relacionada'
+    )
+    
+    action = models.CharField(
+        max_length=50,
+        choices=ACTION_CHOICES,
+        help_text='Acción realizada'
+    )
+    
+    description = models.TextField(
+        help_text='Descripción de la acción'
+    )
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='Usuario que realizó la acción'
+    )
+    
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Metadatos adicionales de la acción'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'incident_timeline'
+        verbose_name = 'Línea de Tiempo'
+        verbose_name_plural = 'Líneas de Tiempo'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.incident.code} - {self.get_action_display()}"
+
+
+class IncidentAttachment(models.Model):
+    """
+    Modelo para adjuntos de incidencias
+    """
+    ATTACHMENT_TYPE_CHOICES = [
+        ('image', 'Imagen'),
+        ('document', 'Documento'),
+        ('video', 'Video'),
+        ('audio', 'Audio'),
+        ('other', 'Otro'),
+    ]
+    
+    incident = models.ForeignKey(
+        Incident,
+        on_delete=models.CASCADE,
+        related_name='attachments',
+        help_text='Incidencia a la que pertenece el adjunto'
+    )
+    
+    file_name = models.CharField(
+        max_length=255,
+        help_text='Nombre del archivo'
+    )
+    
+    file_path = models.CharField(
+        max_length=500,
+        help_text='Ruta del archivo en el sistema'
+    )
+    
+    file_size = models.BigIntegerField(
+        help_text='Tamaño del archivo en bytes'
+    )
+    
+    file_type = models.CharField(
+        max_length=50,
+        choices=ATTACHMENT_TYPE_CHOICES,
+        help_text='Tipo de archivo'
+    )
+    
+    mime_type = models.CharField(
+        max_length=100,
+        help_text='Tipo MIME del archivo'
+    )
+    
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Descripción del adjunto'
+    )
+    
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='uploaded_attachments',
+        help_text='Usuario que subió el archivo'
+    )
+    
+    uploaded_at = models.DateTimeField(
+        default=timezone.now,
+        help_text='Fecha y hora de subida'
+    )
+    
+    is_public = models.BooleanField(
+        default=True,
+        help_text='Si el adjunto es público o privado'
+    )
+    
+    class Meta:
+        db_table = 'incident_attachments'
+        verbose_name = 'Adjunto de Incidencia'
+        verbose_name_plural = 'Adjuntos de Incidencias'
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return f"{self.incident.code} - {self.file_name}"
+    
+    @property
+    def file_size_human(self):
+        """Retorna el tamaño del archivo en formato legible"""
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
+
 
 
 class IncidentImage(models.Model):

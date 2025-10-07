@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { brandConfig } from '../config/brand';
+import api, { API_BASE_URL } from '../services/api';
 
 interface User {
   id: string;
@@ -111,20 +111,8 @@ export function useAuth() {
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials): Promise<AuthResponse> => {
-      const response = await fetch(`${brandConfig.api.baseUrl}/auth/login/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(credentials),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Error de autenticación');
-      }
-
-      return response.json();
+      const response = await api.post('/auth/login/', credentials);
+      return response.data;
     },
     onSuccess: (data) => {
       saveAuthState(data.user, data.access);
@@ -145,14 +133,7 @@ export function useAuth() {
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
-          await fetch(`${brandConfig.api.baseUrl}/auth/logout/`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authState.token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ refresh: refreshToken }),
-          });
+          await api.post('/auth/logout/', { refresh: refreshToken });
         } catch (error) {
           console.warn('Error during logout request:', error);
         }
@@ -175,19 +156,8 @@ export function useAuth() {
       if (!stored) throw new Error('No refresh token available');
 
       const { token } = JSON.parse(stored);
-      const response = await fetch(`${brandConfig.api.baseUrl}/auth/refresh/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ refresh: token }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Token refresh failed');
-      }
-
-      return response.json();
+      const response = await api.post('/auth/token/refresh/', { refresh: token });
+      return response.data;
     },
     onSuccess: (data) => {
       if (authState.user) {
@@ -204,18 +174,8 @@ export function useAuth() {
     queryKey: ['user', authState.user?.id],
     queryFn: async (): Promise<User> => {
       if (!authState.token) throw new Error('No token available');
-
-      const response = await fetch(`${brandConfig.api.baseUrl}/users/me/`, {
-        headers: {
-          'Authorization': `Bearer ${authState.token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch user profile');
-      }
-
-      return response.json();
+      const response = await api.get('/users/me/');
+      return response.data;
     },
     enabled: authState.isAuthenticated,
     staleTime: 5 * 60 * 1000, // 5 minutes

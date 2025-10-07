@@ -229,3 +229,4 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Get list of pages this user can access"""
         from .permissions import get_accessible_pages
         return get_accessible_pages(self)
+    # ADVERTENCIA: Revisa los tipos de datos y relaciones para compatibilidad total con SQL Server. Evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.

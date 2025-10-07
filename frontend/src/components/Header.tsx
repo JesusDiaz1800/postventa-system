@@ -11,6 +11,7 @@ import {
   Menu,
   X
 } from 'lucide-react';
+import NotificationCenter from './NotificationCenter';
 
 interface HeaderProps {
   user?: {
@@ -27,51 +28,23 @@ interface HeaderProps {
 export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpen }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const notificationsRef = useRef<HTMLDivElement>(null);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: 'Nueva incidencia reportada',
-      message: 'Se ha reportado una nueva incidencia en el sistema',
-      time: 'Hace 5 minutos',
-      type: 'info',
-      read: false
-    },
-    {
-      id: 2,
-      title: 'Incidencia resuelta',
-      message: 'La incidencia #INC-001 ha sido marcada como resuelta',
-      time: 'Hace 1 hora',
-      type: 'success',
-      read: false
-    },
-    {
-      id: 3,
-      title: 'Recordatorio de seguimiento',
-      message: 'Tienes 3 incidencias pendientes de seguimiento',
-      time: 'Hace 2 horas',
-      type: 'warning',
-      read: true
-    }
-  ]);
 
   // Cerrar dropdowns al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
-        setIsNotificationsOpen(false);
+      if (isUserMenuOpen) {
+        setIsUserMenuOpen(false);
       }
     };
 
-    if (isNotificationsOpen) {
+    if (isUserMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isNotificationsOpen]);
+  }, [isUserMenuOpen]);
 
   // Navigation removed - sidebar handles all navigation
 
@@ -133,90 +106,7 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
           {/* Lado derecho */}
           <div className="flex items-center space-x-4 flex-shrink-0">
             {/* Notificaciones */}
-            <div className="relative">
-              <button 
-                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className="p-2 text-gray-400 hover:text-gray-500 relative"
-              >
-                <Bell className="w-5 h-5" />
-                {notifications.filter(n => !n.read).length > 0 && (
-                  <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-400 ring-2 ring-white"></span>
-                )}
-              </button>
-
-              {/* Dropdown de notificaciones */}
-              {isNotificationsOpen && (
-                <>
-                  {/* Overlay para cerrar al hacer clic fuera */}
-                  <div 
-                    className="fixed inset-0 z-[9998] bg-black bg-opacity-25 backdrop-blur-sm" 
-                    onClick={() => setIsNotificationsOpen(false)}
-                  />
-                  <div ref={notificationsRef} className="fixed right-4 top-20 w-80 bg-white rounded-lg shadow-2xl py-1 z-[9999] border border-gray-200 max-h-96 overflow-hidden">
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-medium text-gray-900">Notificaciones</h3>
-                      <button 
-                        onClick={() => {
-                          setNotifications(notifications.map(n => ({ ...n, read: true })));
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-800"
-                      >
-                        Marcar todas como leídas
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="max-h-64 overflow-y-auto">
-                    {notifications.length > 0 ? (
-                      notifications.map((notification) => (
-                        <div
-                          key={notification.id}
-                          className={`px-4 py-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
-                            !notification.read ? 'bg-blue-50' : ''
-                          }`}
-                          onClick={() => {
-                            setNotifications(notifications.map(n => 
-                              n.id === notification.id ? { ...n, read: true } : n
-                            ));
-                          }}
-                        >
-                          <div className="flex items-start">
-                            <div className={`w-2 h-2 rounded-full mt-2 mr-3 ${
-                              notification.type === 'success' ? 'bg-green-500' :
-                              notification.type === 'warning' ? 'bg-yellow-500' :
-                              'bg-blue-500'
-                            }`}></div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900">{notification.title}</p>
-                              <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                              <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                            </div>
-                            {!notification.read && (
-                              <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-4 py-8 text-center">
-                        <Bell className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-500">No hay notificaciones</p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {notifications.length > 0 && (
-                    <div className="px-4 py-2 border-t border-gray-100">
-                      <button className="text-sm text-blue-600 hover:text-blue-800 w-full text-left">
-                        Ver todas las notificaciones
-                      </button>
-                    </div>
-                  )}
-                  </div>
-                </>
-              )}
-            </div>
+            <NotificationCenter />
 
             {/* Menú de usuario */}
             <div className="relative">

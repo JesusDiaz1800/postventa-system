@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   PaperClipIcon,
@@ -10,397 +10,472 @@ import {
   EyeIcon,
   ArrowDownTrayIcon,
   PlusIcon,
-  XMarkIcon
+  XMarkIcon,
+  MagnifyingGlassIcon,
+  FunnelIcon,
+  ArrowPathIcon,
+  CloudArrowUpIcon,
+  DocumentTextIcon,
+  ArchiveBoxIcon,
+  ShareIcon,
+  InformationCircleIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
+  CalendarIcon,
+  UserIcon,
+  GlobeAltIcon,
+  LockClosedIcon,
 } from '@heroicons/react/24/outline';
 import { useNotifications } from '../hooks/useNotifications';
 import { api } from '../services/api';
+import DocumentManager from './DocumentManager';
+import DocumentViewer from './DocumentViewer';
 
+/**
+ * Componente profesional para gestión de documentos adjuntos de incidencias
+ * Integra subida, visualización, descarga y eliminación de documentos
+ */
 const IncidentAttachments = ({ incidentId, incidentCode }) => {
   console.log('=== INCIDENT ATTACHMENTS COMPONENT LOADED ===');
   console.log('Incident ID:', incidentId);
   console.log('Incident Code:', incidentCode);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadingFile, setUploadingFile] = useState(null);
-  const [uploadDescription, setUploadDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
+  
+  // Estados principales
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [sortBy, setSortBy] = useState('date');
+  const [viewMode, setViewMode] = useState('list');
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  
   const { showSuccess, showError } = useNotifications();
   const queryClient = useQueryClient();
 
-  // Función para obtener el token de autenticación
-  const getAuthToken = () => {
-    const authData = localStorage.getItem('postventa_auth');
-    if (authData) {
-      try {
-        const parsed = JSON.parse(authData);
-        return parsed.token;
-      } catch (error) {
-        console.warn('Error parsing auth data:', error);
-      }
-    }
-    return localStorage.getItem('access_token');
-  };
-
-  // Función para ver archivo con autenticación
-  const handleViewFile = async (attachmentId) => {
-    try {
-      const token = getAuthToken();
-      if (!token) {
-        showError('No se encontró token de autenticación');
-        return;
-      }
-
-      const response = await api.get(`/incidents/${incidentId}/attachments/${attachmentId}/view/`, {
-        responseType: 'blob'
-      });
-      
-      // Obtener el tipo MIME del archivo
-      const contentType = response.headers['content-type'] || 'application/octet-stream';
-      
-      // Crear blob con el tipo MIME correcto
-      const blob = new Blob([response.data], { type: contentType });
-      const url = window.URL.createObjectURL(blob);
-      
-      // Abrir en nueva ventana
-      const newWindow = window.open(url, '_blank');
-      if (!newWindow) {
-        showError('No se pudo abrir la ventana. Verifica que los pop-ups estén permitidos.');
-      }
-    } catch (error) {
-      console.error('Error viewing file:', error);
-      showError('Error al abrir el archivo');
-    }
-  };
-
-  // Función para descargar archivo con autenticación
-  const handleDownloadFile = async (attachmentId, fileName) => {
-    try {
-      const token = getAuthToken();
-      if (!token) {
-        showError('No se encontró token de autenticación');
-        return;
-      }
-
-      const response = await api.get(`/incidents/${incidentId}/attachments/${attachmentId}/download/`, {
-        responseType: 'blob'
-      });
-      
-      // Obtener el tipo MIME del archivo
-      const contentType = response.headers['content-type'] || 'application/octet-stream';
-      
-      // Crear blob con el tipo MIME correcto
-      const blob = new Blob([response.data], { type: contentType });
-      const url = window.URL.createObjectURL(blob);
-      
-      // Crear enlace de descarga
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Limpiar URL después de un tiempo
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url);
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error downloading file:', error);
-      showError('Error al descargar el archivo');
-    }
-  };
-
-  // Obtener adjuntos de la incidencia
-  const { data: attachments, isLoading, error } = useQuery({
+  // Obtener documentos adjuntos
+  const { 
+    data: attachments = [], 
+    isLoading: attachmentsLoading, 
+    error: attachmentsError,
+    refetch: refetchAttachments 
+  } = useQuery({
     queryKey: ['incident-attachments', incidentId],
     queryFn: async () => {
-      console.log('=== FETCHING INCIDENT ATTACHMENTS ===');
-      console.log('Incident ID:', incidentId);
-      
+      if (!incidentId) return [];
       try {
-        const response = await api.get(`/incidents/${incidentId}/attachments/`);
-        console.log('Response status:', response.status);
-        console.log('Response data:', response.data);
-        console.log('Attachments array:', response.data.attachments);
+        const response = await api.get(`/documents/incident-attachments/${incidentId}/`);
         return response.data.attachments || [];
       } catch (error) {
         console.error('Error fetching attachments:', error);
-        console.error('Error response:', error.response?.data);
-        throw new Error('Error al cargar adjuntos');
+        return [];
       }
     },
     enabled: !!incidentId,
   });
 
-  // Mutación para subir archivo
-  const uploadMutation = useMutation({
-    mutationFn: async (formData) => {
-      try {
-        const response = await api.post(`/incidents/${incidentId}/attachments/upload/`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
+  // Mutación para eliminar documento
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (attachmentId) => {
+      const response = await api.delete(`/documents/incident-attachments/${incidentId}/${attachmentId}/delete/`);
         return response.data;
-      } catch (error) {
-        console.error('Upload error:', error);
-        throw new Error(error.response?.data?.error || 'Error al subir archivo');
-      }
-    },
-    onSuccess: (data) => {
-      console.log('=== UPLOAD SUCCESS ===');
-      console.log('Upload response:', data);
-      showSuccess('Archivo subido exitosamente');
-      console.log('Invalidating queries for incident:', incidentId);
-      queryClient.invalidateQueries(['incident-attachments', incidentId]);
-      setShowUploadModal(false);
-      setUploadingFile(null);
-      setUploadDescription('');
-    },
-    onError: (error) => {
-      showError('Error al subir archivo: ' + error.message);
-    },
-  });
-
-  // Mutación para eliminar archivo
-  const deleteMutation = useMutation({
-    mutationFn: async ({ attachmentId }) => {
-      try {
-        const response = await api.delete(`/incidents/${incidentId}/attachments/${attachmentId}/delete/`);
-        return response.data;
-      } catch (error) {
-        console.error('Delete error:', error);
-        throw new Error(error.response?.data?.error || 'Error al eliminar archivo');
-      }
     },
     onSuccess: () => {
-      showSuccess('Archivo eliminado exitosamente');
       queryClient.invalidateQueries(['incident-attachments', incidentId]);
+      showSuccess('Documento eliminado exitosamente');
     },
     onError: (error) => {
-      showError('Error al eliminar archivo: ' + error.message);
+      console.error('Error deleting attachment:', error);
+      showError('Error al eliminar el documento');
     },
   });
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Validar tamaño (máximo 50MB)
-      const maxSize = 50 * 1024 * 1024; // 50MB
-      if (file.size > maxSize) {
-        showError('El archivo es demasiado grande. Máximo 50MB.');
-        return;
+  // Filtrar y ordenar documentos
+  const filteredAttachments = useMemo(() => {
+    let filtered = Array.isArray(attachments) ? attachments : [];
+
+    // Filtrar por término de búsqueda
+    if (searchTerm) {
+      filtered = filtered.filter(attachment =>
+        attachment.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (attachment.description && attachment.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+
+    // Filtrar por tipo
+    if (filterType !== 'all') {
+      filtered = filtered.filter(attachment => {
+        const extension = attachment.filename.split('.').pop()?.toLowerCase();
+        switch (filterType) {
+          case 'images':
+            return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(extension);
+          case 'documents':
+            return ['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(extension);
+          case 'spreadsheets':
+            return ['xls', 'xlsx', 'csv'].includes(extension);
+          case 'presentations':
+            return ['ppt', 'pptx'].includes(extension);
+          case 'videos':
+            return ['mp4', 'avi', 'mov', 'wmv', 'flv'].includes(extension);
+          case 'audio':
+            return ['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(extension);
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Ordenar
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'name':
+          return a.filename.localeCompare(b.filename);
+        case 'size':
+          return b.size - a.size;
+        case 'date':
+        default:
+          return new Date(b.created_at) - new Date(a.created_at);
       }
-      setUploadingFile(file);
+    });
+
+    return filtered;
+  }, [attachments, searchTerm, filterType, sortBy]);
+
+  // Manejar visualización de documento
+  const handleViewDocument = useCallback(async (attachment) => {
+    try {
+      const { API_ORIGIN } = await import('../services/api');
+      const url = `${API_ORIGIN}/api/documents/incident-attachments/${incidentId}/${attachment.id}/view/`;
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error('Error opening document:', error);
+      showError('Error al abrir el documento');
     }
-  };
+  }, [incidentId, showError]);
 
-  const handleUpload = () => {
-    if (!uploadingFile) return;
-
-    const formData = new FormData();
-    formData.append('file', uploadingFile);
-    formData.append('title', `Documento adjunto - ${uploadingFile.name}`);
-    formData.append('description', uploadDescription);
-    formData.append('is_public', isPublic);
-
-    uploadMutation.mutate(formData);
-  };
-
-  const handleDelete = (attachmentId) => {
-    if (window.confirm('¿Estás seguro de que deseas eliminar este archivo?')) {
-      deleteMutation.mutate({ attachmentId });
+  // Manejar descarga de documento
+  const handleDownloadDocument = useCallback(async (attachment) => {
+    try {
+      const response = await api.get(
+        `/documents/incident-attachments/${incidentId}/${attachment.id}/download/`,
+        { responseType: 'blob' }
+      );
+      
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = attachment.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading document:', error);
+      showError('Error al descargar el documento');
     }
-  };
+  }, [incidentId, showError]);
 
-  const getFileIcon = (fileType) => {
-    switch (fileType) {
-      case 'image':
-        return <PhotoIcon className="h-5 w-5 text-green-600" />;
-      case 'video':
-        return <VideoCameraIcon className="h-5 w-5 text-blue-600" />;
-      case 'audio':
-        return <SpeakerWaveIcon className="h-5 w-5 text-purple-600" />;
-      case 'document':
-        return <DocumentIcon className="h-5 w-5 text-gray-600" />;
+  // Manejar eliminación de documento
+  const handleDeleteDocument = useCallback((attachment) => {
+    if (window.confirm('¿Estás seguro de que quieres eliminar este documento?')) {
+      deleteAttachmentMutation.mutate(attachment.id);
+    }
+  }, [deleteAttachmentMutation]);
+
+  // Manejar selección de archivos
+  const handleFileSelection = useCallback((attachmentId, isSelected) => {
+    setSelectedFiles(prev => 
+      isSelected 
+        ? [...prev, attachmentId]
+        : prev.filter(id => id !== attachmentId)
+    );
+  }, []);
+
+  // Seleccionar todos los archivos
+  const handleSelectAll = useCallback(() => {
+    setSelectedFiles(filteredAttachments.map(attachment => attachment.id));
+  }, [filteredAttachments]);
+
+  // Limpiar selección
+  const handleClearSelection = useCallback(() => {
+    setSelectedFiles([]);
+  }, []);
+
+  // Acciones en lote
+  const handleBulkDownload = useCallback(async () => {
+    for (const attachmentId of selectedFiles) {
+      const attachment = attachments.find(a => a.id === attachmentId);
+      if (attachment) {
+        await handleDownloadDocument(attachment);
+        // Pequeña pausa entre descargas
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+    setSelectedFiles([]);
+    setShowBulkActions(false);
+  }, [selectedFiles, attachments, handleDownloadDocument]);
+
+  const handleBulkDelete = useCallback(() => {
+    if (window.confirm(`¿Estás seguro de que quieres eliminar ${selectedFiles.length} documentos?`)) {
+      selectedFiles.forEach(attachmentId => {
+        deleteAttachmentMutation.mutate(attachmentId);
+      });
+      setSelectedFiles([]);
+      setShowBulkActions(false);
+    }
+  }, [selectedFiles, deleteAttachmentMutation]);
+
+  // Obtener icono según tipo de archivo
+  const getFileIcon = useCallback((filename) => {
+    const extension = filename.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'pdf':
+        return '📄';
+      case 'doc':
+      case 'docx':
+        return '📝';
+      case 'xls':
+      case 'xlsx':
+        return '📊';
+      case 'ppt':
+      case 'pptx':
+        return '📈';
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+        return '🖼️';
+      case 'mp4':
+      case 'avi':
+      case 'mov':
+        return '🎥';
+      case 'mp3':
+      case 'wav':
+        return '🎵';
+      case 'txt':
+        return '📄';
       default:
-        return <PaperClipIcon className="h-5 w-5 text-gray-600" />;
+        return '📄';
     }
-  };
+  }, []);
 
-  const formatDate = (dateString) => {
+  // Formatear tamaño de archivo
+  const formatFileSize = useCallback((bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }, []);
+
+  // Formatear fecha
+  const formatDate = useCallback((dateString) => {
     return new Date(dateString).toLocaleDateString('es-ES', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
-  };
+  }, []);
 
-  if (isLoading) {
+  if (!incidentId) {
     return (
-      <div className="flex items-center justify-center p-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="text-center text-gray-500">
+          <ExclamationTriangleIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+          <p>No se ha seleccionado ninguna incidencia</p>
       </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-4">
-        <p className="text-red-600">Error al cargar adjuntos: {error.message}</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900">Adjuntos</h3>
+            <div className="flex items-center">
+              <PaperClipIcon className="h-6 w-6 text-blue-600 mr-3" />
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Documentos Adjuntos
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Incidencia {incidentCode} • {attachments.length} documento{attachments.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  showFilters 
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <FunnelIcon className="h-4 w-4 mr-2" />
+                Filtros
+              </button>
         <button
-          onClick={() => setShowUploadModal(true)}
-          className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                onClick={() => refetchAttachments()}
+                className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
         >
-          <PlusIcon className="h-4 w-4 mr-2" />
-          Subir Archivo
+                <ArrowPathIcon className="h-4 w-4 mr-2" />
+                Actualizar
         </button>
+            </div>
+          </div>
       </div>
 
-      {/* Lista de adjuntos */}
-      {attachments && attachments.length > 0 ? (
-        <div className="space-y-2">
-          {attachments.map((attachment) => (
-            <div
-              key={attachment.id}
-              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200"
-            >
-              <div className="flex items-center space-x-3">
-                {getFileIcon(attachment.file_type || 'document')}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {attachment.file_name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {attachment.file_size ? `${(attachment.file_size / 1024 / 1024).toFixed(2)} MB` : 'Tamaño desconocido'} • 
-                    {new Date(attachment.uploaded_at).toLocaleDateString()}
-                    {attachment.is_public && ' • Público'}
-                  </p>
-                  {attachment.description && (
-                    <p className="text-xs text-gray-400 truncate">
-                      {attachment.description}
-                    </p>
-                  )}
+        {/* Filtros */}
+        {showFilters && (
+          <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Búsqueda */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Buscar
+                </label>
+                <div className="relative">
+                  <MagnifyingGlassIcon className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por nombre o descripción..."
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
                 </div>
+              </div>
+
+              {/* Filtro por tipo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tipo de archivo
+                </label>
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">Todos los tipos</option>
+                  <option value="images">Imágenes</option>
+                  <option value="documents">Documentos</option>
+                  <option value="spreadsheets">Hojas de cálculo</option>
+                  <option value="presentations">Presentaciones</option>
+                  <option value="videos">Videos</option>
+                  <option value="audio">Audio</option>
+                </select>
+              </div>
+
+              {/* Ordenar por */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Ordenar por
+                </label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="date">Fecha (más reciente)</option>
+                  <option value="name">Nombre (A-Z)</option>
+                  <option value="size">Tamaño (mayor a menor)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Acciones en lote */}
+        {selectedFiles.length > 0 && (
+          <div className="px-6 py-3 bg-blue-50 border-b border-blue-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <CheckCircleIcon className="h-5 w-5 text-blue-600 mr-2" />
+                <span className="text-sm font-medium text-blue-900">
+                  {selectedFiles.length} documento{selectedFiles.length !== 1 ? 's' : ''} seleccionado{selectedFiles.length !== 1 ? 's' : ''}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => handleViewFile(attachment.id)}
-                  className="p-1 text-blue-600 hover:text-blue-900"
-                  title="Ver archivo"
+                  onClick={handleBulkDownload}
+                  className="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-700 bg-blue-100 rounded-lg hover:bg-blue-200 transition-colors"
                 >
-                  <EyeIcon className="h-4 w-4" />
+                  <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
+                  Descargar
                 </button>
                 <button
-                  onClick={() => handleDownloadFile(attachment.id, attachment.file_name)}
-                  className="p-1 text-green-600 hover:text-green-900"
-                  title="Descargar archivo"
+                  onClick={handleBulkDelete}
+                  className="inline-flex items-center px-3 py-1 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
                 >
-                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  <TrashIcon className="h-4 w-4 mr-1" />
+                  Eliminar
                 </button>
                 <button
-                  onClick={() => handleDelete(attachment.id)}
-                  className="p-1 text-red-600 hover:text-red-900"
-                  title="Eliminar archivo"
+                  onClick={handleClearSelection}
+                  className="inline-flex items-center px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  <TrashIcon className="h-4 w-4" />
+                  <XMarkIcon className="h-4 w-4 mr-1" />
+                  Cancelar
                 </button>
               </div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-8">
-          <PaperClipIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-sm text-gray-500">No hay archivos adjuntos</p>
         </div>
       )}
+            </div>
+            
+      {/* Gestor de documentos */}
+      <DocumentManager
+        incidentId={incidentId}
+        documentType="incident_attachments"
+        onDocumentUploaded={() => {
+          refetchAttachments();
+          showSuccess('Documento subido exitosamente');
+        }}
+        onDocumentDeleted={() => {
+          refetchAttachments();
+          showSuccess('Documento eliminado exitosamente');
+        }}
+      />
 
-      {/* Modal de subida */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Subir Archivo</h3>
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <XMarkIcon className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Seleccionar Archivo
-                </label>
-                <input
-                  type="file"
-                  onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {uploadingFile && (
-                  <p className="mt-2 text-sm text-gray-600">
-                    Archivo seleccionado: {uploadingFile.name} ({(uploadingFile.size / 1024 / 1024).toFixed(2)} MB)
-                  </p>
-                )}
+      {/* Lista de documentos */}
+      <DocumentViewer
+        documents={filteredAttachments}
+        onView={handleViewDocument}
+        onDownload={handleDownloadDocument}
+        onDelete={handleDeleteDocument}
+        isLoading={attachmentsLoading}
+      />
+
+      {/* Estado de carga */}
+      {attachmentsLoading && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="animate-pulse space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center space-x-4">
+                <div className="w-10 h-10 bg-gray-200 rounded"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                </div>
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Descripción (opcional)
-                </label>
-                <textarea
-                  value={uploadDescription}
-                  onChange={(e) => setUploadDescription(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Describe el contenido del archivo..."
-                />
-              </div>
-              
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="is_public"
-                  checked={isPublic}
-                  onChange={(e) => setIsPublic(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="is_public" className="ml-2 block text-sm text-gray-900">
-                  Archivo público (visible para todos los usuarios)
-                </label>
+            ))}
               </div>
             </div>
-            
-            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleUpload}
-                disabled={!uploadingFile || uploadMutation.isPending}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {uploadMutation.isPending ? 'Subiendo...' : 'Subir Archivo'}
-              </button>
-            </div>
+      )}
+
+      {/* Estado de error */}
+      {attachmentsError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-2" />
+            <p className="text-sm text-red-700">
+              Error al cargar los documentos. Intenta actualizar la página.
+            </p>
           </div>
         </div>
       )}

@@ -155,7 +155,7 @@ const TraceabilityOverview = () => {
     return grouped;
   }, [filteredDocuments]);
 
-  const handleOpenDocument = (document) => {
+  const handleOpenDocument = async (document) => {
     console.log('=== OPENING DOCUMENT FROM TRACEABILITY ===');
     console.log('Document:', document);
     
@@ -172,7 +172,8 @@ const TraceabilityOverview = () => {
     
     // Usar la URL de descarga del documento si está disponible
     if (document.download_url) {
-      const apiUrl = `http://localhost:8000${document.download_url}`;
+      const { API_ORIGIN } = await import('../services/api');
+      const apiUrl = `${API_ORIGIN}${document.download_url}`;
       console.log('Using API URL:', apiUrl);
       window.open(apiUrl, '_blank');
     } else {

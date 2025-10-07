@@ -5,6 +5,7 @@ Script para crear la base de datos desde cero sin migraciones problemáticas
 import os
 import sys
 import django
+# WARNING: Local development helper for SQLite only. Do NOT use in production.
 import sqlite3
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def create_database_from_scratch():
     print("Creando base de datos desde cero...")
     
     # 1. Eliminar base de datos actual
+    # Local-only SQLite path (not used in production)
     db_path = "db.sqlite3"
     if os.path.exists(db_path):
         os.remove(db_path)

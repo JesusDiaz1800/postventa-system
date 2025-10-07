@@ -24,119 +24,16 @@ from .filters import IncidentFilter
 from .permissions import CanManageIncidents, CanViewIncidents
 
 
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def test_incidents_endpoint(request):
-    """Test endpoint to debug incidents API"""
-    logger.info(f"Test endpoint called by user: {request.user.username}")
-    
-    try:
-        # Get all incidents without filters
-        incidents = Incident.objects.all()
-        logger.info(f"Total incidents in DB: {incidents.count()}")
-        
-        # Serialize
-        serializer = IncidentListSerializer(incidents, many=True)
-        logger.info(f"Serialized incidents count: {len(serializer.data)}")
-        
-        return Response({
-            'success': True,
-            'count': incidents.count(),
-            'incidents': serializer.data,
-            'user': request.user.username,
-            'user_role': request.user.role
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in test endpoint: {e}")
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def simple_incidents_list(request):
-    """Simple incidents list without complex filters"""
-    logger.info(f"Simple incidents list called by user: {request.user.username}")
-    
-    try:
-        # Get all incidents
-        incidents = Incident.objects.all().order_by('-created_at')
-        logger.info(f"Total incidents in DB: {incidents.count()}")
-        
-        # Serialize
-        serializer = IncidentListSerializer(incidents, many=True)
-        logger.info(f"Serialized incidents count: {len(serializer.data)}")
-        
-        # Return in the format expected by the frontend
-        return Response({
-            'results': serializer.data,
-            'count': incidents.count(),
-            'next': None,
-            'previous': None
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in simple incidents list: {e}")
-        return Response({
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
-def debug_incidents_list(request):
-    """Debug endpoint to see raw data"""
-    logger.info(f"Debug incidents list called by user: {request.user.username}")
-    
-    try:
-        # Get all incidents
-        incidents = Incident.objects.all()
-        logger.info(f"Total incidents in DB: {incidents.count()}")
-        
-        # Return raw data for debugging
-        incidents_data = []
-        for incident in incidents:
-            incidents_data.append({
-                'id': incident.id,
-                'code': incident.code,
-                'cliente': incident.cliente,
-                'provider': incident.provider,
-                'estado': incident.estado,
-                'prioridad': incident.prioridad,
-                'descripcion': incident.descripcion[:100] if incident.descripcion else '',
-                'created_at': incident.created_at.isoformat() if incident.created_at else None
-            })
-        
-        return Response({
-            'success': True,
-            'count': incidents.count(),
-            'incidents': incidents_data,
-            'user': request.user.username,
-            'user_role': request.user.role
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in debug incidents list: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return Response({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class IncidentListCreateView(generics.ListCreateAPIView):
     """List and create incidents"""
     permission_classes = [permissions.IsAuthenticated, CanViewIncidents]
-    # Temporarily disable complex filters to debug
-    # filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    # filterset_class = IncidentFilter
-    # search_fields = ['code', 'cliente', 'provider', 'obra', 'sku', 'lote']
-    # ordering_fields = ['created_at', 'fecha_reporte', 'prioridad', 'estado']
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = IncidentFilter
+    search_fields = ['code', 'cliente', 'provider', 'obra', 'sku', 'lote']
+    ordering_fields = ['created_at', 'fecha_reporte', 'prioridad', 'estado']
     ordering = ['-created_at']
     
     def get_serializer_class(self):
@@ -147,77 +44,27 @@ class IncidentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         logger.info(f"Getting incidents for user: {user.username} (role: {user.role})")
-        
+
+        # Base queryset
+        queryset = Incident.objects.all()
+
         # Filter based on user role
         if user.role == 'provider':
             # Providers can only see incidents related to their products
-            queryset = Incident.objects.filter(provider__icontains=user.username)
-        elif user.role in ['customer_service']:
-            # Customer service can see all incidents
-            queryset = Incident.objects.all()
-        else:
-            # Other roles can see all incidents
-            queryset = Incident.objects.all()
+            queryset = queryset.filter(provider__icontains=user.username)
         
         # Apply state filter if provided
         estado = self.request.query_params.get('estado')
         if estado:
             queryset = queryset.filter(estado=estado)
-            logger.info(f"Filtered by estado '{estado}': {queryset.count()} incidents")
-        
-        logger.info(f"Base queryset count: {queryset.count()}")
-        return queryset
-    
-    def list(self, request, *args, **kwargs):
-        """Override list method to add logging"""
-        logger.info(f"IncidentListCreateView.list called by user: {request.user.username}")
-        logger.info(f"Request filters: {request.GET}")
-        
-        # Get the queryset
-        queryset = self.filter_queryset(self.get_queryset())
-        logger.info(f"Filtered queryset count: {queryset.count()}")
-        
-        # Serialize the data
-        serializer = self.get_serializer(queryset, many=True)
-        logger.info(f"Serialized data count: {len(serializer.data)}")
-        
-        # Return response
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Response data type: {type(response.data)}")
-        logger.info(f"Response data: {response.data}")
-        
-        return response
-    
-    def create(self, request, *args, **kwargs):
-        """Override create method to add detailed logging"""
-        logger.info(f"IncidentListCreateView.create called by user: {request.user.username}")
-        logger.info(f"Request data: {request.data}")
-        logger.info(f"Request content type: {request.content_type}")
-        
-        try:
-            # Get serializer
-            serializer = self.get_serializer(data=request.data)
-            logger.info(f"Serializer data: {serializer.initial_data}")
-            
-            # Validate data
-            if serializer.is_valid():
-                logger.info("Serializer is valid")
-                self.perform_create(serializer)
-                headers = self.get_success_headers(serializer.data)
-                logger.info(f"Incident created successfully: {serializer.data}")
-                return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-            else:
-                logger.error(f"Serializer validation errors: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-                
-        except Exception as e:
-            logger.error(f"Error in create method: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return Response({
-                'error': str(e),
-                'detail': 'Error interno del servidor'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Optimize query to prevent N+1 problems
+        return queryset.select_related(
+            'created_by', 'assigned_to', 'closed_by'
+        ).annotate(
+            images_count=Count('images', distinct=True),
+            documents_count=Count('attachments', distinct=True)
+        )
     
     def perform_create(self, serializer):
         incident = serializer.save()
@@ -517,19 +364,40 @@ def list_incident_images(request, incident_id):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def view_incident_image(request, incident_id, image_id):
-    """Ver imagen de una incidencia"""
+    """Ver imagen de una incidencia de forma segura"""
+    from django.conf import settings
+    import os
+
     try:
-        incident = get_object_or_404(Incident, id=incident_id)
-        image = get_object_or_404(IncidentImage, id=image_id, incident=incident)
+        image = get_object_or_404(IncidentImage, id=image_id, incident_id=incident_id)
         
-        if not os.path.exists(image.path):
+        # --- SECURITY FIX: Path Traversal --- 
+        # 1. Sanitize the filename to prevent directory traversal attacks.
+        safe_filename = os.path.basename(image.path)
+        
+        # 2. Construct the full, safe path by joining the secure base directory with the sanitized filename.
+        # NOTE: This assumes image.path stores a relative path like 'incidents/123/images/file.jpg'
+        # If image.path stores an absolute path, this logic needs adjustment.
+        # Based on the upload logic, it seems to be relative.
+        safe_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, safe_filename)
+
+        # 3. Verify that the final resolved path is actually within the shared documents directory.
+        if not os.path.abspath(safe_path).startswith(os.path.abspath(settings.SHARED_DOCUMENTS_PATH)):
+            logger.warning(f"Path traversal attempt blocked for image {image.id} by user {request.user.username}")
             return Response(
-                {'error': 'Imagen no encontrada'}, 
+                {'error': 'Acceso denegado'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not os.path.exists(safe_path):
+            logger.error(f"Image file not found at safe path: {safe_path} for image record {image.id}")
+            return Response(
+                {'error': 'Archivo de imagen no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
         response = FileResponse(
-            open(image.path, 'rb'),
+            open(safe_path, 'rb'),
             content_type=image.mime_type
         )
         response['Content-Disposition'] = f'inline; filename="{image.filename}"'
@@ -537,7 +405,7 @@ def view_incident_image(request, incident_id, image_id):
         return response
         
     except Exception as e:
-        logger.error(f"Error viendo imagen: {e}")
+        logger.error(f"Error viewing image: {e}")
         return Response(
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

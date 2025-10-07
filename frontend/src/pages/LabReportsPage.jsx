@@ -230,16 +230,21 @@ const LabReportsPage = () => {
     input.click();
   };
 
-  const handleOpenDocument = (report) => {
+  const handleOpenDocument = async (report) => {
     const incidentId = report.related_incident?.id || report.related_incident;
     // Si hay documentos subidos, abrir el primero a través del servidor
     if (uploadedDocuments[incidentId] && uploadedDocuments[incidentId].length > 0) {
       const firstDoc = uploadedDocuments[incidentId][0];
-      const apiUrl = `http://localhost:8000/api/documents/open/lab-report/${incidentId}/${firstDoc.filename}`;
+      const encodedFilename = encodeURIComponent(firstDoc.filename);
+  const { API_ORIGIN } = await import('../services/api');
+      const apiUrl = `${API_ORIGIN}/api/documents/open/lab-report/${incidentId}/${encodedFilename}`;
       window.open(apiUrl, '_blank');
     } else {
       // Si no hay documentos subidos, intentar abrir el reporte generado
-      const apiUrl = `http://localhost:8000/api/documents/open/lab-report/${incidentId}/${report.report_number || report.id}.pdf`;
+      const filename = `${report.report_number || report.id}.pdf`;
+      const encodedFilename = encodeURIComponent(filename);
+      const { API_ORIGIN } = await import('../services/api');
+      const apiUrl = `${API_ORIGIN}/api/documents/open/lab-report/${incidentId}/${encodedFilename}`;
       window.open(apiUrl, '_blank');
     }
   };
@@ -472,8 +477,10 @@ const LabReportsPage = () => {
                           {uploadedDocuments[report.related_incident?.id]?.slice(0, 2).map((doc, index) => (
                             <div key={index} className="flex items-center space-x-1">
                               <button
-                                onClick={() => {
-                                  const apiUrl = `http://localhost:8000/api/documents/open/lab-report/${report.related_incident?.id}/${doc.filename}`;
+                                onClick={async () => {
+                                  const encodedFilename = encodeURIComponent(doc.filename);
+                                  const { API_ORIGIN } = await import('../services/api');
+                                  const apiUrl = `${API_ORIGIN}/api/documents/open/lab-report/${report.related_incident?.id}/${encodedFilename}`;
                                   window.open(apiUrl, '_blank');
                                 }}
                                 className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 text-purple-800 hover:bg-purple-200 cursor-pointer transition-colors flex-1"

@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 // import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'react-hot-toast';
+
+// PWA Components
+import PWAInstaller from './components/PWAInstaller';
+import PWAUpdate from './components/PWAUpdate';
+import OfflineIndicator from './components/OfflineIndicator';
 
 // Components
 import { Header } from './components/Header';
@@ -43,6 +48,8 @@ function App() {
   const { user, isLoading, login, logout } = useAuth();
   const { theme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // Set document title
   useEffect(() => {
@@ -75,8 +82,8 @@ function App() {
           <ErrorBoundary>
             <div className="flex">
               <Sidebar 
-                currentPath={window.location.pathname}
-                onNavigate={(path) => window.location.href = path}
+                currentPath={location.pathname}
+                onNavigate={(path) => navigate(path)}
                 userRole={user.role}
                 isOpen={isSidebarOpen}
               />
@@ -87,7 +94,7 @@ function App() {
                 <Header 
                   user={user} 
                   onLogout={logout}
-                  currentPage={window.location.pathname}
+                  currentPage={location.pathname}
                   onMenuToggle={() => setIsSidebarOpen(!isSidebarOpen)}
                   isSidebarOpen={isSidebarOpen}
                 />
@@ -161,6 +168,11 @@ function App() {
       {/* {(import.meta as any).env?.DEV && (
         <ReactQueryDevtools initialIsOpen={false} />
       )} */}
+      
+      {/* PWA Components */}
+      <PWAInstaller />
+      <PWAUpdate />
+      <OfflineIndicator />
     </div>
   );
 }

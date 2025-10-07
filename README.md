@@ -1,3 +1,10 @@
+# ADVERTENCIA Y GUÍA DE MIGRACIÓN
+
+## Migración futura a SQL Server
+Actualmente el sistema usa SQL Express. Para migrar a SQL Server empresarial, revisa los modelos y migraciones para compatibilidad total (evita ArrayField, usa ManyToManyField para listas, revisa tipos de datos).
+
+## Gestión centralizada de documentos
+Todos los documentos adjuntos y generados se guardan en la carpeta `documentos/` en la raíz del proyecto. Asegúrate de que esta carpeta tenga permisos de lectura/escritura para todos los usuarios del escritorio remoto.
 # Sistema de Gestión de Incidencias Postventa
 
 ## 🎯 Descripción
@@ -78,44 +85,52 @@ Sistema completo de gestión de incidencias postventa para control de calidad, d
 
 ## 🚀 Instalación y Configuración
 
+La configuración del sistema se gestiona completamente a través de variables de entorno para máxima seguridad y portabilidad.
+
 ### Prerrequisitos
 - Docker y Docker Compose
-- Acceso a carpeta compartida `\\192.168.1.161\Y:\CONTROL DE CALIDAD\postventa`
-- SQL Server Express en `192.168.1.161\SQLEXPRESS`
+- Un servidor de base de datos SQL Server accesible.
+- Una carpeta compartida en la red (o local) para almacenar documentos.
+- Un archivo `.env` con las variables de entorno configuradas (ver sección de abajo).
 
-### Instalación Rápida
+### Instalación Rápida con Docker
 
 1. **Clonar el repositorio**
-```bash
-git clone <repository-url>
-cd postventa-system
-```
+   ```bash
+   git clone <repository-url>
+   cd postventa-system
+   ```
 
-2. **Configurar variables de entorno**
-```bash
-cp .env.example .env
-# Editar .env con tus configuraciones
-```
+2. **Configurar Variables de Entorno**
+   Crea un archivo `.env` en el directorio `backend/`. Puedes copiar el ejemplo y modificarlo según tu entorno.
+   ```bash
+   # Navega a la carpeta del backend
+   cd backend
+
+   # Copia el archivo de ejemplo
+   cp .env.example .env
+   ```
+   **Edita el archivo `.env`** con los valores correctos para tu base de datos, secret key, etc.
 
 3. **Levantar el sistema**
-```bash
-# Para desarrollo
-docker-compose -f docker-compose.dev.yml up -d
+   ```bash
+   # Para desarrollo
+   docker-compose -f docker-compose.dev.yml up -d
 
-# Para producción
-docker-compose -f docker-compose.prod.yml up -d
-```
+   # Para producción
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
 
-4. **Inicializar la base de datos**
-```bash
-docker-compose exec backend python manage.py migrate
-docker-compose exec backend python manage.py createsuperuser
-```
+4. **Inicializar la base de datos** (solo la primera vez)
+   ```bash
+   docker-compose exec backend python manage.py migrate
+   docker-compose exec backend python manage.py createsuperuser
+   ```
 
 5. **Acceder al sistema**
-- Frontend: http://localhost:3000 (dev) o http://localhost (prod)
-- Backend API: http://localhost:8000/api
-- Admin: http://localhost:8000/admin
+   - Frontend: `http://localhost:3000` (dev) o `http://localhost` (prod)
+   - Backend API: `http://localhost:8000/api`
+   - Admin: `http://localhost:8000/admin`
 
 ## 📁 Estructura del Proyecto
 
@@ -147,15 +162,18 @@ postventa-system/
 
 ## 🔧 Configuración Avanzada
 
+Todas las configuraciones se controlan a través del archivo `.env` en la carpeta `backend/`.
+
 ### Base de Datos
-- **Host**: 192.168.1.161
-- **Instancia**: SQLEXPRESS
-- **Base de datos**: postventa_system
-- **Usuario**: sa
-- **Contraseña**: Configurable en .env
+- **Host (`DB_HOST`)**: Dirección del servidor SQL Server (ej. `192.168.1.100\SQLEXPRESS` o `localhost`).
+- **Nombre (`DB_NAME`)**: Nombre de la base de datos (ej. `postventa_system`).
+- **Usuario (`DB_USER`)**: Usuario para la conexión.
+- **Contraseña (`DB_PASSWORD`)**: Contraseña del usuario.
+
+> **⚠️ ADVERTENCIA DE SEGURIDAD:** Para un entorno de producción, **NO UTILICE** el usuario `sa` u otro usuario con privilegios de administrador. Cree un usuario de base de datos dedicado para esta aplicación con los permisos mínimos necesarios sobre la base de datos `postventa_system`.
 
 ### Almacenamiento
-- **Carpeta compartida**: `\\192.168.1.161\Y:\CONTROL DE CALIDAD\postventa`
+- **Carpeta compartida (`SHARED_DOCUMENTS_PATH`)**: Ruta de red o local donde se almacenarán los documentos (ej. `\\SERVER\shared\postventa` o `C:\postventa_docs`). La aplicación debe tener permisos de lectura/escritura en esta ruta.
 - **Estructura**: `incidencias/{id}/docs` y `incidencias/{id}/images`
 - **Tipos permitidos**: JPG, PNG, PDF, DOCX, XLSX
 

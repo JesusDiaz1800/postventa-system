@@ -1,6 +1,31 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Normalize API base: prefer relative '/api' in dev; if an absolute URL is provided
+// and it is https://localhost, force http to avoid dev server HTTPS errors.
+function resolveApiBase() {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl || envUrl === '') return '/api';
+  try {
+    const u = new URL(envUrl, window.location.origin);
+    if ((u.hostname === 'localhost' || u.hostname === '127.0.0.1') && u.protocol === 'https:') {
+      u.protocol = 'http:';
+      return u.pathname.endsWith('/api') ? u.toString().replace(/\/$/, '') : u.toString().replace(/\/$/, '') + '/api';
+    }
+    return envUrl.replace(/\/$/, '');
+  } catch {
+    return '/api';
+  }
+}
+
+export const API_BASE_URL = resolveApiBase();
+export const API_ORIGIN = (() => {
+  try {
+    const u = new URL(API_BASE_URL, window.location.origin);
+    return u.origin;
+  } catch {
+    return window.location.origin;
+  }
+})();
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -32,28 +57,14 @@ api.interceptors.request.use(
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('=== TOKEN ADDED TO REQUEST ===');
-      console.log('URL:', config.url);
-      console.log('Token preview:', token.substring(0, 20) + '...');
-    } else {
-      console.log('=== NO TOKEN FOUND ===');
-      console.log('URL:', config.url);
-      console.log('localStorage postventa_auth:', localStorage.getItem('postventa_auth'));
-      console.log('localStorage access_token:', localStorage.getItem('access_token'));
     }
     
     // Log request details
-    if (config.url?.includes('/users/') && config.method === 'post') {
-      console.log('=== AXIOS REQUEST INTERCEPTOR ===');
-      console.log('Request URL:', config.url);
-      console.log('Request method:', config.method);
-      console.log('Request headers:', config.headers);
-      console.log('Request data:', config.data);
-      console.log('Request data type:', typeof config.data);
-      if (config.data) {
-        console.log('Request data keys:', Object.keys(config.data));
-        console.log('Request data values:', Object.values(config.data));
-      }
+    // Optional debug logs can be enabled via VITE_DEBUG_HTTP
+    const debug = import.meta.env.VITE_DEBUG_HTTP === 'true';
+    if (debug) {
+      // Keep minimal, non-sensitive logs
+      console.debug('[HTTP]', config.method?.toUpperCase(), config.url);
     }
     
     return config;
@@ -67,36 +78,16 @@ api.interceptors.request.use(
 // Response interceptor to handle token refresh
 api.interceptors.response.use(
   (response) => {
-    // Log response details for user operations
-    if (response.config?.url?.includes('/users/') && response.config?.method === 'get') {
-      console.log('=== AXIOS RESPONSE INTERCEPTOR (GET USERS SUCCESS) ===');
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-      console.log('Response data:', response.data);
-      console.log('Response data type:', typeof response.data);
-      console.log('Response data keys:', Object.keys(response.data));
-      if (response.data.results) {
-        console.log('Response data.results length:', response.data.results.length);
-        console.log('Response data.results type:', typeof response.data.results);
-      }
-    }
-    if (response.config?.url?.includes('/users/') && response.config?.method === 'post') {
-      console.log('=== AXIOS RESPONSE INTERCEPTOR (POST USER SUCCESS) ===');
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-      console.log('Response data:', response.data);
+    const debug = import.meta.env.VITE_DEBUG_HTTP === 'true';
+    if (debug) {
+      console.debug('[HTTP OK]', response.status, response.config?.url);
     }
     return response;
   },
   async (error) => {
-    // Log error details for user creation
-    if (error.config?.url?.includes('/users/') && error.config?.method === 'post') {
-      console.log('=== AXIOS RESPONSE INTERCEPTOR (ERROR) ===');
-      console.log('Error status:', error.response?.status);
-      console.log('Error headers:', error.response?.headers);
-      console.log('Error data:', error.response?.data);
-      console.log('Error config:', error.config);
-      console.log('Error message:', error.message);
+    const debug = import.meta.env.VITE_DEBUG_HTTP === 'true';
+    if (debug) {
+      console.debug('[HTTP ERR]', error.response?.status, error.config?.url);
     }
     
     const originalRequest = error.config;
@@ -220,20 +211,7 @@ export const aiAPI = {
 
 export const usersAPI = {
   list: (params) => api.get('/users/', { params }),
-  create: (data) => {
-    console.log('=== API CREATE USER ===');
-    console.log('API create data:', data);
-    console.log('API create data type:', typeof data);
-    console.log('API create data keys:', Object.keys(data));
-    console.log('API create data values:', Object.values(data));
-    
-    // Log each field individually
-    Object.entries(data).forEach(([key, value]) => {
-      console.log(`API ${key}:`, value, `(type: ${typeof value})`);
-    });
-    
-    return api.post('/users/', data);
-  },
+  create: (data) => api.post('/users/', data),
   get: (id) => api.get(`/users/${id}/`),
   update: (id, data) => api.put(`/users/${id}/`, data),
   delete: (id) => api.delete(`/users/${id}/`),
