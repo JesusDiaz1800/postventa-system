@@ -4,7 +4,7 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [
-      react()
+    react()
   ],
   resolve: {
     alias: {
@@ -14,35 +14,21 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom'],
   },
-  server: {
-<<<<<<< HEAD
-    port: 3000,
-    host: '0.0.0.0',
-    hmr: {
-      port: 3001,
-      host: 'localhost',
-    },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-=======
-    port: 5173,
-    host: '0.0.0.0',
-    hmr: {
-      port: 5174,
-      host: '192.168.1.234',
-    },
-    proxy: {
-      '/api': {
-        target: 'http://192.168.1.234:8000',
->>>>>>> 674c244 (tus cambios)
-        changeOrigin: true,
-        secure: false,
-      },
+  port: 5173,
+  host: '0.0.0.0',
+  hmr: {
+    overlay: true
+  },
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8000',
+      changeOrigin: true,
+      secure: false,
     },
   },
+},
   build: {
-    outDir: 'dist',
-    sourcemap: true,
-  },
+  outDir: 'dist',
+  sourcemap: true,
+},
 });

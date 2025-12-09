@@ -24,9 +24,6 @@ from .filters import IncidentFilter
 from .permissions import CanManageIncidents, CanViewIncidents
 
 
-
-
-
 class IncidentListCreateView(generics.ListCreateAPIView):
     """List and create incidents"""
     permission_classes = [permissions.IsAuthenticated, CanViewIncidents]
@@ -410,8 +407,6 @@ def view_incident_image(request, incident_id, image_id):
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-<<<<<<< HEAD
-=======
 
 
 @api_view(['GET'])
@@ -552,6 +547,3 @@ def escalate_to_supplier(request, incident_id):
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-
-
->>>>>>> 674c244 (tus cambios)

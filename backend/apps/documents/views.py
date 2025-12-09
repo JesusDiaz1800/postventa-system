@@ -3,11 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-<<<<<<< HEAD
-from django.db.models import Q
-=======
 from django.db.models import Q, Count
->>>>>>> 674c244 (tus cambios)
 from django.http import FileResponse, Http404
 from django.conf import settings
 from django_filters.rest_framework import DjangoFilterBackend
@@ -565,41 +561,6 @@ def search_documents(request):
 @permission_classes([permissions.IsAuthenticated])
 def document_dashboard(request):
     """Get document dashboard data"""
-<<<<<<< HEAD
-    user = request.user
-    
-    # Base queryset
-    if user.role == 'provider':
-        documents = Document.objects.filter(
-            incident__provider__icontains=user.username
-        )
-    else:
-        documents = Document.objects.all()
-    
-    # KPIs
-    total_documents = documents.count()
-    final_documents = documents.filter(is_final=True).count()
-    pending_conversions = DocumentConversion.objects.filter(
-        document__in=documents,
-        status='pending'
-    ).count()
-    
-    # Documents by type
-    type_counts = documents.values('document_type').annotate(count=models.Count('id'))
-    
-    # Recent documents
-    recent_documents = documents.order_by('-created_at')[:10]
-    
-    return Response({
-        'kpis': {
-            'total_documents': total_documents,
-            'final_documents': final_documents,
-            'pending_conversions': pending_conversions,
-        },
-        'type_distribution': list(type_counts),
-        'recent_documents': DocumentListSerializer(recent_documents, many=True).data
-    })
-=======
     try:
         user = request.user
         
@@ -643,8 +604,6 @@ def document_dashboard(request):
             'type_distribution': [],
             'recent_documents': []
         })
->>>>>>> 674c244 (tus cambios)
-
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])

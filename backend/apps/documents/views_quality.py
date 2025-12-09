@@ -171,9 +171,6 @@ def generate_quality_report_document(request, report_id):
             {'error': f'Error interno del servidor: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-<<<<<<< HEAD
-=======
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def internal_quality_reports(request):
@@ -216,4 +213,3 @@ def internal_quality_reports(request):
             {'error': f'Error obteniendo reportes: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
->>>>>>> 674c244 (tus cambios)

@@ -153,13 +153,6 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                   <div className="border-t border-gray-100"></div>
                   
                   <button
-<<<<<<< HEAD
-                    onClick={() => {
-                      onLogout?.();
-                      setIsUserMenuOpen(false);
-                    }}
-                    className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-=======
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -170,7 +163,6 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                     className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors duration-200"
                     data-testid="logout-button"
                     type="button"
->>>>>>> 674c244 (tus cambios)
                   >
                     <LogOut className="w-4 h-4 mr-3" />
                     Cerrar Sesión

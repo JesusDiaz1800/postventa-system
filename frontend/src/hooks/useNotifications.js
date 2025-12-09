@@ -1,179 +1,13 @@
-<<<<<<< HEAD
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../services/api';
-
-// Hook para notificaciones con WebSocket
-=======
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import notificationService from '../services/notificationService';
 
 // Hook principal para notificaciones con WebSocket
->>>>>>> 674c244 (tus cambios)
 export const useNotifications = () => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
-<<<<<<< HEAD
-  const wsRef = useRef(null);
-  const queryClient = useQueryClient();
-
-  // Conectar WebSocket
-  const connectWebSocket = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-  // Build WS URL from current location so it matches http vs https (ws vs wss)
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host; // includes port when present
-  const wsUrl = `${protocol}//${host}/ws/notifications/`;
-  const ws = new WebSocket(wsUrl);
-    
-    ws.onopen = () => {
-      console.log('WebSocket conectado para notificaciones');
-      setIsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        switch (data.type) {
-          case 'connection_established':
-            setUnreadCount(data.unread_count);
-            break;
-            
-          case 'new_notification':
-            const newNotification = data.notification;
-            setNotifications(prev => [newNotification, ...prev]);
-            setUnreadCount(prev => prev + 1);
-            
-            // Mostrar notificación del navegador si está permitido
-            if (Notification.permission === 'granted') {
-              new Notification(newNotification.title, {
-                body: newNotification.message,
-                icon: '/favicon.ico',
-                badge: '/favicon.ico'
-              });
-            }
-            break;
-            
-          case 'notification_updated':
-            setNotifications(prev => 
-              prev.map(notif => 
-                notif.id === data.notification.id ? data.notification : notif
-              )
-            );
-            break;
-            
-          case 'notification_deleted':
-            setNotifications(prev => 
-              prev.filter(notif => notif.id !== data.notification_id)
-            );
-            break;
-            
-          case 'unread_count_update':
-            setUnreadCount(data.count);
-            break;
-            
-          case 'notifications_list':
-            setNotifications(data.notifications);
-            break;
-            
-          case 'unread_count':
-            setUnreadCount(data.count);
-            break;
-            
-          case 'error':
-            console.error('Error en WebSocket:', data.message);
-            break;
-            
-          default:
-            console.log('Mensaje WebSocket no manejado:', data);
-        }
-      } catch (error) {
-        console.error('Error parseando mensaje WebSocket:', error);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket desconectado');
-      setIsConnected(false);
-      // Reconectar después de 3 segundos
-      setTimeout(connectWebSocket, 3000);
-    };
-
-    ws.onerror = (error) => {
-      console.error('Error en WebSocket:', error);
-      setIsConnected(false);
-    };
-
-    wsRef.current = ws;
-  }, []);
-
-  // Desconectar WebSocket
-  const disconnectWebSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-      setIsConnected(false);
-    }
-  }, []);
-
-  // Conectar al montar el componente
-  useEffect(() => {
-    connectWebSocket();
-    
-    // Solicitar permisos para notificaciones del navegador
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
-    return () => {
-      disconnectWebSocket();
-    };
-  }, [connectWebSocket, disconnectWebSocket]);
-
-  // Enviar mensaje por WebSocket
-  const sendWebSocketMessage = useCallback((message) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    }
-  }, []);
-
-  // Marcar notificación como leída
-  const markAsRead = useCallback((notificationId) => {
-    sendWebSocketMessage({
-      type: 'mark_as_read',
-      notification_id: notificationId
-    });
-  }, [sendWebSocketMessage]);
-
-  // Marcar todas como leídas
-  const markAllAsRead = useCallback(() => {
-    sendWebSocketMessage({
-      type: 'mark_all_as_read'
-    });
-  }, [sendWebSocketMessage]);
-
-  // Obtener notificaciones recientes
-  const getRecentNotifications = useCallback((limit = 10) => {
-    sendWebSocketMessage({
-      type: 'get_notifications',
-      limit
-    });
-  }, [sendWebSocketMessage]);
-
-  // Obtener conteo de no leídas
-  const getUnreadCount = useCallback(() => {
-    sendWebSocketMessage({
-      type: 'get_unread_count'
-    });
-  }, [sendWebSocketMessage]);
-=======
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -299,18 +133,11 @@ export const useNotifications = () => {
   const sendMessage = useCallback((message) => {
     notificationService.send(message);
   }, []);
->>>>>>> 674c244 (tus cambios)
 
   return {
     notifications,
     unreadCount,
     isConnected,
-<<<<<<< HEAD
-    markAsRead,
-    markAllAsRead,
-    getRecentNotifications,
-    getUnreadCount
-=======
     isLoading,
     loadNotifications,
     markAsRead,
@@ -324,7 +151,6 @@ export const useNotifications = () => {
     connectWebSocket: connect,
     disconnectWebSocket: disconnect,
     sendWebSocketMessage: sendMessage
->>>>>>> 674c244 (tus cambios)
   };
 };
 

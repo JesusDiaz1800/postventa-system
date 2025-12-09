@@ -19,11 +19,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Incidents = () => {
-<<<<<<< HEAD
-  console.log('=== INCIDENTS COMPONENT LOADED ===');
-=======
   // console.log('=== INCIDENTS COMPONENT LOADED ===');
->>>>>>> 674c244 (tus cambios)
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useNotifications();
   
@@ -46,74 +42,39 @@ const Incidents = () => {
   });
 
   // Debug logging
-<<<<<<< HEAD
-  console.log('=== INCIDENTS DEBUG ===');
-  console.log('Data:', data);
-  console.log('IsLoading:', isLoading);
-  console.log('Error:', error);
-=======
   // console.log('=== INCIDENTS DEBUG ===');
   // console.log('Data:', data);
   // console.log('IsLoading:', isLoading);
   // console.log('Error:', error);
->>>>>>> 674c244 (tus cambios)
 
   // Handle different response formats
   let incidents = [];
   let totalCount = 0;
   
   if (data) {
-<<<<<<< HEAD
-    console.log('Processing data structure:', data);
-    if (Array.isArray(data)) {
-      // Direct array response
-      console.log('Using direct array response');
-=======
     // console.log('Processing data structure:', data);
     if (Array.isArray(data)) {
       // Direct array response
       // console.log('Using direct array response');
->>>>>>> 674c244 (tus cambios)
       incidents = data;
       totalCount = data.length;
     } else if (data.results && Array.isArray(data.results)) {
       // Paginated response
-<<<<<<< HEAD
-      console.log('Using paginated response');
-=======
       // console.log('Using paginated response');
->>>>>>> 674c244 (tus cambios)
       incidents = data.results;
       totalCount = data.count || data.results.length;
     } else if (data.data && Array.isArray(data.data)) {
       // Alternative data wrapper
-<<<<<<< HEAD
-      console.log('Using data.data array');
-=======
       // console.log('Using data.data array');
->>>>>>> 674c244 (tus cambios)
       incidents = data.data;
       totalCount = data.data.length;
     } else if (data.data && data.data.results && Array.isArray(data.data.results)) {
       // Nested data.results structure
-<<<<<<< HEAD
-      console.log('Using nested data.data.results');
-=======
       // console.log('Using nested data.data.results');
->>>>>>> 674c244 (tus cambios)
       incidents = data.data.results;
       totalCount = data.data.count || data.data.results.length;
     } else if (data.data && typeof data.data === 'object') {
       // Check if data.data has incidents array
-<<<<<<< HEAD
-      console.log('Checking data.data structure:', data.data);
-      if (data.data.incidents && Array.isArray(data.data.incidents)) {
-        console.log('Using data.data.incidents');
-        incidents = data.data.incidents;
-        totalCount = data.data.count || data.data.incidents.length;
-      } else if (Array.isArray(data.data)) {
-        console.log('Using data.data as array');
-=======
       // console.log('Checking data.data structure:', data.data);
       if (data.data.incidents && Array.isArray(data.data.incidents)) {
         // console.log('Using data.data.incidents');
@@ -121,19 +82,13 @@ const Incidents = () => {
         totalCount = data.data.count || data.data.incidents.length;
       } else if (Array.isArray(data.data)) {
         // console.log('Using data.data as array');
->>>>>>> 674c244 (tus cambios)
         incidents = data.data;
         totalCount = data.data.length;
       }
     }
     
-<<<<<<< HEAD
-    console.log('Final incidents array:', incidents);
-    console.log('Final incidents count:', incidents.length);
-=======
     // console.log('Final incidents array:', incidents);
     // console.log('Final incidents count:', incidents.length);
->>>>>>> 674c244 (tus cambios)
   }
   
 
@@ -273,14 +228,9 @@ const Incidents = () => {
   }
 
   return (
-<<<<<<< HEAD
-    <div className="page-container space-y-6">
-      <div className="max-w-7xl mx-auto">
-=======
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-6">
->>>>>>> 674c244 (tus cambios)
         {/* Header */}
         <div className="mb-8">
       <div className="flex justify-between items-center">
@@ -516,10 +466,7 @@ const Incidents = () => {
           </div>
         )}
         </div>
-<<<<<<< HEAD
-=======
         </div>
->>>>>>> 674c244 (tus cambios)
       </div>
 
       {/* Detail Modal */}

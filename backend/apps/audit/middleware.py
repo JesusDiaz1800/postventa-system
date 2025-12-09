@@ -1,17 +1,6 @@
 """
-<<<<<<< HEAD
-Middleware para auditoría automática de acc            # Registrar en el log de auditoría
-            AuditLogManager.log_action(
-                user=request.user,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                description=self._create_action_description(request, response),
-                metadata={"""
-=======
 Middleware para auditoría automática de acciones importantes de usuarios
 """
->>>>>>> 674c244 (tus cambios)
 import json
 import logging
 import time
@@ -25,19 +14,11 @@ logger = logging.getLogger(__name__)
 
 class AuditMiddleware(MiddlewareMixin):
     """
-<<<<<<< HEAD
-    Middleware para registrar automáticamente las acciones de los usuarios
-=======
     Middleware para registrar automáticamente solo las acciones importantes de los usuarios
->>>>>>> 674c244 (tus cambios)
     """
     
     def process_request(self, request):
         """Procesar la request antes de que llegue a la vista"""
-<<<<<<< HEAD
-        # Marcar el inicio de la request para tracking
-=======
->>>>>>> 674c244 (tus cambios)
         request._audit_start_time = time.time()
         return None
     
@@ -46,86 +27,50 @@ class AuditMiddleware(MiddlewareMixin):
         try:
             # Solo registrar para usuarios autenticados
             if hasattr(request, 'user') and request.user.is_authenticated:
-<<<<<<< HEAD
-                self._log_request(request, response)
-=======
                 # Solo registrar acciones importantes
                 if self._should_audit(request):
                     self._log_request(request, response)
->>>>>>> 674c244 (tus cambios)
         except Exception as e:
             logger.error(f"Error en AuditMiddleware: {e}")
         
         return response
     
-<<<<<<< HEAD
-=======
     def _should_audit(self, request):
         """Determinar si la acción debe ser auditada"""
-        path = request.path
         method = request.method
+        path = request.path
         
-        # Rutas que SÍ deben ser auditadas
-        important_paths = [
-            '/api/auth/login/',           # Login
-            '/api/auth/logout/',          # Logout
-            '/api/incidents/',            # Crear/eliminar incidencias
-            '/api/documents/',            # Crear/eliminar documentos
-            '/api/documents/visit-reports/', # Crear reportes de visita
-            '/api/documents/lab-reports/',   # Crear reportes de laboratorio
-            '/api/documents/supplier-reports/', # Crear reportes de proveedor
-            '/api/documents/quality-reports/',  # Crear reportes de calidad
-            '/api/documents/upload/',     # Subir archivos
-            '/api/documents/download/',   # Descargar archivos
-            '/api/documents/attach/',     # Adjuntar documentos
-            '/api/workflows/escalate/',   # Escalar incidencias
-            '/api/workflows/close/',      # Cerrar incidencias
-        ]
-        
-        # Métodos importantes
-        important_methods = ['POST', 'PUT', 'PATCH', 'DELETE']
-        
-        # Verificar si es una ruta importante
-        is_important_path = any(path.startswith(important_path) for important_path in important_paths)
-        
-        # Verificar si es un método importante
-        is_important_method = method in important_methods
-        
-        # Solo auditar si es una ruta importante Y un método importante
-        return is_important_path and is_important_method
-    
->>>>>>> 674c244 (tus cambios)
-    def _log_request(self, request, response):
-        """Registrar la acción del usuario"""
-        try:
-            # Determinar el tipo de acción basado en el método HTTP
-            action = self._get_action_from_method(request.method)
+        # Siempre auditar Login/Logout
+        if '/api/auth/' in path:
+            return True
             
-            # Obtener información del recurso
+        # Siempre auditar escrituras (POST, PUT, PATCH, DELETE)
+        if method in ['POST', 'PUT', 'PATCH', 'DELETE']:
+            return True
+            
+        # Auditar descargas de documentos
+        if '/download/' in path:
+            return True
+            
+        return False
+
+    def _log_request(self, request, response):
+        """Registrar la request en la base de datos"""
+        try:
+            method = request.method
+            path = request.path
+            
+            # Determinar acción y recurso
+            action = self._get_action_from_method(method)
             resource_type, resource_id = self._get_resource_info(request)
             
-            # Crear descripción de la acción
-<<<<<<< HEAD
-            details = self._create_action_description(request, response)
-=======
+            # Crear descripción
             description = self._create_action_description(request, response)
->>>>>>> 674c244 (tus cambios)
             
             # Registrar en el log de auditoría
             AuditLogManager.log_action(
                 user=request.user,
                 action=action,
-<<<<<<< HEAD
-                resource_type=resource_type,
-                resource_id=resource_id,
-                details=details,
-                ip_address=self._get_client_ip(request),
-                metadata={
-                    'method': request.method,
-                    'path': request.path,
-                    'status_code': response.status_code,
-                    'content_type': response.get('Content-Type', ''),
-=======
                 description=description,
                 ip_address=self._get_client_ip(request),
                 details={
@@ -134,7 +79,6 @@ class AuditMiddleware(MiddlewareMixin):
                     'status_code': response.status_code,
                     'resource_type': resource_type,
                     'resource_id': resource_id
->>>>>>> 674c244 (tus cambios)
                 }
             )
             
@@ -144,63 +88,6 @@ class AuditMiddleware(MiddlewareMixin):
     def _get_action_from_method(self, method):
         """Determinar la acción basada en el método HTTP"""
         method_actions = {
-<<<<<<< HEAD
-            'GET': 'view',
-            'POST': 'create',
-            'PUT': 'update',
-            'PATCH': 'update',
-            'DELETE': 'delete',
-        }
-        return method_actions.get(method.upper(), 'view')
-    
-    def _get_resource_info(self, request):
-        """Extraer información del recurso de la URL"""
-        path_parts = request.path.strip('/').split('/')
-        
-        # Mapear rutas a tipos de recurso
-        resource_mapping = {
-            'api/incidents': 'incident',
-            'api/users': 'user',
-            'api/documents': 'document',
-            'api/reports': 'report',
-            'api/workflows': 'workflow',
-            'api/ai': 'ai_analysis',
-        }
-        
-        # Buscar el tipo de recurso
-        resource_type = 'system'
-        resource_id = '0'
-        
-        for path_part in path_parts:
-            if path_part in resource_mapping:
-                resource_type = resource_mapping[path_part]
-                break
-        
-        # Intentar extraer ID del recurso
-        for i, part in enumerate(path_parts):
-            if part.isdigit():
-                resource_id = part
-                break
-        
-        return resource_type, resource_id
-    
-    def _create_action_description(self, request, response):
-        """Crear una descripción legible de la acción"""
-        method = request.method
-        path = request.path
-        status_code = response.status_code
-        
-        if method == 'GET':
-            return f"Visualizó {path}"
-        elif method == 'POST':
-            return f"Creó recurso en {path}"
-        elif method in ['PUT', 'PATCH']:
-            return f"Actualizó recurso en {path}"
-        elif method == 'DELETE':
-            return f"Eliminó recurso en {path}"
-        else:
-            return f"Acción {method} en {path}"
-=======
             'POST': 'crear',
             'PUT': 'actualizar',
             'PATCH': 'actualizar',
@@ -291,7 +178,6 @@ class AuditMiddleware(MiddlewareMixin):
             return f'Eliminó {report_type}'
         else:
             return f'Realizó acción en {report_type}'
->>>>>>> 674c244 (tus cambios)
     
     def _get_client_ip(self, request):
         """Obtener la IP real del cliente"""
@@ -304,8 +190,4 @@ class AuditMiddleware(MiddlewareMixin):
 
 
 # Export the middleware class
-<<<<<<< HEAD
 __all__ = ['AuditMiddleware']
-=======
-__all__ = ['AuditMiddleware']
->>>>>>> 674c244 (tus cambios)

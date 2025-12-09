@@ -151,12 +151,7 @@ class DocumentTemplate:
             'etiquetado': "Verificar proceso de etiquetado",
         }
         
-<<<<<<< HEAD
-        return recommendations.get(incident.categoria, "Recomendaciones pendientes")
-=======
-        return recommendations.get(incident.categoria.name if incident.categoria else '', "Recomendaciones pendientes")
->>>>>>> 674c244 (tus cambios)
-    
+        return recommendations.get(incident.categoria.name if incident.categoria else '', "Recomendaciones pendientes")    
     def _get_user_role_display(self, role: str) -> str:
         """Obtener nombre del rol para mostrar"""
         role_display = {

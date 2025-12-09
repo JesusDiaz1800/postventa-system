@@ -161,10 +161,6 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         logger.info(f"UserRetrieveUpdateDestroyView.destroy called by user: {request.user.username}")
         
-<<<<<<< HEAD
-        instance = self.get_object()
-        logger.info(f"Attempting to delete user: {instance.username} (ID: {instance.id})")
-=======
         try:
             instance = self.get_object()
             logger.info(f"Attempting to delete user: {instance.username} (ID: {instance.id})")
@@ -173,9 +169,7 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             return Response(
                 {'error': 'Usuario no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
-            )
->>>>>>> 674c244 (tus cambios)
-        
+            )        
         # Prevent admin from deleting themselves
         if instance == request.user:
             logger.warning(f"User {request.user.username} attempted to delete themselves")
@@ -396,12 +390,6 @@ def login_view(request):
 @permission_classes([IsAuthenticated])
 def logout_view(request):
     """
-<<<<<<< HEAD
-    User logout endpoint
-    """
-    try:
-        logout(request)
-=======
     User logout endpoint - Blacklist the refresh token
     """
     try:
@@ -430,15 +418,11 @@ def logout_view(request):
             }
         )
         
->>>>>>> 674c244 (tus cambios)
         return Response({
             'success': True,
             'message': 'Cierre de sesión exitoso'
         }, status=status.HTTP_200_OK)
-<<<<<<< HEAD
-=======
         
->>>>>>> 674c244 (tus cambios)
     except Exception as e:
         logger.error(f"Logout error: {e}")
         return Response({

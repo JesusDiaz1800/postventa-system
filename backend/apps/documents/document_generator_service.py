@@ -99,11 +99,7 @@ class DocumentGeneratorService:
                     'cliente': visit_report.incident.cliente,
                     'obra': visit_report.incident.obra,
                     'provider': visit_report.incident.provider,
-<<<<<<< HEAD
-                    'categoria': visit_report.incident.categoria,
-=======
                     'categoria': visit_report.incident.categoria.name if visit_report.incident.categoria else '',
->>>>>>> 674c244 (tus cambios)
                     'subcategoria': visit_report.incident.subcategoria,
                     'prioridad': visit_report.incident.prioridad,
                     'estado': visit_report.incident.estado,
@@ -173,11 +169,7 @@ class DocumentGeneratorService:
                     'cliente': lab_report.incident.cliente,
                     'obra': lab_report.incident.obra,
                     'provider': lab_report.incident.provider,
-<<<<<<< HEAD
-                    'categoria': lab_report.incident.categoria,
-=======
                     'categoria': lab_report.incident.categoria.name if lab_report.incident.categoria else '',
->>>>>>> 674c244 (tus cambios)
                     'subcategoria': lab_report.incident.subcategoria,
                     'prioridad': lab_report.incident.prioridad,
                     'estado': lab_report.incident.estado,
@@ -248,11 +240,7 @@ class DocumentGeneratorService:
                     'cliente': supplier_report.incident.cliente,
                     'obra': supplier_report.incident.obra,
                     'provider': supplier_report.incident.provider,
-<<<<<<< HEAD
-                    'categoria': supplier_report.incident.categoria,
-=======
                     'categoria': supplier_report.incident.categoria.name if supplier_report.incident.categoria else '',
->>>>>>> 674c244 (tus cambios)
                     'subcategoria': supplier_report.incident.subcategoria,
                     'prioridad': supplier_report.incident.prioridad,
                     'estado': supplier_report.incident.estado,

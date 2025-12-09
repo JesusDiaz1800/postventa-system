@@ -88,11 +88,7 @@ function App() {
                 isOpen={isSidebarOpen}
               />
               
-<<<<<<< HEAD
-              <div className={`flex-1 transition-all duration-300 ease-in-out main-content ${
-=======
               <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out main-content ${
->>>>>>> 674c244 (tus cambios)
                 isSidebarOpen ? 'md:ml-64' : 'md:ml-0'
               }`}>
                 <Header 
@@ -103,13 +99,8 @@ function App() {
                   isSidebarOpen={isSidebarOpen}
                 />
                 
-<<<<<<< HEAD
-                <main className="bg-transparent">
-                  <div className="min-h-screen px-4 sm:px-6 lg:px-8 py-6">
-=======
                 <main className="flex-1 bg-transparent overflow-auto">
                   <div className="h-full px-4 sm:px-6 lg:px-8 py-6">
->>>>>>> 674c244 (tus cambios)
                 <Routes>
                   <Route path="/" element={<Navigate to="/reports" replace />} />
                   <Route path="/dashboard" element={<Dashboard stats={{

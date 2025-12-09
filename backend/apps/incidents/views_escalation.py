@@ -305,8 +305,6 @@ def reopen_incident(request, incident_id):
         )
 
 
-<<<<<<< HEAD
-=======
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def escalated_incidents(request):
@@ -368,7 +366,6 @@ def escalated_incidents(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
->>>>>>> 674c244 (tus cambios)
 # Backwards compatibility alias
 # Some existing URLs refer to `escalate_incident`; make it an alias to the
 # current `escalate_to_quality` view so we don't break existing routes.

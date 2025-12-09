@@ -50,11 +50,7 @@ export function WorkflowsPage() {
       return apiData.results || apiData;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
-<<<<<<< HEAD
-    cacheTime: 10 * 60 * 1000, // 10 minutes
-=======
     gcTime: 10 * 60 * 1000, // 10 minutes
->>>>>>> 674c244 (tus cambios)
   });
 
   // Mutations
@@ -67,11 +63,7 @@ export function WorkflowsPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-<<<<<<< HEAD
-        body: JSON.stringify({ is_active: !workflows?.find(w => w.id === workflowId)?.is_active }),
-=======
         body: JSON.stringify({ is_active: !(workflows as any)?.find((w: any) => w.id === workflowId)?.is_active }),
->>>>>>> 674c244 (tus cambios)
       });
       
       if (!response.ok) {
@@ -81,11 +73,7 @@ export function WorkflowsPage() {
       return response.json();
     },
     onSuccess: () => {
-<<<<<<< HEAD
-      queryClient.invalidateQueries(['workflows']);
-=======
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
->>>>>>> 674c244 (tus cambios)
     },
   });
 
@@ -104,11 +92,7 @@ export function WorkflowsPage() {
       }
     },
     onSuccess: () => {
-<<<<<<< HEAD
-      queryClient.invalidateQueries(['workflows']);
-=======
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
->>>>>>> 674c244 (tus cambios)
       setShowDeleteModal(false);
       setSelectedWorkflow(null);
     },
@@ -187,11 +171,7 @@ export function WorkflowsPage() {
 
         {/* Workflows Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-<<<<<<< HEAD
-          {workflows?.map((workflow) => (
-=======
           {(workflows as any)?.map((workflow: any) => (
->>>>>>> 674c244 (tus cambios)
             <div key={workflow.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center">
@@ -260,11 +240,7 @@ export function WorkflowsPage() {
           ))}
         </div>
 
-<<<<<<< HEAD
-        {workflows?.length === 0 && (
-=======
         {(workflows as any)?.length === 0 && (
->>>>>>> 674c244 (tus cambios)
           <div className="text-center py-12">
             <DocumentDuplicateIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No hay workflows</h3>

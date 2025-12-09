@@ -52,11 +52,6 @@ const CreateIncident = () => {
 
   const createIncidentMutation = useMutation({
     mutationFn: (data) => {
-<<<<<<< HEAD
-      // Generar código automático
-      const code = generateCode();
-      return incidentsAPI.create({ ...data, code });
-=======
       // Limpiar datos antes de enviar
       const cleanData = { ...data };
       
@@ -73,7 +68,6 @@ const CreateIncident = () => {
       }
       
       return incidentsAPI.create(cleanData);
->>>>>>> 674c244 (tus cambios)
     },
     onSuccess: () => {
       showSuccess('Incidencia creada exitosamente');

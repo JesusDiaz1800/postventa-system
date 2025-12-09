@@ -81,26 +81,7 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': True,
-<<<<<<< HEAD
-=======
-        'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
-    'admin': {
-        'can_manage_users': True,
-        'can_manage_incidents': True,
-        'can_view_reports': True,
-        'can_manage_workflows': True,
-        'can_manage_documents': True,
-        'can_access_admin': True,
-        'can_export_data': True,
-        'can_view_audit_logs': True,
-        'can_manage_system_settings': True,
-<<<<<<< HEAD
-=======
-        'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
+        'can_view_supplier_reports': True,    },
     'supervisor': {
         'can_manage_users': True,
         'can_manage_incidents': True,
@@ -111,26 +92,7 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
-<<<<<<< HEAD
-=======
-        'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
-    'analyst': {
-        'can_manage_users': False,
-        'can_manage_incidents': True,
-        'can_view_reports': True,
-        'can_manage_workflows': False,
-        'can_manage_documents': True,
-        'can_access_admin': False,
-        'can_export_data': False,
-        'can_view_audit_logs': False,
-        'can_manage_system_settings': False,
-<<<<<<< HEAD
-=======
-        'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
+        'can_view_supplier_reports': True,    },
     'customer_service': {
         'can_manage_users': False,
         'can_manage_incidents': False,
@@ -152,23 +114,6 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
-<<<<<<< HEAD
-=======
-        'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
-    'technical_service': {
-        'can_manage_users': False,
-        'can_manage_incidents': True,
-        'can_view_reports': True,
-        'can_manage_workflows': True,
-        'can_manage_documents': True,
-        'can_access_admin': False,
-        'can_export_data': True,
-        'can_view_audit_logs': True,
-        'can_manage_system_settings': False,
-<<<<<<< HEAD
-=======
         'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
     },
     'servicio_tecnico': {
@@ -193,8 +138,7 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
-        'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
->>>>>>> 674c244 (tus cambios)
+        'can_view_supplier_reports': False,
     },
     'quality': {
         'can_manage_users': False,
@@ -206,86 +150,68 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
-<<<<<<< HEAD
-=======
         'can_view_supplier_reports': True,
->>>>>>> 674c244 (tus cambios)
-    },
-    'provider': {
-        'can_manage_users': False,
-        'can_manage_incidents': False,
-        'can_view_reports': False,
-        'can_manage_workflows': False,
-        'can_manage_documents': False,
-        'can_access_admin': False,
-        'can_export_data': False,
-        'can_view_audit_logs': False,
-        'can_manage_system_settings': False,
-    },
+    }
 }
-
-
-def get_user_permissions(user):
-    """
-    Obtiene los permisos de un usuario basado en su rol
-    """
-    if not user or not user.is_authenticated:
-        return {}
-    
-    return ROLE_PERMISSIONS.get(user.role, {})
 
 
 def has_permission(user, permission):
     """
-    Verifica si un usuario tiene un permiso específico
+    Verifica si un usuario tiene un permiso específico basado en su rol
     """
     if not user or not user.is_authenticated:
         return False
+        
+    # Superusuario siempre tiene permisos
+    if user.is_superuser:
+        return True
+        
+    user_role = getattr(user, 'role', 'guest')
+    role_perms = ROLE_PERMISSIONS.get(user_role, {})
     
-    user_permissions = get_user_permissions(user)
-    return user_permissions.get(permission, False)
+    return role_perms.get(permission, False)
+
+
+def get_user_permissions(user):
+    """
+    Obtiene todos los permisos del usuario
+    """
+    if not user or not user.is_authenticated:
+        return {}
+        
+    user_role = getattr(user, 'role', 'guest')
+    return ROLE_PERMISSIONS.get(user_role, {})
 
 
 def get_accessible_pages(user):
     """
-    Obtiene las páginas a las que un usuario puede acceder
+    Obtiene las páginas accesibles para el usuario
     """
     if not user or not user.is_authenticated:
         return []
-    
+        
     permissions = get_user_permissions(user)
-    accessible_pages = []
-    
-    # Páginas básicas que todos pueden ver
-    accessible_pages.extend(['dashboard', 'profile'])
-    
-    # Páginas basadas en permisos
-    if permissions.get('can_manage_incidents'):
-        accessible_pages.extend(['incidents', 'incidents/create', 'incidents/edit'])
+    accessible_pages = ['dashboard', 'profile']
     
     if permissions.get('can_manage_users'):
-        accessible_pages.extend(['users', 'users/create', 'users/edit'])
-    
-    if permissions.get('can_view_reports'):
-        accessible_pages.extend(['reports'])
-    
+        accessible_pages.append('users')
+        
+    if permissions.get('can_manage_incidents') or permissions.get('can_view_reports'):
+        accessible_pages.extend(['incidents', 'incidents/list'])
+        
     if permissions.get('can_manage_workflows'):
-        accessible_pages.extend(['workflows', 'workflows/create', 'workflows/edit'])
-    
+        accessible_pages.append('workflows')
+        
     if permissions.get('can_manage_documents'):
-        accessible_pages.extend(['documents'])
-    
+        accessible_pages.append('documents')
+        
     if permissions.get('can_view_audit_logs'):
-        accessible_pages.extend(['audit'])
-    
-    if permissions.get('can_access_admin'):
-        accessible_pages.extend(['admin'])
-    
-<<<<<<< HEAD
-=======
-    # Reportes de proveedores solo para roles específicos
+        accessible_pages.append('audit')
+        
+    if permissions.get('can_view_reports'):
+        accessible_pages.append('reports')
+        
     if permissions.get('can_view_supplier_reports'):
         accessible_pages.extend(['reports/supplier', 'documents/supplier-reports'])
-    
->>>>>>> 674c244 (tus cambios)
+        
     return accessible_pages

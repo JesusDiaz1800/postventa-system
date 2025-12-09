@@ -30,27 +30,17 @@ def handle_incident_notification(sender, instance, created, **kwargs):
             send_notification(
                 user=instance.created_by,
                 title='Incidencia creada',
-<<<<<<< HEAD
-                message=f'Se ha creado la incidencia #{instance.id}',
-=======
                 message=f'Se ha creado la incidencia {instance.code}',
->>>>>>> 674c244 (tus cambios)
                 notification_type='incident_created',
                 category=category,
                 is_important=True,
                 related_incident=instance,
                 metadata={
                     'incident_id': instance.id,
-<<<<<<< HEAD
-                    'title': instance.title,
-                    'priority': instance.priority
-=======
                     'code': instance.code,
                     'obra': instance.obra,
                     'cliente': instance.cliente,
-                    'priority': instance.prioridad
->>>>>>> 674c244 (tus cambios)
-                }
+                    'priority': instance.prioridad                }
             )
             
             # Notificar a los asignados
@@ -58,11 +48,7 @@ def handle_incident_notification(sender, instance, created, **kwargs):
                 send_notification(
                     user=instance.assigned_to,
                     title='Nueva incidencia asignada',
-<<<<<<< HEAD
-                    message=f'Se te ha asignado la incidencia #{instance.id}',
-=======
                     message=f'Se te ha asignado la incidencia {instance.code}',
->>>>>>> 674c244 (tus cambios)
                     notification_type='user_assigned',
                     category=category,
                     is_important=True,
@@ -70,16 +56,10 @@ def handle_incident_notification(sender, instance, created, **kwargs):
                     related_user=instance.created_by,
                     metadata={
                         'incident_id': instance.id,
-<<<<<<< HEAD
-                        'title': instance.title,
-                        'priority': instance.priority
-=======
                         'code': instance.code,
                         'obra': instance.obra,
                         'cliente': instance.cliente,
-                        'priority': instance.prioridad
->>>>>>> 674c244 (tus cambios)
-                    }
+                        'priority': instance.prioridad                    }
                 )
         else:
             # Verificar cambios en campos importantes
@@ -87,35 +67,19 @@ def handle_incident_notification(sender, instance, created, **kwargs):
             if hasattr(instance, '_old_values'):
                 old_values = instance._old_values
                 fields_to_check = {
-<<<<<<< HEAD
-                    'status': 'estado',
-                    'priority': 'prioridad',
-                    'assigned_to': 'asignado',
-                    'escalation_status': 'escalamiento'
-=======
                     'estado': 'estado',
                     'prioridad': 'prioridad',
                     'assigned_to': 'asignado',
->>>>>>> 674c244 (tus cambios)
                 }
                 
                 for field, label in fields_to_check.items():
                     old_val = old_values.get(field)
-<<<<<<< HEAD
-                    new_val = getattr(instance, field)
-                    if old_val != new_val:
-                        important_changes.append({
-                            'field': label,
-                            'old_value': str(old_val),
-                            'new_value': str(new_val)
-=======
                     new_val = getattr(instance, field, None)
                     if old_val != new_val:
                         important_changes.append({
                             'field': label,
                             'old_value': str(old_val) if old_val else '',
                             'new_value': str(new_val) if new_val else ''
->>>>>>> 674c244 (tus cambios)
                         })
             
             if important_changes:
@@ -126,52 +90,30 @@ def handle_incident_notification(sender, instance, created, **kwargs):
                 users_to_notify = {
                     instance.created_by,
                     instance.assigned_to,
-<<<<<<< HEAD
-                    instance.last_modified_by
-                }
-=======
                 }
                 # Agregar last_modified_by si existe
                 if hasattr(instance, 'last_modified_by') and instance.last_modified_by:
                     users_to_notify.add(instance.last_modified_by)
->>>>>>> 674c244 (tus cambios)
                 users_to_notify.discard(None)
                 
                 for user in users_to_notify:
                     send_notification(
                         user=user,
-<<<<<<< HEAD
-                        title=f'Incidencia #{instance.id} actualizada',
-=======
-                        title=f'Incidencia {instance.code} actualizada',
->>>>>>> 674c244 (tus cambios)
-                        message=f'Se han realizado los siguientes cambios:\n{changes_text}',
+                        title=f'Incidencia {instance.code} actualizada',                        message=f'Se han realizado los siguientes cambios:\n{changes_text}',
                         notification_type='incident_updated',
                         category=category,
                         related_incident=instance,
-<<<<<<< HEAD
-                        related_user=instance.last_modified_by,
-                        metadata={
-                            'incident_id': instance.id,
-                            'title': instance.title,
-=======
                         related_user=getattr(instance, 'last_modified_by', None),
                         metadata={
                             'incident_id': instance.id,
                             'code': instance.code,
                             'obra': instance.obra,
-                            'cliente': instance.cliente,
->>>>>>> 674c244 (tus cambios)
-                            'changes': important_changes
+                            'cliente': instance.cliente,                            'changes': important_changes
                         }
                     )
             
             # Notificar escalamientos
-<<<<<<< HEAD
-            if instance.priority in ['high', 'critical']:
-=======
             if instance.prioridad in ['alta', 'critica']:
->>>>>>> 674c244 (tus cambios)
                 users_to_notify = set(User.objects.filter(
                     groups__name__in=['managers', 'supervisors']
                 ).distinct())
@@ -179,24 +121,12 @@ def handle_incident_notification(sender, instance, created, **kwargs):
                 for user in users_to_notify:
                     send_notification(
                         user=user,
-<<<<<<< HEAD
-                        title=f'Incidencia #{instance.id} escalada',
-                        message=f'La incidencia ha sido escalada a prioridad {instance.get_priority_display()}',
-=======
                         title=f'Incidencia {instance.code} escalada',
                         message=f'La incidencia ha sido escalada a prioridad {instance.get_prioridad_display()}',
->>>>>>> 674c244 (tus cambios)
                         notification_type='incident_escalated',
                         category=category,
                         is_important=True,
                         related_incident=instance,
-<<<<<<< HEAD
-                        related_user=instance.last_modified_by,
-                        metadata={
-                            'incident_id': instance.id,
-                            'title': instance.title,
-                            'priority': instance.priority
-=======
                         related_user=getattr(instance, 'last_modified_by', None),
                         metadata={
                             'incident_id': instance.id,
@@ -204,7 +134,6 @@ def handle_incident_notification(sender, instance, created, **kwargs):
                             'obra': instance.obra,
                             'cliente': instance.cliente,
                             'priority': instance.prioridad
->>>>>>> 674c244 (tus cambios)
                         }
                     )
                     
@@ -219,17 +148,9 @@ def track_incident_changes(sender, instance, **kwargs):
         try:
             old_instance = Incident.objects.get(pk=instance.pk)
             instance._old_values = {
-<<<<<<< HEAD
-                'status': old_instance.status,
-                'priority': old_instance.priority,
-                'assigned_to': old_instance.assigned_to,
-                'escalation_status': old_instance.escalation_status,
-=======
                 'estado': old_instance.estado,
                 'prioridad': old_instance.prioridad,
-                'assigned_to': old_instance.assigned_to,
->>>>>>> 674c244 (tus cambios)
-            }
+                'assigned_to': old_instance.assigned_to,            }
         except Incident.DoesNotExist:
             instance._old_values = {}
 
@@ -363,70 +284,10 @@ def create_notification_preferences(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Incident)
 def check_deadline_notifications(sender, instance, created, **kwargs):
     """Verificar notificaciones de fecha límite"""
-<<<<<<< HEAD
-    try:
-        if instance.due_date:
-            category = NotificationCategory.objects.get(name='incidents')
-            now = timezone.now().date()
-            days_remaining = (instance.due_date - now).days
-            
-            # Notificar cuando falte 1 día
-            if days_remaining == 1:
-                users_to_notify = {
-                    instance.created_by,
-                    instance.assigned_to,
-                    instance.last_modified_by
-                }
-                users_to_notify.discard(None)
-                
-                for user in users_to_notify:
-                    send_notification(
-                        user=user,
-                        title=f'Fecha límite próxima - Incidencia #{instance.id}',
-                        message=f'La incidencia vence mañana',
-                        notification_type='deadline_approaching',
-                        category=category,
-                        is_important=True,
-                        related_incident=instance,
-                        metadata={
-                            'incident_id': instance.id,
-                            'title': instance.title,
-                            'due_date': instance.due_date.isoformat(),
-                            'days_remaining': days_remaining
-                        }
-                    )
-            
-            # Notificar cuando se exceda la fecha
-            elif days_remaining <= 0:
-                users_to_notify = set(User.objects.filter(
-                    groups__name__in=['managers', 'supervisors']
-                ).distinct())
-                users_to_notify.add(instance.assigned_to)
-                users_to_notify.discard(None)
-                
-                for user in users_to_notify:
-                    send_notification(
-                        user=user,
-                        title=f'Fecha límite excedida - Incidencia #{instance.id}',
-                        message=f'La fecha límite de la incidencia ha sido excedida por {abs(days_remaining)} día(s)',
-                        notification_type='deadline_exceeded',
-                        category=category,
-                        is_important=True,
-                        related_incident=instance,
-                        metadata={
-                            'incident_id': instance.id,
-                            'title': instance.title,
-                            'due_date': instance.due_date.isoformat(),
-                            'days_exceeded': abs(days_remaining)
-                        }
-                    )
-                    
-=======
     # Nota: El modelo Incident no tiene campo due_date actualmente
     # Esta función se mantiene para futuras implementaciones
     try:
         # Si en el futuro se agrega un campo due_date, se puede implementar aquí
         pass
->>>>>>> 674c244 (tus cambios)
     except Exception as e:
         print(f'Error al verificar notificaciones de fecha límite: {str(e)}')

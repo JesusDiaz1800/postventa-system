@@ -30,10 +30,7 @@ urlpatterns = [
     path('<int:incident_id>/attachments/<int:attachment_id>/download/', attachment_views.download_incident_attachment, name='download-attachment'),
 
     # Escalation views from views_escalation.py
-    path('<int:incident_id>/escalate/', views_escalation.escalate_incident, name='escalate-incident'),
-<<<<<<< HEAD
-=======
+    # path('<int:incident_id>/escalate/', views_escalation.escalate_incident, name='escalate-incident'),
     path('escalated/', views.escalated_incidents, name='escalated-incidents'),
     path('<int:incident_id>/escalate/supplier/', views.escalate_to_supplier, name='escalate-to-supplier'),
->>>>>>> 674c244 (tus cambios)
 ]

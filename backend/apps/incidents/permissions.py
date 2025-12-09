@@ -14,12 +14,7 @@ class CanViewIncidents(permissions.BasePermission):
             return False
         
         # Check role-based permissions
-<<<<<<< HEAD
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'management', 'provider']:
-=======
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'management', 'provider', 'technical_service', 'servicio_tecnico', 'tecnico']:
->>>>>>> 674c244 (tus cambios)
-            return True
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'management', 'provider', 'technical_service', 'servicio_tecnico', 'tecnico']:            return True
         
         return False
 
@@ -36,12 +31,7 @@ class CanManageIncidents(permissions.BasePermission):
             return False
         
         # Only certain roles can manage incidents
-<<<<<<< HEAD
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service']:
-=======
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'technical_service', 'servicio_tecnico', 'tecnico']:
->>>>>>> 674c244 (tus cambios)
-            return True
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'technical_service', 'servicio_tecnico', 'tecnico']:            return True
         
         return False
     
@@ -60,13 +50,10 @@ class CanManageIncidents(permissions.BasePermission):
         if user.role == 'customer_service':
             return True
         
-<<<<<<< HEAD
-=======
         # Technical service can manage incidents they created or are assigned to
         if user.role in ['technical_service', 'servicio_tecnico', 'tecnico']:
             return obj.created_by == user or obj.assigned_to == user
         
->>>>>>> 674c244 (tus cambios)
         return False
 
 

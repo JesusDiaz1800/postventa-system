@@ -1,13 +1,7 @@
-<<<<<<< HEAD
-import React from 'react';
-import { useAuth } from '../../hooks/useAuth';
-import Button from '../ui/Button';
-=======
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import NotificationCenter from '../NotificationCenter';
->>>>>>> 674c244 (tus cambios)
 
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
@@ -40,17 +34,8 @@ const Header = ({ onMenuClick }) => {
 
           {/* User menu */}
           <div className="flex items-center space-x-4">
-<<<<<<< HEAD
-            {/* Notifications */}
-            <button className="text-gray-500 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary rounded-full p-2">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5-5-5h5v-5a7.5 7.5 0 0 0-15 0v5h5l-5 5-5-5h5v-5a7.5 7.5 0 0 1 15 0v5z" />
-              </svg>
-            </button>
-=======
             {/* Notification Center */}
             <NotificationCenter />
->>>>>>> 674c244 (tus cambios)
 
             {/* User dropdown */}
             <div className="relative">
