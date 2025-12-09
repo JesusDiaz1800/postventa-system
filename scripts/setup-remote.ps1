@@ -70,22 +70,30 @@ if ($LASTEXITCODE -ne 0) { throw "Fallo al ejecutar migraciones" }
 Write-Host "Recolectando estáticos..." -ForegroundColor Yellow
 & $python (Join-Path $ProjectRoot "backend\manage.py") collectstatic --noinput
 
-# 5) Crear superusuario si no existe (admin/admin123)
-$createSuperUser = @"
-from apps.users.models import User
-if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser(
-        username='admin',
-        email='admin@postventa.local',
-        password='admin123',
-        role='admin'
-    )
-    print('Admin creado: admin/admin123')
-else:
-    print('Admin ya existe')
-"@
-Write-Host "Verificando superusuario..." -ForegroundColor Yellow
-& $python (Join-Path $ProjectRoot "backend\manage.py") shell -c $createSuperUser
+# 5) Crear superusuario si no existe (admin/admin123) usando archivo temporal
+$tempPy = Join-Path $env:TEMP "create_admin_postventa.py"
+$codeLines = @(
+    "from apps.users.models import User",
+    "try:",
+    "    if not User.objects.filter(username='admin').exists():",
+    "        User.objects.create_superuser(",
+    "            username='admin',",
+    "            email='admin@postventa.local',",
+    "            password='admin123',",
+    "            role='admin'",
+    "        )",
+    "        print('Admin creado: admin/admin123')",
+    "    else:",
+    "        print('Admin ya existe')",
+    "except Exception as e:",
+    "    print('Error creando admin:', e)"
+)
+$codeLines | Set-Content -Path $tempPy -Encoding UTF8
+
+Write-Host "Verificando/creando superusuario..." -ForegroundColor Yellow
+$code = Get-Content -Path $tempPy -Raw
+& $python (Join-Path $ProjectRoot "backend\manage.py") shell --command "$code"
+Remove-Item -Path $tempPy -ErrorAction SilentlyContinue
 
 # 6) Frontend - instalar y build
 Set-Location (Join-Path $ProjectRoot "frontend")

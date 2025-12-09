@@ -12,7 +12,18 @@ Write-Host "=== Registrando autoarranque (Task Scheduler) ===" -ForegroundColor 
 $taskNameBackend = "PostventaSystem-Backend"
 $taskActionBackend = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File `"$ProjectRoot\scripts\run-backend.ps1`""
 $taskTrigger = New-ScheduledTaskTrigger -AtStartup
-$taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+# Intentar crear tarea como SYSTEM; si no hay permisos, crearla para el usuario actual
+$canUseSystem = $true
+try {
+    $null = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+} catch { $canUseSystem = $false }
+
+if ($canUseSystem) {
+    $taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+} else {
+    $currentUser = "$env:USERDOMAIN\$env:USERNAME"
+    $taskPrincipal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Highest
+}
 
 try {
     Unregister-ScheduledTask -TaskName $taskNameBackend -Confirm:$false -ErrorAction SilentlyContinue
