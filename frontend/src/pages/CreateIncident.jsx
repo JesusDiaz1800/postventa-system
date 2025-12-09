@@ -52,9 +52,28 @@ const CreateIncident = () => {
 
   const createIncidentMutation = useMutation({
     mutationFn: (data) => {
+<<<<<<< HEAD
       // Generar código automático
       const code = generateCode();
       return incidentsAPI.create({ ...data, code });
+=======
+      // Limpiar datos antes de enviar
+      const cleanData = { ...data };
+      
+      // Remover campos que pueden causar problemas
+      delete cleanData.categoria; // El backend maneja esto internamente
+      delete cleanData.responsable; // El backend maneja esto internamente
+      
+      // Asegurar que los campos requeridos estén presentes
+      if (!cleanData.obra) {
+        cleanData.obra = 'Obra por defecto';
+      }
+      if (!cleanData.descripcion) {
+        cleanData.descripcion = 'Descripción por defecto';
+      }
+      
+      return incidentsAPI.create(cleanData);
+>>>>>>> 674c244 (tus cambios)
     },
     onSuccess: () => {
       showSuccess('Incidencia creada exitosamente');

@@ -24,6 +24,7 @@ interface SidebarProps {
 
 export function Sidebar({ currentPath, onNavigate, userRole, isOpen = true }: SidebarProps) {
   const navigation = [
+<<<<<<< HEAD
     { name: 'Reportes', href: '/reports', icon: BarChart3, roles: ['admin', 'administrador', 'management', 'technical_service', 'quality', 'supervisor', 'analyst', 'customer_service'] },
     { name: 'Incidencias', href: '/incidents', icon: FileText, roles: ['admin', 'administrador', 'management', 'technical_service', 'quality', 'supervisor', 'analyst', 'customer_service'] },
     { name: 'Documentos', href: '/documents', icon: FileText, roles: ['admin', 'administrador', 'management', 'technical_service', 'quality', 'supervisor'] },
@@ -31,6 +32,15 @@ export function Sidebar({ currentPath, onNavigate, userRole, isOpen = true }: Si
     { name: 'Reportes de Calidad - Cliente', href: '/quality-reports/client', icon: Beaker, roles: ['admin', 'administrador', 'management', 'quality', 'supervisor', 'analyst'] },
     { name: 'Informes Internos de Calidad', href: '/quality-reports/internal', icon: Beaker, roles: ['admin', 'administrador', 'management', 'quality', 'supervisor'] },
     { name: 'Informes para Proveedores', href: '/supplier-reports', icon: Truck, roles: ['admin', 'administrador', 'management', 'technical_service', 'quality', 'supervisor'] },
+=======
+    { name: 'Reportes', href: '/reports', icon: BarChart3, roles: ['admin', 'administrador', 'management', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality', 'supervisor', 'analyst', 'customer_service'] },
+    { name: 'Incidencias', href: '/incidents', icon: FileText, roles: ['admin', 'administrador', 'management', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality', 'supervisor', 'analyst', 'customer_service'] },
+    { name: 'Documentos', href: '/documents', icon: FileText, roles: ['admin', 'administrador', 'management', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality', 'supervisor'] },
+    { name: 'Reportes de Visita', href: '/visit-reports', icon: ClipboardList, roles: ['admin', 'administrador', 'management', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality', 'supervisor', 'analyst'] },
+    { name: 'Reportes de Calidad - Cliente', href: '/quality-reports/client', icon: Beaker, roles: ['admin', 'administrador', 'management', 'quality', 'supervisor', 'analyst'] },
+    { name: 'Informes Internos de Calidad', href: '/quality-reports/internal', icon: Beaker, roles: ['admin', 'administrador', 'management', 'quality', 'supervisor'] },
+    { name: 'Informes para Proveedores', href: '/supplier-reports', icon: Truck, roles: ['admin', 'administrador', 'management', 'quality', 'supervisor'] },
+>>>>>>> 674c244 (tus cambios)
     { name: 'Usuarios', href: '/users', icon: Users, roles: ['admin', 'administrador'] },
     { name: 'IA & Análisis', href: '/ai', icon: Brain, roles: ['admin', 'administrador', 'management', 'supervisor', 'analyst'] },
     { name: 'Workflows', href: '/workflows', icon: Workflow, roles: ['admin', 'administrador', 'management', 'supervisor'] },

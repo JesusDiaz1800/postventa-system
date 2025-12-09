@@ -161,8 +161,20 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         logger.info(f"UserRetrieveUpdateDestroyView.destroy called by user: {request.user.username}")
         
+<<<<<<< HEAD
         instance = self.get_object()
         logger.info(f"Attempting to delete user: {instance.username} (ID: {instance.id})")
+=======
+        try:
+            instance = self.get_object()
+            logger.info(f"Attempting to delete user: {instance.username} (ID: {instance.id})")
+        except Exception as e:
+            logger.error(f"User not found: {e}")
+            return Response(
+                {'error': 'Usuario no encontrado'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+>>>>>>> 674c244 (tus cambios)
         
         # Prevent admin from deleting themselves
         if instance == request.user:
@@ -384,14 +396,49 @@ def login_view(request):
 @permission_classes([IsAuthenticated])
 def logout_view(request):
     """
+<<<<<<< HEAD
     User logout endpoint
     """
     try:
         logout(request)
+=======
+    User logout endpoint - Blacklist the refresh token
+    """
+    try:
+        # Para JWT, necesitamos blacklistear el refresh token
+        refresh_token = request.data.get('refresh_token')
+        
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception as token_error:
+                logger.warning(f"Token blacklist error: {token_error}")
+                # No es crítico si no podemos blacklistear el token
+        
+        # Registrar en auditoría
+        from apps.audit.models import AuditLogManager
+        AuditLogManager.log_action(
+            user=request.user,
+            action='logout',
+            description=f'Usuario {request.user.username} cerró sesión',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={
+                'user_id': request.user.id,
+                'username': request.user.username,
+                'logout_method': 'jwt_blacklist'
+            }
+        )
+        
+>>>>>>> 674c244 (tus cambios)
         return Response({
             'success': True,
             'message': 'Cierre de sesión exitoso'
         }, status=status.HTTP_200_OK)
+<<<<<<< HEAD
+=======
+        
+>>>>>>> 674c244 (tus cambios)
     except Exception as e:
         logger.error(f"Logout error: {e}")
         return Response({

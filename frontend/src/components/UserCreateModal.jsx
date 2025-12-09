@@ -68,7 +68,16 @@ const UserCreateModal = ({ isOpen, onClose, onSubmit, isLoading }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (validateForm()) {
+<<<<<<< HEAD
       onSubmit(formData);
+=======
+      // Asegurar que password_confirm esté incluido en los datos enviados
+      const userData = {
+        ...formData,
+        password_confirm: formData.password_confirm || formData.password
+      };
+      onSubmit(userData);
+>>>>>>> 674c244 (tus cambios)
     }
   };
 

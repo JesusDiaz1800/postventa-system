@@ -37,6 +37,7 @@ export const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
+<<<<<<< HEAD
     // Try to get token from the auth storage
     const authData = localStorage.getItem('postventa_auth');
     let token = null;
@@ -51,12 +52,48 @@ api.interceptors.request.use(
     }
     
     // Fallback to access_token for backward compatibility
+=======
+    // Try to get token from multiple sources
+    let token = null;
+    
+    // 1. Try postventa_auth
+    const authData = localStorage.getItem('postventa_auth');
+    if (authData) {
+      try {
+        const parsed = JSON.parse(authData);
+        token = parsed.token || parsed.access_token || parsed.access;
+      } catch (error) {
+        console.warn('Error parsing auth data:', error);
+        // Limpiar datos corruptos
+        localStorage.removeItem('postventa_auth');
+      }
+    }
+    
+    // 2. Fallback to access_token for backward compatibility
+>>>>>>> 674c244 (tus cambios)
     if (!token) {
       token = localStorage.getItem('access_token');
     }
     
+<<<<<<< HEAD
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+=======
+    // 3. Try sessionStorage as last resort
+    if (!token) {
+      token = sessionStorage.getItem('access_token');
+    }
+    
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      // Solo mostrar advertencia para rutas que requieren autenticación
+      const authRoutes = ['/incidents/', '/users/', '/documents/', '/reports/', '/notifications/'];
+      const needsAuth = authRoutes.some(route => config.url?.includes(route));
+      if (needsAuth) {
+        console.warn('No token available for request to:', config.url);
+      }
+>>>>>>> 674c244 (tus cambios)
     }
     
     // Log request details
@@ -64,7 +101,11 @@ api.interceptors.request.use(
     const debug = import.meta.env.VITE_DEBUG_HTTP === 'true';
     if (debug) {
       // Keep minimal, non-sensitive logs
+<<<<<<< HEAD
       console.debug('[HTTP]', config.method?.toUpperCase(), config.url);
+=======
+      console.debug('[HTTP]', config.method?.toUpperCase(), config.url, token ? '🔑' : '❌');
+>>>>>>> 674c244 (tus cambios)
     }
     
     return config;
@@ -94,14 +135,23 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+<<<<<<< HEAD
+=======
+      console.warn('🔄 Token expirado, intentando refresh...');
+>>>>>>> 674c244 (tus cambios)
 
       try {
         const refreshToken = localStorage.getItem('refresh_token');
         if (refreshToken) {
+<<<<<<< HEAD
+=======
+          console.log('🔄 Refrescando token...');
+>>>>>>> 674c244 (tus cambios)
           const response = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
             refresh: refreshToken,
           });
 
+<<<<<<< HEAD
         const { access } = response.data;
         
         // Update both storage methods
@@ -131,6 +181,48 @@ api.interceptors.response.use(
         localStorage.removeItem('postventa_auth');
         delete api.defaults.headers.common['Authorization'];
         window.location.href = '/login';
+=======
+          const { access } = response.data;
+          console.log('✅ Token refrescado exitosamente');
+          
+          // Update both storage methods
+          localStorage.setItem('access_token', access);
+          
+          // Update the auth storage as well
+          const authData = localStorage.getItem('postventa_auth');
+          if (authData) {
+            try {
+              const parsed = JSON.parse(authData);
+              parsed.token = access;
+              localStorage.setItem('postventa_auth', JSON.stringify(parsed));
+            } catch (error) {
+              console.warn('Error updating auth data:', error);
+            }
+          }
+          
+          api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
+          originalRequest.headers['Authorization'] = `Bearer ${access}`;
+
+          return api(originalRequest);
+        } else {
+          console.warn('❌ No refresh token available');
+          throw new Error('No refresh token');
+        }
+      } catch (refreshError) {
+        console.error('❌ Token refresh failed:', refreshError);
+        // Clear all auth data and redirect to login
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('postventa_auth');
+        sessionStorage.removeItem('app_initialized');
+        delete api.defaults.headers.common['Authorization'];
+        
+        console.log('🔄 Limpiando datos y recargando página...');
+        // Force page reload to reset React state
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+>>>>>>> 674c244 (tus cambios)
       }
     }
 
@@ -140,11 +232,19 @@ api.interceptors.response.use(
 
 // API endpoints
 export const authAPI = {
+<<<<<<< HEAD
   login: (credentials) => api.post('/auth/login/', credentials),
   logout: (refreshToken) => api.post('/auth/logout/', { refresh: refreshToken }),
   me: () => api.get('/auth/me/'),
   changePassword: (data) => api.put('/auth/change-password/', data),
   refreshToken: (refreshToken) => api.post('/auth/token/refresh/', { refresh: refreshToken }),
+=======
+  login: (credentials) => api.post('auth/login/', credentials),
+  logout: (refreshToken) => api.post('auth/logout/', { refresh_token: refreshToken }),
+  me: () => api.get('auth/me/'),
+  changePassword: (data) => api.put('auth/change-password/', data),
+  refreshToken: (refreshToken) => api.post('auth/token/refresh/', { refresh: refreshToken }),
+>>>>>>> 674c244 (tus cambios)
 };
 
 export const incidentsAPI = {
@@ -239,11 +339,16 @@ export const workflowsAPI = {
 };
 
 export const auditAPI = {
+<<<<<<< HEAD
   logs: (params) => api.get('/audit/logs/list/', { params }),
   get: (id) => api.get(`/audit/logs/${id}/`),
   dashboard: () => api.get('/audit/dashboard/'),
   userActivity: (userId) => api.get(`/audit/users/${userId}/activity/`),
   resourceActivity: (resourceType, resourceId) => api.get(`/audit/resources/${resourceType}/${resourceId}/activity/`),
+=======
+  logs: (params) => api.get('/audit/logs/', { params }),
+  actionChoices: () => api.get('/audit/action-choices/'),
+>>>>>>> 674c244 (tus cambios)
 };
 
 // Document Traceability APIs

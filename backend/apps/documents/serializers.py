@@ -139,7 +139,11 @@ class VisitReportListSerializer(serializers.ModelSerializer):
     # Campos de la incidencia para mostrar en la tabla
     incident_code = serializers.CharField(source='related_incident.code', read_only=True)
     provider = serializers.CharField(source='related_incident.provider', read_only=True)
+<<<<<<< HEAD
     categoria = serializers.CharField(source='related_incident.categoria', read_only=True)
+=======
+    categoria = serializers.CharField(source='related_incident.categoria.name', read_only=True)
+>>>>>>> 674c244 (tus cambios)
     subcategoria = serializers.CharField(source='related_incident.subcategoria', read_only=True)
     
     # URLs de descarga de archivos

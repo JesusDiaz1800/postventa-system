@@ -25,7 +25,11 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-default-key-for-development-only')
 
 # Define allowed hosts via environment variable, comma-separated.
+<<<<<<< HEAD
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,192.168.1.234').split(',')
+=======
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,192.168.1.234,testserver').split(',')
+>>>>>>> 674c244 (tus cambios)
 
 
 # --- Application Definition ---
@@ -65,6 +69,13 @@ LOCAL_APPS = [
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
+<<<<<<< HEAD
+=======
+# Agregar rest_framework_simplejwt.token_blacklist para logout
+if 'rest_framework_simplejwt.token_blacklist' not in THIRD_PARTY_APPS:
+    THIRD_PARTY_APPS.append('rest_framework_simplejwt.token_blacklist')
+
+>>>>>>> 674c244 (tus cambios)
 
 # --- Middleware ---
 MIDDLEWARE = [
@@ -77,7 +88,12 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+<<<<<<< HEAD
     'apps.audit.middleware.AuditMiddleware',
+=======
+    'apps.audit.navigation_middleware.NavigationAuditMiddleware',  # Registrar navegación
+    'apps.audit.middleware.AuditMiddleware',  # Registrar acciones importantes
+>>>>>>> 674c244 (tus cambios)
 ]
 
 
@@ -170,10 +186,70 @@ def _build_database_config_from_env():
         },
     }
 
+<<<<<<< HEAD
 DATABASES = {
     'default': _build_database_config_from_env()
 }
 
+=======
+# Configuración SQL Server Express (producción interna)
+# Host de tu PC: NB-JDIAZ25 (IP 192.168.1.165)
+# Se usa puerto fijo 1433 para asegurar acceso remoto; todo se puede sobrescribir por variables de entorno.
+DATABASES = {
+    'default': {
+        'ENGINE': 'mssql',
+        'NAME': os.getenv('DB_NAME', 'postventa_system'),
+        'USER': os.getenv('DB_USER', 'postventa_user'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'Postventa2025!'),
+        # Host/IP y puerto explícitos; se pueden cambiar por env DB_HOST y DB_PORT
+        'HOST': os.getenv('DB_HOST', '192.168.1.165'),
+        'PORT': os.getenv('DB_PORT', '1433'),
+        'OPTIONS': {
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 13 for SQL Server'),
+            'extra_params': os.getenv('DB_EXTRA_PARAMS', 'Encrypt=no;TrustServerCertificate=yes;')
+        },
+    }
+}
+
+# Configuración SQL Server Express Remoto (pendiente configuración)
+# Para habilitar conexión remota necesitas:
+# 1. Habilitar conexiones remotas en SQL Server Configuration Manager
+# 2. Configurar autenticación SQL Server (no Windows)
+# 3. Abrir puerto 1433 en firewall
+# 4. Crear usuario SQL Server con permisos
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'mssql',
+#         'NAME': 'postventa_system',
+#         'USER': 'postventa_user',
+#         'PASSWORD': 'postventa_password',
+#         'HOST': '192.168.1.125',
+#         'PORT': '1433',
+#         'OPTIONS': {
+#             'driver': 'ODBC Driver 17 for SQL Server',
+#             'extra_params': 'Encrypt=yes;TrustServerCertificate=yes;'
+#         },
+#     }
+# }
+
+# Configuración SQL Server empresarial (pendiente datos de TI)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'mssql',
+#         'NAME': 'PostventaDB',
+#         'USER': '[USUARIO_PROVIDIDO_POR_TI]',
+#         'PASSWORD': '[CONTRASEÑA_PROVIDIDA_POR_TI]',
+#         'HOST': '[SERVIDOR_PROVIDIDO_POR_TI]',
+#         'PORT': '1433',
+#         'OPTIONS': {
+#             'driver': 'ODBC Driver 17 for SQL Server',
+#             'TrustServerCertificate': 'yes',
+#             'extra_params': 'Encrypt=no;'
+#         },
+#     }
+# }
+
+>>>>>>> 674c244 (tus cambios)
 
 # --- Caching, Channels, and Celery ---
 # Using Redis for production, with simpler fallbacks for local development.
@@ -193,6 +269,7 @@ if DEBUG:
     CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/0')
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 else:
+<<<<<<< HEAD
     # Production settings: robust and scalable with Redis
     CACHES = {
         "default": {
@@ -206,6 +283,17 @@ else:
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": { "hosts": [(REDIS_HOST, int(REDIS_PORT))] },
         },
+=======
+    # Production settings: using in-memory cache for now (Redis not available)
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
+    CHANNEL_LAYERS = {
+        "default": { "BACKEND": "channels.layers.InMemoryChannelLayer" },
+>>>>>>> 674c244 (tus cambios)
     }
     CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/0')
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -267,11 +355,19 @@ if not DEBUG:
 
 
 # --- CORS / CSRF / Proxy ---
+<<<<<<< HEAD
 CORS_ALLOWED_ORIGINS = os.getenv('DJANGO_CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',')
 CORS_ALLOW_CREDENTIALS = True
 
 # Permitir CSRF desde orígenes confiables (requerido cuando se usa HTTPS o dominios externos)
 CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost,http://127.0.0.1').split(',')
+=======
+CORS_ALLOWED_ORIGINS = os.getenv('DJANGO_CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.234:3000,http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.234:5173').split(',')
+CORS_ALLOW_CREDENTIALS = True
+
+# Permitir CSRF desde orígenes confiables (requerido cuando se usa HTTPS o dominios externos)
+CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', 'http://localhost,http://127.0.0.1,http://192.168.1.234').split(',')
+>>>>>>> 674c244 (tus cambios)
 
 # Si está detrás de un proxy (Nginx/Traefik) con TLS, honrar cabeceras proxy
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if os.getenv('USE_SECURE_PROXY', 'True') == 'True' else None
@@ -371,14 +467,47 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 if not DEBUG:
     SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
     SESSION_CACHE_ALIAS = 'default'
+<<<<<<< HEAD
     SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True') == 'True'
     CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True') == 'True'
+=======
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'
+    CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False') == 'True'
+>>>>>>> 674c244 (tus cambios)
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', 31536000)) # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'True') == 'True'
     SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', 'True') == 'True'
+<<<<<<< HEAD
     SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True'
 
 # Create logs directory if it doesn't exist
 os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
+=======
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
+
+# Create logs directory if it doesn't exist
+os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
+
+# Configuracion CORS para acceso desde otros PCs
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://192.168.1.234:5173",
+]
+
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+>>>>>>> 674c244 (tus cambios)

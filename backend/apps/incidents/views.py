@@ -410,3 +410,148 @@ def view_incident_image(request, incident_id, image_id):
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+<<<<<<< HEAD
+=======
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def escalated_incidents(request):
+    """Obtener incidencias escaladas, especialmente desde reportes internos de calidad"""
+    try:
+        # Parámetros de filtrado
+        without_quality_report = request.GET.get('without_quality_report', 'false').lower() == 'true'
+        report_type = request.GET.get('report_type', '')
+        from_quality_reports = request.GET.get('from_quality_reports', 'false').lower() == 'true'
+        ready_for_supplier = request.GET.get('ready_for_supplier', 'false').lower() == 'true'
+        
+        # Base queryset - usar campos que existen en el modelo
+        queryset = Incident.objects.all()
+        
+        # Filtrar por escalación si el campo existe
+        if hasattr(Incident, 'escalated_to_quality'):
+            queryset = queryset.filter(escalated_to_quality=True)
+        
+        # Filtros específicos usando campos existentes
+        if without_quality_report:
+            # Incidencias sin reporte de calidad - filtrar por campo relacionado si existe
+            pass  # Implementar cuando tengamos el campo relacionado
+        
+        if from_quality_reports:
+            # Incidencias escaladas desde reportes internos de calidad
+            if hasattr(Incident, 'escalated_to_quality'):
+                queryset = queryset.filter(escalated_to_quality=True)
+        
+        if ready_for_supplier:
+            # Incidencias listas para escalamiento a proveedor
+            if hasattr(Incident, 'escalated_to_quality') and hasattr(Incident, 'escalated_to_supplier'):
+                queryset = queryset.filter(
+                    escalated_to_quality=True,
+                    escalated_to_supplier=False
+                )
+        
+        # Ordenar por fecha de escalamiento
+        if hasattr(Incident, 'escalation_date'):
+            queryset = queryset.order_by('-escalation_date', '-created_at')
+        else:
+            queryset = queryset.order_by('-created_at')
+        
+        # Serializar datos usando campos que existen
+        incidents_data = []
+        for incident in queryset:
+            incidents_data.append({
+                'id': incident.id,
+                'code': incident.code,
+                'cliente': incident.cliente,
+                'provider': incident.provider,
+                'obra': incident.obra,
+                'categoria': incident.categoria.name if incident.categoria else '',
+                'description': getattr(incident, 'description', ''),
+                'estado': incident.estado,
+                'prioridad': incident.prioridad,
+                'escalation_date': getattr(incident, 'escalation_date', None),
+                'escalated_to_quality': getattr(incident, 'escalated_to_quality', False),
+                'escalated_to_supplier': getattr(incident, 'escalated_to_supplier', False),
+                'created_at': incident.created_at,
+                'updated_at': incident.updated_at
+            })
+        
+        return Response({
+            'success': True,
+            'incidents': incidents_data,
+            'count': len(incidents_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo incidencias escaladas: {e}")
+        return Response(
+            {'error': f'Error interno del servidor: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def escalate_to_supplier(request, incident_id):
+    """Escalar incidencia a proveedor desde reporte interno de calidad"""
+    try:
+        incident = get_object_or_404(Incident, id=incident_id)
+        
+        # Verificar que la incidencia esté escalada a calidad (si el campo existe)
+        if hasattr(incident, 'escalated_to_quality') and not incident.escalated_to_quality:
+            return Response(
+                {'error': 'La incidencia debe estar escalada a calidad primero'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Actualizar la incidencia usando campos que existen
+        if hasattr(incident, 'escalated_to_supplier'):
+            incident.escalated_to_supplier = True
+        if hasattr(incident, 'escalation_date'):
+            incident.escalation_date = timezone.now()
+        if hasattr(incident, 'escalation_reason'):
+            incident.escalation_reason = request.data.get('reason', 'Escalado desde reporte interno de calidad')
+        incident.save()
+        
+        # Registrar en auditoría
+        try:
+            from apps.audit.models import AuditLogManager
+            AuditLogManager.log_action(
+                user=request.user,
+                action='escalar',
+                description=f'Escaló incidencia {incident.code} a proveedor desde reporte interno de calidad',
+                details={
+                    'escalation_type': 'proveedor',
+                    'escalated_to_supplier': True,
+                    'reason': request.data.get('reason', 'Escalado desde reporte interno de calidad'),
+                    'incident_code': incident.code,
+                    'client': incident.cliente,
+                    'provider': incident.provider
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Error registrando auditoría: {audit_error}")
+        
+        # TODO: Aquí se podría enviar un correo al proveedor
+        # send_supplier_notification_email(incident)
+        
+        return Response({
+            'success': True,
+            'message': f'Incidencia {incident.code} escalada a proveedor exitosamente',
+            'incident': {
+                'id': incident.id,
+                'code': incident.code,
+                'escalated_to_supplier': getattr(incident, 'escalated_to_supplier', False),
+                'escalation_date': getattr(incident, 'escalation_date', None)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error escalando incidencia a proveedor: {e}")
+        return Response(
+            {'error': 'Error interno del servidor'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+>>>>>>> 674c244 (tus cambios)

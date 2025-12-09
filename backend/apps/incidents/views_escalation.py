@@ -305,6 +305,70 @@ def reopen_incident(request, incident_id):
         )
 
 
+<<<<<<< HEAD
+=======
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def escalated_incidents(request):
+    """
+    Obtiene incidencias escaladas con filtros opcionales
+    """
+    try:
+        # Parámetros de filtro
+        without_quality_report = request.GET.get('without_quality_report', 'false').lower() == 'true'
+        report_type = request.GET.get('report_type', '')
+        
+        # Query base
+        incidents = Incident.objects.filter(escalated_to_quality=True)
+        
+        # Aplicar filtros
+        if without_quality_report:
+            # Filtrar incidencias que no tienen reporte de calidad
+            incidents = incidents.exclude(
+                quality_reports__isnull=False
+            )
+        
+        if report_type:
+            # Filtrar por tipo de reporte si es necesario
+            if report_type == 'cliente':
+                incidents = incidents.filter(estado__in=['laboratorio', 'en_progreso'])
+            elif report_type == 'interno':
+                incidents = incidents.filter(estado='laboratorio')
+        
+        # Ordenar por fecha de escalación
+        incidents = incidents.order_by('-escalation_date')
+        
+        # Serializar datos
+        incidents_data = []
+        for incident in incidents:
+            incidents_data.append({
+                'id': incident.id,
+                'code': incident.code,
+                'cliente': incident.cliente,
+                'provider': incident.provider,
+                'categoria': incident.get_categoria_display(),
+                'subcategoria': incident.subcategoria,
+                'prioridad': incident.get_prioridad_display(),
+                'estado': incident.get_estado_display(),
+                'escalation_date': incident.escalation_date,
+                'escalation_reason': incident.escalation_reason,
+                'has_quality_report': incident.quality_reports.exists()
+            })
+        
+        return Response({
+            'success': True,
+            'incidents': incidents_data,
+            'count': len(incidents_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo incidencias escaladas: {str(e)}")
+        return Response(
+            {'error': f'Error obteniendo incidencias: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+>>>>>>> 674c244 (tus cambios)
 # Backwards compatibility alias
 # Some existing URLs refer to `escalate_incident`; make it an alias to the
 # current `escalate_to_quality` view so we don't break existing routes.

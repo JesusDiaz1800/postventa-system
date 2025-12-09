@@ -16,6 +16,10 @@ from . import views_pdf
 from . import test_visit_simple
 from . import incident_attachment_views
 from . import report_attachment_views
+<<<<<<< HEAD
+=======
+from . import supplier_attachment_views
+>>>>>>> 674c244 (tus cambios)
 
 urlpatterns = [
     # Document templates
@@ -137,6 +141,10 @@ urlpatterns = [
     path('quality-reports/incident/<int:incident_id>/', views_quality.quality_reports_by_incident, name='quality_reports_by_incident'),
     path('quality-reports/summary/', views_quality.quality_reports_summary, name='quality_reports_summary'),
     path('quality-reports/<int:report_id>/generate/', views_quality.generate_quality_report_document, name='generate_quality_report_document'),
+<<<<<<< HEAD
+=======
+    path('quality-reports/internal/', views_quality.internal_quality_reports, name='internal_quality_reports'),
+>>>>>>> 674c244 (tus cambios)
     
     # ==================== GESTIÓN MEJORADA DE DOCUMENTOS ====================
     
@@ -183,4 +191,17 @@ urlpatterns = [
     path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/delete/', report_attachment_views.delete_report_attachment, name='delete_report_attachment'),
     path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/info/', report_attachment_views.get_report_attachment_info, name='get_report_attachment_info'),
     
+<<<<<<< HEAD
+=======
+    # ==================== ADJUNTOS DE REPORTES DE PROVEEDORES ====================
+    
+    # Adjuntos específicos de reportes de proveedores
+    path('supplier-reports/<int:report_id>/attachments/', supplier_attachment_views.list_supplier_report_attachments, name='list_supplier_report_attachments'),
+    path('supplier-reports/upload/', supplier_attachment_views.upload_supplier_report_attachment, name='upload_supplier_report_attachment'),
+    path('supplier-reports/attachments/<int:attachment_id>/download/', supplier_attachment_views.download_supplier_report_attachment, name='download_supplier_report_attachment'),
+    path('supplier-reports/attachments/<int:attachment_id>/view/', supplier_attachment_views.view_supplier_report_attachment, name='view_supplier_report_attachment'),
+    path('supplier-reports/attachments/<int:attachment_id>/delete/', supplier_attachment_views.delete_supplier_report_attachment, name='delete_supplier_report_attachment'),
+    path('supplier-reports/attachments/<int:attachment_id>/info/', supplier_attachment_views.get_supplier_report_attachment_info, name='get_supplier_report_attachment_info'),
+    
+>>>>>>> 674c244 (tus cambios)
 ]

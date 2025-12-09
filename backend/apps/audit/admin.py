@@ -1,9 +1,14 @@
 from django.contrib import admin
+<<<<<<< HEAD
 from .models import AuditLog, AuditRule, AuditReport, AuditDashboard, AuditAlert
+=======
+from .models import AuditLog
+>>>>>>> 674c244 (tus cambios)
 
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
+<<<<<<< HEAD
     """Admin interface for AuditLog model"""
     
     list_display = [
@@ -16,12 +21,27 @@ class AuditLogAdmin(admin.ModelAdmin):
     
     search_fields = [
         'description', 'user__username', 'ip_address', 'module'
+=======
+    """Admin interface for AuditLog model - versión simplificada"""
+    
+    list_display = [
+        'action', 'user_display', 'description', 'timestamp', 'ip_address'
+    ]
+    
+    list_filter = [
+        'action', 'timestamp'
+    ]
+    
+    search_fields = [
+        'description', 'user__username', 'ip_address'
+>>>>>>> 674c244 (tus cambios)
     ]
     
     readonly_fields = ['timestamp']
     
     fieldsets = (
         ('Acción', {
+<<<<<<< HEAD
             'fields': ('action', 'result', 'description')
         }),
         ('Usuario y Sesión', {
@@ -185,3 +205,21 @@ class AuditAlertAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
+=======
+            'fields': ('action', 'description')
+        }),
+        ('Usuario y Sesión', {
+            'fields': ('user', 'ip_address', 'timestamp')
+        }),
+        ('Detalles', {
+            'fields': ('details',)
+        }),
+    )
+    
+    def user_display(self, obj):
+        """Mostrar información del usuario de forma amigable"""
+        if obj.user:
+            return f"{obj.user.username} ({obj.user.get_full_name() or obj.user.email})"
+        return 'Sistema'
+    user_display.short_description = 'Usuario'
+>>>>>>> 674c244 (tus cambios)

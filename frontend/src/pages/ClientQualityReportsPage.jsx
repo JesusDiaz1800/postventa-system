@@ -20,6 +20,10 @@ import {
   ArrowUpIcon
 } from '@heroicons/react/24/outline';
 import QualityReportForm from '../components/QualityReportForm';
+<<<<<<< HEAD
+=======
+import IncidentDocuments from '../components/IncidentDocuments';
+>>>>>>> 674c244 (tus cambios)
 
 const ClientQualityReportsPage = () => {
   const queryClient = useQueryClient();
@@ -419,6 +423,12 @@ const ClientQualityReportsPage = () => {
                       Estado
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+<<<<<<< HEAD
+=======
+                      Documentos
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+>>>>>>> 674c244 (tus cambios)
                       Acciones
                     </th>
                   </tr>
@@ -488,6 +498,16 @@ const ClientQualityReportsPage = () => {
                           {report.status === 'cerrado' ? 'CERRADO' : 'ABIERTO'}
                         </span>
                       </td>
+<<<<<<< HEAD
+=======
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <IncidentDocuments 
+                          incidentId={report.incident?.id || report.incident_id || report.related_incident?.id}
+                          onDownloadSuccess={(message) => console.log(message)}
+                          onDownloadError={(error) => console.error(error)}
+                        />
+                      </td>
+>>>>>>> 674c244 (tus cambios)
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex items-center space-x-2">
                           <button

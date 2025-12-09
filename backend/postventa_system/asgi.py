@@ -10,7 +10,19 @@ https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 import os
 from typing import Any, Dict
 
+<<<<<<< HEAD
 from django.core.asgi import get_asgi_application
+=======
+# Configurar Django antes de importar cualquier modelo
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.core.settings')
+
+# Initialize Django ASGI application early to ensure the AppRegistry
+# is populated before importing code that may import ORM models.
+from django.core.asgi import get_asgi_application
+django_asgi_app = get_asgi_application()
+
+# Ahora podemos importar los modelos de Django de forma segura
+>>>>>>> 674c244 (tus cambios)
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from channels.middleware import BaseMiddleware
@@ -20,8 +32,11 @@ from django.db import close_old_connections
 
 import apps.notifications.routing
 
+<<<<<<< HEAD
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.core.settings')
 
+=======
+>>>>>>> 674c244 (tus cambios)
 class CloseConnectionsMiddleware(BaseMiddleware):
     """Middleware para cerrar conexiones a la base de datos"""
     async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
@@ -56,11 +71,30 @@ class QueryAuthMiddleware(BaseMiddleware):
             return await super().__call__(scope, receive, send)
     
     def get_user_from_token(self, token: str) -> User:
+<<<<<<< HEAD
         """Obtener usuario a partir del token"""
         from rest_framework.authtoken.models import Token
         try:
             return Token.objects.get(key=token).user
         except:
+=======
+        """Obtener usuario a partir del token JWT"""
+        try:
+            from rest_framework_simplejwt.tokens import AccessToken
+            from django.contrib.auth import get_user_model
+            
+            User = get_user_model()
+            
+            # Decodificar y validar token JWT
+            access_token = AccessToken(token)
+            user_id = access_token.get('user_id')
+            
+            if user_id:
+                return User.objects.get(id=user_id)
+            return None
+        except Exception as e:
+            print(f'Error validando JWT token: {str(e)}')
+>>>>>>> 674c244 (tus cambios)
             return None
 
 
@@ -69,7 +103,11 @@ class ConcurrentConnectionsMiddleware(BaseMiddleware):
     def __init__(self, inner):
         super().__init__(inner)
         from collections import defaultdict
+<<<<<<< HEAD
         self.connections = defaultdict(set)
+=======
+        self.connections = defaultdict(int)
+>>>>>>> 674c244 (tus cambios)
         self.max_connections = 5  # Máximo de conexiones por usuario
     
     async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
@@ -79,6 +117,7 @@ class ConcurrentConnectionsMiddleware(BaseMiddleware):
                 return await super().__call__(scope, receive, send)
             
             # Verificar límite de conexiones
+<<<<<<< HEAD
             user_connections = self.connections[user.id]
             if len(user_connections) >= self.max_connections:
                 # Cerrar conexión más antigua
@@ -88,15 +127,37 @@ class ConcurrentConnectionsMiddleware(BaseMiddleware):
             
             # Agregar nueva conexión
             user_connections.add(scope['socket'])
+=======
+            user_id = user.id
+            if self.connections[user_id] >= self.max_connections:
+                # Rechazar nueva conexión si se excede el límite
+                await send({
+                    'type': 'websocket.close',
+                    'code': 1008,
+                    'reason': 'Too many connections'
+                })
+                return
+            
+            # Incrementar contador de conexiones
+            self.connections[user_id] += 1
+>>>>>>> 674c244 (tus cambios)
             
             try:
                 return await super().__call__(scope, receive, send)
             finally:
+<<<<<<< HEAD
                 # Limpiar al cerrar
                 if scope['socket'] in user_connections:
                     user_connections.remove(scope['socket'])
                 if not user_connections:
                     del self.connections[user.id]
+=======
+                # Decrementar contador al cerrar
+                if self.connections[user_id] > 0:
+                    self.connections[user_id] -= 1
+                if self.connections[user_id] == 0:
+                    del self.connections[user_id]
+>>>>>>> 674c244 (tus cambios)
                     
         except Exception as e:
             print(f'Error en ConcurrentConnectionsMiddleware: {str(e)}')
@@ -105,9 +166,14 @@ class ConcurrentConnectionsMiddleware(BaseMiddleware):
 
 # Initialize Django ASGI application early to ensure the AppRegistry
 # is populated before importing code that may import ORM models.
+<<<<<<< HEAD
 django_asgi_app = get_asgi_application()
 
 # Define la cadena de middleware
+=======
+
+# Configuración completa con middleware para WebSocket
+>>>>>>> 674c244 (tus cambios)
 websocket_middleware = CloseConnectionsMiddleware(
     QueryAuthMiddleware(
         ConcurrentConnectionsMiddleware(
@@ -120,7 +186,11 @@ websocket_middleware = CloseConnectionsMiddleware(
     )
 )
 
+<<<<<<< HEAD
 # Configuración final
+=======
+# Configuración final optimizada
+>>>>>>> 674c244 (tus cambios)
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": websocket_middleware,

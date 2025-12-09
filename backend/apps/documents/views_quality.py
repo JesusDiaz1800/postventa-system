@@ -171,3 +171,49 @@ def generate_quality_report_document(request, report_id):
             {'error': f'Error interno del servidor: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+<<<<<<< HEAD
+=======
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def internal_quality_reports(request):
+    """
+    Obtiene reportes de calidad internos
+    """
+    try:
+        # Filtrar reportes de calidad internos
+        reports = QualityReport.objects.filter(
+            report_type='interno'
+        ).select_related('related_incident', 'created_by').order_by('-created_at')
+        
+        # Serializar datos
+        reports_data = []
+        for report in reports:
+            reports_data.append({
+                'id': report.id,
+                'report_number': report.report_number,
+                'report_type': report.report_type,
+                'status': report.status,
+                'created_at': report.created_at,
+                'created_by': report.created_by.username if report.created_by else None,
+                'related_incident': {
+                    'id': report.related_incident.id,
+                    'code': report.related_incident.code,
+                    'cliente': report.related_incident.cliente,
+                    'provider': report.related_incident.provider,
+                } if report.related_incident else None
+            })
+        
+        return Response({
+            'success': True,
+            'reports': reports_data,
+            'count': len(reports_data)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo reportes de calidad internos: {str(e)}")
+        return Response(
+            {'error': f'Error obteniendo reportes: {str(e)}'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+>>>>>>> 674c244 (tus cambios)

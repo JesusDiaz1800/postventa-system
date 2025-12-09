@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import api, { API_BASE_URL } from '../services/api';
+<<<<<<< HEAD
+=======
+import { brandConfig } from '../config/brand';
+import notificationService from '../services/notificationService';
+>>>>>>> 674c244 (tus cambios)
 
 interface User {
   id: string;
@@ -111,7 +116,11 @@ export function useAuth() {
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials): Promise<AuthResponse> => {
+<<<<<<< HEAD
       const response = await api.post('/auth/login/', credentials);
+=======
+      const response = await api.post('auth/login/', credentials);
+>>>>>>> 674c244 (tus cambios)
       return response.data;
     },
     onSuccess: (data) => {
@@ -120,6 +129,18 @@ export function useAuth() {
       if (data.refresh) {
         localStorage.setItem('refresh_token', data.refresh);
       }
+<<<<<<< HEAD
+=======
+      
+      // Reconectar WebSocket después del login
+      try {
+        notificationService.connect();
+        console.log('🔌 WebSocket reconectado después del login');
+      } catch (error) {
+        console.warn('⚠️ Error reconectando WebSocket:', error);
+      }
+      
+>>>>>>> 674c244 (tus cambios)
       toast.success(`¡Bienvenido, ${data.user.username}!`);
     },
     onError: (error: Error) => {
@@ -130,22 +151,67 @@ export function useAuth() {
   // Logout mutation
   const logoutMutation = useMutation({
     mutationFn: async () => {
+<<<<<<< HEAD
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         try {
           await api.post('/auth/logout/', { refresh: refreshToken });
         } catch (error) {
           console.warn('Error during logout request:', error);
+=======
+      console.log('🔄 Ejecutando logoutMutation');
+      
+      // Desconectar WebSocket
+      try {
+        notificationService.disconnect();
+        console.log('🔌 WebSocket desconectado');
+      } catch (error) {
+        console.warn('⚠️ Error desconectando WebSocket:', error);
+      }
+      
+      const refreshToken = localStorage.getItem('refresh_token');
+      console.log('Refresh token encontrado:', refreshToken ? 'Sí' : 'No');
+      if (refreshToken) {
+        try {
+          console.log('📤 Enviando request de logout...');
+          await api.post('auth/logout/', { refresh_token: refreshToken });
+          console.log('✅ Request de logout exitosa');
+        } catch (error) {
+          console.warn('❌ Error during logout request:', error);
+>>>>>>> 674c244 (tus cambios)
         }
       }
     },
     onSuccess: () => {
+<<<<<<< HEAD
       clearAuthState();
       toast.success('Sesión cerrada correctamente');
     },
     onError: () => {
       clearAuthState();
       toast.success('Sesión cerrada correctamente');
+=======
+      console.log('✅ Logout mutation exitosa');
+      clearAuthState();
+      // Limpiar sessionStorage también
+      sessionStorage.removeItem('app_initialized');
+      toast.success('Sesión cerrada correctamente');
+      // Forzar recarga de página para limpiar todo el estado
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    },
+    onError: (error) => {
+      console.log('❌ Error en logout mutation:', error);
+      clearAuthState();
+      // Limpiar sessionStorage también
+      sessionStorage.removeItem('app_initialized');
+      toast.success('Sesión cerrada correctamente');
+      // Forzar recarga de página para limpiar todo el estado
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+>>>>>>> 674c244 (tus cambios)
     },
   });
 
@@ -188,6 +254,10 @@ export function useAuth() {
 
   // Logout function
   const logout = useCallback(() => {
+<<<<<<< HEAD
+=======
+    console.log('🔄 Función logout llamada desde useAuth');
+>>>>>>> 674c244 (tus cambios)
     logoutMutation.mutate();
   }, [logoutMutation]);
 

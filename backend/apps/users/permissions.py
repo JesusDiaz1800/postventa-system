@@ -81,6 +81,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': True,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'admin': {
         'can_manage_users': True,
@@ -92,6 +96,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': True,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'supervisor': {
         'can_manage_users': True,
@@ -103,6 +111,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'analyst': {
         'can_manage_users': False,
@@ -114,6 +126,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': False,
         'can_view_audit_logs': False,
         'can_manage_system_settings': False,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'customer_service': {
         'can_manage_users': False,
@@ -136,6 +152,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'technical_service': {
         'can_manage_users': False,
@@ -147,6 +167,34 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
+    },
+    'servicio_tecnico': {
+        'can_manage_users': False,
+        'can_manage_incidents': True,
+        'can_view_reports': True,
+        'can_manage_workflows': True,
+        'can_manage_documents': True,
+        'can_access_admin': False,
+        'can_export_data': True,
+        'can_view_audit_logs': True,
+        'can_manage_system_settings': False,
+        'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
+    },
+    'tecnico': {
+        'can_manage_users': False,
+        'can_manage_incidents': True,
+        'can_view_reports': True,
+        'can_manage_workflows': True,
+        'can_manage_documents': True,
+        'can_access_admin': False,
+        'can_export_data': True,
+        'can_view_audit_logs': True,
+        'can_manage_system_settings': False,
+        'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
+>>>>>>> 674c244 (tus cambios)
     },
     'quality': {
         'can_manage_users': False,
@@ -158,6 +206,10 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
+<<<<<<< HEAD
+=======
+        'can_view_supplier_reports': True,
+>>>>>>> 674c244 (tus cambios)
     },
     'provider': {
         'can_manage_users': False,
@@ -229,4 +281,11 @@ def get_accessible_pages(user):
     if permissions.get('can_access_admin'):
         accessible_pages.extend(['admin'])
     
+<<<<<<< HEAD
+=======
+    # Reportes de proveedores solo para roles específicos
+    if permissions.get('can_view_supplier_reports'):
+        accessible_pages.extend(['reports/supplier', 'documents/supplier-reports'])
+    
+>>>>>>> 674c244 (tus cambios)
     return accessible_pages
