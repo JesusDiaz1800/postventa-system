@@ -77,7 +77,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       {/* Mobile overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 lg:hidden"
+          className="fixed inset-0 z-45 lg:hidden"
           onClick={onClose}
         >
           <div className="absolute inset-0 bg-gray-600 opacity-75"></div>

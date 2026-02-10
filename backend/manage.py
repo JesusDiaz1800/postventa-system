@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
-import os
 import sys
+import os
+
+# Add the project directory to the sys.path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 def main():

@@ -912,22 +912,50 @@ def generate_polifusion_visit_report(request):
 def generate_order_number(request):
     """
     Genera un número de orden automáticamente para reportes de visita
+    Formato: RV-YYYY-XXX (donde XXX viene del código de la incidencia)
+    
+    Query params:
+    - incident_id: ID de la incidencia para vincular el número de reporte
     """
     try:
         from django.utils import timezone
+        from apps.incidents.models import Incident
         
-        # Generar número de orden usando la misma lógica del modelo
         year = timezone.now().year
-        month = timezone.now().month
-        day = timezone.now().day
+        incident_id = request.query_params.get('incident_id')
         
-        # Contar reportes del día actual
-        today_reports = VisitReport.objects.filter(
-            created_at__date=timezone.now().date()
-        ).count()
+        # Si se proporciona incident_id, extraer el número secuencial de la incidencia
+        if incident_id:
+            try:
+                incident = Incident.objects.get(id=incident_id)
+                if incident.code:
+                    parts = incident.code.split('-')
+                    if len(parts) >= 3:
+                        incident_seq = parts[-1].lstrip('0') or '1'
+                        incident_number = int(incident_seq)
+                    else:
+                        incident_number = incident.id
+                    
+                    order_number = f"RV-{year}-{incident_number:03d}"
+                    return Response({'order_number': order_number})
+            except Incident.DoesNotExist:
+                pass  # Continuar con el fallback
         
-        sequence = today_reports + 1
-        order_number = f"OV-{year}{month:02d}{day:02d}-{sequence:03d}"
+        # Fallback: generar número secuencial basado en reportes existentes
+        last_report = VisitReport.objects.filter(
+            report_number__startswith=f"RV-{year}"
+        ).order_by('-report_number').first()
+        
+        if last_report:
+            try:
+                last_number = int(last_report.report_number.split('-')[-1])
+                new_number = last_number + 1
+            except (ValueError, IndexError):
+                new_number = 1
+        else:
+            new_number = 1
+        
+        order_number = f"RV-{year}-{new_number:03d}"
         
         return Response({
             'order_number': order_number

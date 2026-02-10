@@ -4,9 +4,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Incident
+from .models import Incident, IncidentTimeline
 from .services.email_service import EmailService
+from django.db import models
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +22,37 @@ def escalate_to_quality(request, incident_id):
         incident = get_object_or_404(Incident, id=incident_id)
         
         # Validar que la incidencia no esté ya escalada
-        if incident.escalated_to_quality:
-            return Response(
-                {'error': 'La incidencia ya fue escalada a calidad'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # if incident.escalated_to_quality:
+        #     return Response(
+        #         {'error': 'La incidencia ya fue escalada a calidad'}, 
+        #         status=status.HTTP_400_BAD_REQUEST
+        #     )
         
         # Actualizar la incidencia
         incident.escalated_to_quality = True
+        # Keep original date if allowing re-escalation, or update? usually update is fine to show latest activity.
         incident.escalation_date = timezone.now()
-        incident.escalation_reason = request.data.get('reason', 'Escalado desde reporte de visita')
+        incident.escalation_reason = request.data.get('reason', incident.escalation_reason or 'Escalado desde reporte de visita')
         incident.estado = 'laboratorio'  # Cambiar estado a laboratorio
         incident.save()
         
+        # Log timeline (Non-blocking)
+        try:
+            IncidentTimeline.objects.create(
+                incident=incident,
+                action='status_changed',
+                description=f'Incidencia escalada a Calidad por {request.user.full_name if hasattr(request.user, "full_name") else request.user.username}',
+                user=request.user
+            )
+        except Exception as log_error:
+            logger.error(f"Error creating timeline log: {log_error}")
+        
+        # Datos de correo personalizados
+        custom_subject = request.data.get('subject')
+        custom_message = request.data.get('message')
+        # extra_files es lista de archivos, request.FILES es donde vienen
+        extra_files = request.FILES.getlist('attachments') if request.FILES else []
+
         # Buscar y adjuntar PDF del reporte de visita si existe
         visit_report_path = None
         try:
@@ -41,7 +61,11 @@ def escalate_to_quality(request, incident_id):
             import os
             
             # Buscar reporte de visita relacionado con la incidencia
-            visit_report = VisitReport.objects.filter(related_incident=incident).first()
+            visit_report_id = request.data.get('visit_report_id')
+            if visit_report_id:
+                visit_report = VisitReport.objects.filter(id=visit_report_id, related_incident=incident).first()
+            else:
+                visit_report = VisitReport.objects.filter(related_incident=incident).first()
             
             if visit_report and visit_report.pdf_path:
                 # Verificar que el archivo existe
@@ -55,21 +79,88 @@ def escalate_to_quality(request, incident_id):
         except Exception as pdf_error:
             logger.warning(f"Error buscando PDF de reporte de visita: {str(pdf_error)}")
         
-        # Intentar enviar correo de notificación (no crítico)
-        email_sent = False
-        try:
-            email_service = EmailService()
-            email_sent = email_service.send_escalation_to_quality_email(incident, visit_report_path)
-            logger.info(f"Email de escalación enviado: {email_sent}")
-        except Exception as email_error:
-            logger.warning(f"Error enviando email de escalación: {str(email_error)}")
-            # Continuar sin fallar por el email
         
-        if email_sent:
+        # Generar archivo .eml para que el usuario lo abra en Outlook
+        eml_path = None
+        try:
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.base import MIMEBase
+            from email import encoders
+            from django.conf import settings
+            import os
+            import tempfile
+            
+            # Crear el mensaje MIME
+            msg = MIMEMultipart()
+            
+            # Destinatarios
+            to_emails = 'vlutz@polifusion.cl; jdiaz@polifusion.cl; cmunizaga@polifusion.cl'
+            cc_emails = 'rcruz@polifusion.cl; srojas@polifusion.cl'
+            
+            msg['To'] = to_emails
+            msg['Cc'] = cc_emails
+            msg['Subject'] = custom_subject or f"Escalación a Calidad: {incident.code}"
+            
+            # Cuerpo del mensaje
+            if custom_message:
+                body = custom_message
+            else:
+                body = f"""Estimados,
+
+Se ha escalado la siguiente incidencia al departamento de Calidad:
+
+• Código: {incident.code}
+• Cliente: {incident.cliente}
+• Proveedor: {incident.provider or 'No especificado'}
+• Motivo de escalación: {incident.escalation_reason or 'No especificado'}
+
+Por favor revisar y tomar las acciones correspondientes.
+
+Saludos cordiales,
+Sistema de Gestión de Incidencias
+"""
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            
+            # Adjuntar PDF del reporte de visita si existe
+            if visit_report_path and os.path.exists(visit_report_path):
+                with open(visit_report_path, 'rb') as attachment:
+                    part = MIMEBase('application', 'pdf')
+                    part.set_payload(attachment.read())
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        'Content-Disposition',
+                        f'attachment; filename="{os.path.basename(visit_report_path)}"'
+                    )
+                    msg.attach(part)
+                    logger.info(f"PDF adjuntado al EML: {visit_report_path}")
+            
+            # Guardar el archivo .eml en un directorio temporal
+            eml_dir = os.path.join(settings.MEDIA_ROOT, 'temp_emails')
+            os.makedirs(eml_dir, exist_ok=True)
+            eml_filename = f"escalacion_{incident.code}_{incident.id}.eml"
+            eml_path = os.path.join(eml_dir, eml_filename)
+            
+            with open(eml_path, 'w', encoding='utf-8') as eml_file:
+                eml_file.write(msg.as_string())
+            
+            logger.info(f"Archivo EML generado: {eml_path}")
+            
+        except Exception as eml_error:
+            logger.warning(f"Error generando archivo EML: {str(eml_error)}")
+            eml_path = None
+        
+        # Construir URL para descargar el EML
+        eml_url = None
+        if eml_path:
+            eml_url = f"/documentos/temp_emails/{eml_filename}"
+        
+        if eml_path: # Check if EML was generated successfully
             logger.info(f"Incidencia {incident.code} escalada a calidad exitosamente")
             return Response({
                 'success': True,
-                'message': 'Incidencia escalada a calidad exitosamente',
+                'message': 'Incidencia escalada a calidad. Descarga el archivo para enviar el correo desde Outlook.',
+                'eml_url': eml_url,  # URL para descargar el archivo .eml
                 'incident': {
                     'id': incident.id,
                     'code': incident.code,
@@ -96,7 +187,7 @@ def escalate_to_quality(request, incident_id):
     except Exception as e:
         logger.error(f"Error escalando incidencia a calidad: {str(e)}")
         return Response(
-            {'error': f'Error escalando incidencia: {str(e)}'}, 
+            {'error': f'Error escalando incidencia: {str(e)}', 'detail': traceback.format_exc()}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -129,6 +220,17 @@ def escalate_to_supplier(request, incident_id):
         incident.escalation_reason = request.data.get('reason', 'Escalado desde reporte de calidad')
         incident.estado = 'propuesta'  # Cambiar estado a propuesta
         incident.save()
+        
+        # Log timeline (Non-blocking)
+        try:
+            IncidentTimeline.objects.create(
+                incident=incident,
+                action='status_changed',
+                description=f'Incidencia escalada a Proveedor por {request.user.full_name if hasattr(request.user, "full_name") else request.user.username}',
+                user=request.user
+            )
+        except Exception as log_error:
+            logger.error(f"Error creating timeline log: {log_error}")
         
         # Enviar correo de notificación
         email_service = EmailService()
@@ -199,6 +301,17 @@ def close_incident(request, incident_id):
         incident.fecha_cierre = timezone.now().date()
         incident.save()
         
+        # Log timeline (Non-blocking)
+        try:
+            IncidentTimeline.objects.create(
+                incident=incident,
+                action='closed',
+                description=f'Incidencia cerrada por {request.user.full_name if hasattr(request.user, "full_name") else request.user.username}',
+                user=request.user
+            )
+        except Exception as log_error:
+            logger.error(f"Error creating timeline log: {log_error}")
+        
         logger.info(f"Incidencia {incident.code} cerrada por {request.user.username}")
         return Response({
             'success': True,
@@ -240,9 +353,9 @@ def get_escalated_incidents(request):
                 'code': incident.code,
                 'cliente': incident.cliente,
                 'provider': incident.provider,
-                'categoria': incident.get_categoria_display(),
+                'categoria': incident.categoria.name if incident.categoria else None,
                 'subcategoria': incident.subcategoria,
-                'prioridad': incident.get_prioridad_display(),
+                'prioridad': incident.prioridad,
                 'estado': incident.get_estado_display(),
                 'escalation_date': incident.escalation_date,
                 'escalation_reason': incident.escalation_reason
@@ -284,6 +397,17 @@ def reopen_incident(request, incident_id):
         incident.fecha_cierre = None
         incident.save()
         
+        # Log timeline (Non-blocking)
+        try:
+            IncidentTimeline.objects.create(
+                incident=incident,
+                action='reopened',
+                description=f'Incidencia reabierta por {request.user.full_name if hasattr(request.user, "full_name") else request.user.username}',
+                user=request.user
+            )
+        except Exception as log_error:
+            logger.error(f"Error creating timeline log: {log_error}")
+        
         logger.info(f"Incidencia {incident.code} reabierta por {request.user.username}")
         return Response({
             'success': True,
@@ -315,23 +439,42 @@ def escalated_incidents(request):
         # Parámetros de filtro
         without_quality_report = request.GET.get('without_quality_report', 'false').lower() == 'true'
         report_type = request.GET.get('report_type', '')
+        escalated_to_internal = request.GET.get('escalated_to_internal', 'false').lower() == 'true'
         
         # Query base
-        incidents = Incident.objects.filter(escalated_to_quality=True)
+        if escalated_to_internal:
+            incidents = Incident.objects.filter(escalated_to_internal_quality=True).select_related('categoria')
+        else:
+            incidents = Incident.objects.filter(escalated_to_quality=True).select_related('categoria')
         
         # Aplicar filtros
         if without_quality_report:
-            # Filtrar incidencias que no tienen reporte de calidad
-            incidents = incidents.exclude(
-                quality_reports__isnull=False
-            )
+            # Filtrar incidencias que no tienen reporte de calidad del tipo solicitado
+            # Si estamos buscando incidencias para reportes internos, solo excluir si ya tienen reporte interno
+            if escalated_to_internal:
+                 incidents = incidents.exclude(
+                    quality_reports__report_type='interno'
+                )
+            elif report_type:
+                incidents = incidents.exclude(
+                    quality_reports__report_type=report_type
+                )
+            else:
+                 # Default behavior: exclude if ANY report exists (unless we can infer type)
+                 # Si no se especifica tipo, y no es escalacion interna, asumimos que se busca para reporte cliente
+                 # Pero para seguridad, mantenemos el comportamiento de excluir si tiene algun reporte
+                 # Solo si no es el caso de internal
+                 incidents = incidents.exclude(
+                    quality_reports__isnull=False
+                 )
         
         if report_type:
             # Filtrar por tipo de reporte si es necesario
             if report_type == 'cliente':
-                incidents = incidents.filter(estado__in=['laboratorio', 'en_progreso'])
+                # Permitir incidencias escaladas desde cualquier estado si tienen el flag active
+                pass
             elif report_type == 'interno':
-                incidents = incidents.filter(estado='laboratorio')
+                incidents = incidents.filter(escalated_to_internal_quality=True)
         
         # Ordenar por fecha de escalación
         incidents = incidents.order_by('-escalation_date')
@@ -339,20 +482,38 @@ def escalated_incidents(request):
         # Serializar datos
         incidents_data = []
         for incident in incidents:
-            incidents_data.append({
-                'id': incident.id,
-                'code': incident.code,
-                'cliente': incident.cliente,
-                'provider': incident.provider,
-                'categoria': incident.get_categoria_display(),
-                'subcategoria': incident.subcategoria,
-                'prioridad': incident.get_prioridad_display(),
-                'estado': incident.get_estado_display(),
-                'escalation_date': incident.escalation_date,
-                'escalation_reason': incident.escalation_reason,
-                'has_quality_report': incident.quality_reports.exists()
-            })
-        
+            try:
+                # Safe access to fields
+                cat_name = incident.categoria.name if incident.categoria else None
+                
+                # Handle priority safely
+                priority = getattr(incident, 'prioridad', 'media')
+                if callable(priority): # In case it's a method
+                    priority = priority()
+                    
+                # Handle status safely
+                if hasattr(incident, 'get_estado_display'):
+                    status_display = incident.get_estado_display()
+                else:
+                    status_display = getattr(incident, 'estado', 'Desconocido')
+
+                incidents_data.append({
+                    'id': incident.id,
+                    'code': incident.code,
+                    'cliente': incident.cliente,
+                    'provider': incident.provider,
+                    'categoria': cat_name,
+                    'subcategoria': incident.subcategoria,
+                    'prioridad': priority,
+                    'estado': status_display,
+                    'escalation_date': incident.escalation_date,
+                    'escalation_reason': incident.escalation_reason,
+                    'has_quality_report': incident.quality_reports.exists()
+                })
+            except Exception as item_error:
+                logger.error(f"Error serializing incident {incident.id}: {str(item_error)}")
+                continue
+
         return Response({
             'success': True,
             'incidents': incidents_data,

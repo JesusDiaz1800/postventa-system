@@ -32,17 +32,19 @@ class AIProviderCreateUpdateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         api_key = validated_data.pop('api_key', '')
+        instance = super().create(validated_data)
         if api_key:
-            # TODO: Encrypt API key
-            validated_data['api_key_encrypted'] = api_key
-        return super().create(validated_data)
+            instance.set_api_key(api_key)
+            instance.save(update_fields=['api_key_encrypted'])
+        return instance
     
     def update(self, instance, validated_data):
         api_key = validated_data.pop('api_key', None)
+        instance = super().update(instance, validated_data)
         if api_key is not None:
-            # TODO: Encrypt API key
-            instance.api_key_encrypted = api_key
-        return super().update(instance, validated_data)
+            instance.set_api_key(api_key)
+            instance.save(update_fields=['api_key_encrypted'])
+        return instance
 
 
 class AIAnalysisSerializer(serializers.ModelSerializer):

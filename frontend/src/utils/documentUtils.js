@@ -2,6 +2,7 @@
  * Utilidades unificadas para manejo de documentos
  * Centraliza la lógica de apertura, descarga y gestión de documentos
  */
+import { API_ORIGIN } from '../services/api';
 
 /**
  * Abre un documento en el navegador
@@ -10,48 +11,53 @@
  * @param {Function} showSuccess - Función para mostrar mensaje de éxito
  * @param {Function} showError - Función para mostrar mensaje de error
  */
-export const openDocument = async (report, documentType, showSuccess, showError) => {
+export const openDocument = (report, documentType, showSuccess, showError) => {
   try {
     // Validar parámetros requeridos
     if (!report) {
       throw new Error('Reporte no especificado');
     }
-    
+
     if (!documentType) {
       throw new Error('Tipo de documento no especificado');
     }
-    
+
     // Obtener ID de la incidencia
     const incidentId = report.related_incident?.id || report.incident_id;
     if (!incidentId) {
       throw new Error('ID de incidencia no encontrado');
     }
-    
-    // Obtener nombre del archivo
-    const filename = report.pdf_filename || report.filename || report.title || 'documento.pdf';
-    if (!filename || filename === 'undefined') {
-      throw new Error('Nombre de archivo no válido');
-    }
-    
-    // Codificar el nombre del archivo para manejar caracteres especiales
-    const encodedFilename = encodeURIComponent(filename);
-    
+
     // Construir URL del documento
-    const { API_ORIGIN } = await import('../services/api');
-    const url = `${API_ORIGIN}/api/documents/open/${documentType}/${incidentId}/${encodedFilename}`;
-    
+    let url;
+    // Si el reporte ya tiene una URL de descarga pre-calculada, la usamos
+    if (report.download_url) {
+      // Aseguramos que tenga el origen correcto (si es relativa)
+      url = report.download_url.startsWith('http')
+        ? report.download_url
+        : `${API_ORIGIN}${report.download_url}`;
+    } else {
+      // Fallback: construir URL manualmente
+      const filename = report.pdf_filename || report.filename || report.title || 'documento.pdf';
+      if (!filename || filename === 'undefined') {
+        throw new Error('Nombre de archivo no válido');
+      }
+      const encodedFilename = encodeURIComponent(filename);
+      url = `${API_ORIGIN}/api/documents/open/${documentType}/${incidentId}/${encodedFilename}`;
+    }
+
     // Abrir documento en nueva pestaña
-    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
-    
+    const newWindow = window.open(url, '_blank');
+
     if (!newWindow) {
       throw new Error('No se pudo abrir la ventana. Verifica que los pop-ups estén permitidos.');
     }
-    
-    showSuccess('Documento abierto exitosamente');
-    
+
+    if (showSuccess) showSuccess('Documento abierto exitosamente');
+
   } catch (error) {
     console.error('Error opening document:', error);
-    showError(`Error al abrir el documento: ${error.message}`);
+    if (showError) showError(`Error al abrir el documento: ${error.message}`);
   }
 };
 
@@ -62,36 +68,48 @@ export const openDocument = async (report, documentType, showSuccess, showError)
  * @param {Function} showSuccess - Función para mostrar mensaje de éxito
  * @param {Function} showError - Función para mostrar mensaje de error
  */
-export const downloadDocument = async (report, documentType, showSuccess, showError) => {
+export const downloadDocument = (report, documentType, showSuccess, showError) => {
   try {
     // Validar parámetros requeridos
     if (!report) {
       throw new Error('Reporte no especificado');
     }
-    
+
     if (!documentType) {
       throw new Error('Tipo de documento no especificado');
     }
-    
+
     // Obtener ID de la incidencia
     const incidentId = report.related_incident?.id || report.incident_id;
     if (!incidentId) {
       throw new Error('ID de incidencia no encontrado');
     }
-    
-    // Obtener nombre del archivo
-    const filename = report.pdf_filename || report.filename || report.title || 'documento.pdf';
-    if (!filename || filename === 'undefined') {
-      throw new Error('Nombre de archivo no válido');
-    }
-    
-    // Codificar el nombre del archivo
-    const encodedFilename = encodeURIComponent(filename);
-    
+
     // Construir URL del documento
-    const { API_ORIGIN } = await import('../services/api');
-    const url = `${API_ORIGIN}/api/documents/open/${documentType}/${incidentId}/${encodedFilename}`;
-    
+    let url;
+    let filename = report.pdf_filename || report.filename || report.title || 'documento.pdf';
+
+    // Si el reporte ya tiene una URL de descarga pre-calculada y válida, la usamos
+    if (report.download_url) {
+      // Aseguramos que tenga el origen correcto (si es relativa)
+      url = report.download_url.startsWith('http')
+        ? report.download_url
+        : `${API_ORIGIN}${report.download_url}`;
+
+      // Intentamos extraer filename de la URL si no tenemos uno mejor
+      if (!report.filename && !report.pdf_filename) {
+        const parts = report.download_url.split('/');
+        filename = decodeURIComponent(parts[parts.length - 1] || 'documento.pdf');
+      }
+    } else {
+      // Fallback: construir URL manualmente
+      if (!filename || filename === 'undefined') {
+        throw new Error('Nombre de archivo no válido');
+      }
+      const encodedFilename = encodeURIComponent(filename);
+      url = `${API_ORIGIN}/api/documents/open/${documentType}/${incidentId}/${encodedFilename}`;
+    }
+
     // Crear enlace de descarga
     const link = document.createElement('a');
     link.href = url;
@@ -100,12 +118,12 @@ export const downloadDocument = async (report, documentType, showSuccess, showEr
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    showSuccess('Documento descargado exitosamente');
-    
+
+    if (showSuccess) showSuccess('Documento descargado exitosamente');
+
   } catch (error) {
     console.error('Error downloading document:', error);
-    showError(`Error al descargar el documento: ${error.message}`);
+    if (showError) showError(`Error al descargar el documento: ${error.message}`);
   }
 };
 
@@ -121,15 +139,14 @@ export const generateDocument = async (report, documentType, showSuccess, showEr
     if (!report || !report.id) {
       throw new Error('Reporte no válido');
     }
-    
+
     if (!documentType) {
       throw new Error('Tipo de documento no especificado');
     }
-    
+
     // Construir URL de generación
-  const { API_ORIGIN } = await import('../services/api');
     const url = `${API_ORIGIN}/api/documents/generate/${documentType}/${report.id}/`;
-    
+
     // Hacer petición para generar documento
     const response = await fetch(url, {
       method: 'POST',
@@ -138,16 +155,16 @@ export const generateDocument = async (report, documentType, showSuccess, showEr
         'Content-Type': 'application/json',
       },
     });
-    
+
     if (!response.ok) {
       throw new Error('Error al generar el documento');
     }
-    
-    showSuccess('Documento generado exitosamente');
-    
+
+    if (showSuccess) showSuccess('Documento generado exitosamente');
+
   } catch (error) {
     console.error('Error generating document:', error);
-    showError(`Error al generar el documento: ${error.message}`);
+    if (showError) showError(`Error al generar el documento: ${error.message}`);
   }
 };
 
@@ -171,10 +188,10 @@ export const getDocumentTypeFromPath = (pathname) => {
  */
 export const isValidReportForDocument = (report) => {
   if (!report) return false;
-  
+
   const incidentId = report.related_incident?.id || report.incident_id;
   const filename = report.pdf_filename || report.filename || report.title;
-  
+
   return !!(incidentId && filename && filename !== 'undefined');
 };
 

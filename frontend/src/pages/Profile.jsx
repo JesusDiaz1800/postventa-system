@@ -13,7 +13,10 @@ import {
   KeyIcon,
   BellIcon,
   CogIcon,
+  DocumentCheckIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
+import { api } from '../services/api';
 
 const Profile = () => {
   const { user } = useAuth();
@@ -36,7 +39,7 @@ const Profile = () => {
       analyst: 'bg-green-100 text-green-800 border-green-200',
       customer_service: 'bg-yellow-100 text-yellow-800 border-yellow-200',
     };
-    
+
     return (
       <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border ${roleClasses[role] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
         {role}
@@ -46,7 +49,7 @@ const Profile = () => {
 
   const handleChangePassword = async (passwordData) => {
     try {
-  const { usersAPI } = await import('../services/api');
+      const { usersAPI } = await import('../services/api');
       await usersAPI.changeOwnPassword(passwordData);
       showSuccess('Contraseña cambiada exitosamente');
       setShowChangePasswordModal(false);
@@ -72,7 +75,7 @@ const Profile = () => {
                   {isEditing ? 'Cancelar' : 'Editar'}
                 </button>
               </div>
-              
+
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
@@ -86,7 +89,7 @@ const Profile = () => {
                     <p className="text-sm text-gray-900 bg-gray-50 px-4 py-3 rounded-lg">{user?.username}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                   {isEditing ? (
@@ -99,7 +102,7 @@ const Profile = () => {
                     <p className="text-sm text-gray-900 bg-gray-50 px-4 py-3 rounded-lg">{user?.email}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Nombre</label>
                   {isEditing ? (
@@ -112,7 +115,7 @@ const Profile = () => {
                     <p className="text-sm text-gray-900 bg-gray-50 px-4 py-3 rounded-lg">{user?.first_name} {user?.last_name}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Teléfono</label>
                   {isEditing ? (
@@ -125,7 +128,7 @@ const Profile = () => {
                     <p className="text-sm text-gray-900 bg-gray-50 px-4 py-3 rounded-lg">{user?.phone || 'No especificado'}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Departamento</label>
                   {isEditing ? (
@@ -138,7 +141,7 @@ const Profile = () => {
                     <p className="text-sm text-gray-900 bg-gray-50 px-4 py-3 rounded-lg">{user?.department || 'No especificado'}</p>
                   )}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Rol</label>
                   <div className="bg-gray-50 px-4 py-3 rounded-lg">
@@ -146,10 +149,13 @@ const Profile = () => {
                   </div>
                 </div>
               </div>
-              
+
               {isEditing && (
-                <div className="mt-6 flex justify-end space-x-3">
-                  <button className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end space-x-3">
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                  >
                     Cancelar
                   </button>
                   <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
@@ -157,16 +163,92 @@ const Profile = () => {
                   </button>
                 </div>
               )}
+
+              {!isEditing && (
+                <div className="mt-8 pt-6 border-t border-gray-100">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <DocumentCheckIcon className="h-5 w-5 mr-2 text-blue-500" />
+                    Firma Digital
+                  </h3>
+
+                  <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                      <div className="flex-shrink-0">
+                        {user?.digital_signature ? (
+                          <div className="bg-white p-2 rounded border border-gray-200">
+                            <img
+                              src={user.digital_signature}
+                              alt="Firma"
+                              className="h-16 object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-16 w-32 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">
+                            Sin Firma
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          {user?.digital_signature ? 'Actualizar Firma' : 'Subir Firma Digital'}
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+
+                              if (file.size > 2 * 1024 * 1024) {
+                                showError('La imagen no debe superar los 2MB');
+                                return;
+                              }
+
+                              const formData = new FormData();
+                              formData.append('digital_signature', file);
+
+                              try {
+                                await api.patch('/users/me/', formData, {
+                                  headers: { 'Content-Type': 'multipart/form-data' }
+                                });
+                                showSuccess('Firma digital actualizada. Recargando...');
+                                setTimeout(() => window.location.reload(), 1000);
+                              } catch (error) {
+                                console.error('Error uploading signature:', error);
+                                showError('Error al subir la firma');
+                              }
+                            }}
+                            className="block w-full text-sm text-gray-500
+                                              file:mr-4 file:py-2 file:px-4
+                                              file:rounded-full file:border-0
+                                              file:text-sm file:font-semibold
+                                              file:bg-blue-100 file:text-blue-700
+                                              hover:file:bg-blue-200
+                                              cursor-pointer"
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Esta firma se usará en tus reportes PDF. Formato PNG (fondo transparente) recomendado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
-      
+
+
+
       case 'security':
         return (
           <div className="space-y-6">
             <div className="bg-white shadow-xl rounded-xl border border-gray-100 p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-6">Seguridad</h3>
-              
+
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
                   <div className="flex items-center">
@@ -176,14 +258,14 @@ const Profile = () => {
                       <p className="text-sm text-gray-500">Actualiza tu contraseña regularmente</p>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setShowChangePasswordModal(true)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     Cambiar
                   </button>
                 </div>
-                
+
                 <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
                   <div className="flex items-center">
                     <ShieldCheckIcon className="h-8 w-8 text-gray-400 mr-4" />
@@ -196,7 +278,7 @@ const Profile = () => {
                     Activar
                   </button>
                 </div>
-                
+
                 <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
                   <div className="flex items-center">
                     <CalendarIcon className="h-8 w-8 text-gray-400 mr-4" />
@@ -210,7 +292,7 @@ const Profile = () => {
             </div>
           </div>
         );
-      
+
       default:
         return (
           <div className="bg-white shadow-xl rounded-xl border border-gray-100 p-6">
@@ -228,7 +310,7 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center space-x-4">
@@ -256,15 +338,13 @@ const Profile = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                      activeTab === tab.id
-                        ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-r-2 border-blue-500 shadow-sm'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 hover:shadow-sm'
-                    }`}
+                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${activeTab === tab.id
+                      ? 'bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border-r-2 border-blue-500 shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 hover:shadow-sm'
+                      }`}
                   >
-                    <Icon className={`mr-3 h-5 w-5 ${
-                      activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
-                    }`} />
+                    <Icon className={`mr-3 h-5 w-5 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
+                      }`} />
                     {tab.name}
                   </button>
                 );

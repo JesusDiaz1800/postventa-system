@@ -1,72 +1,102 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import Button from '../ui/Button';
+import { usePWA } from '../../context/PWAContext';
 import NotificationCenter from '../NotificationCenter';
+import {
+  Bars3Icon,
+  ArrowRightOnRectangleIcon,
+  DevicePhoneMobileIcon,
+} from '@heroicons/react/24/outline';
+
+const InstallAppButton = () => {
+  const { deferredPrompt, install, isStandalone } = usePWA();
+  if (isStandalone || !deferredPrompt) return null;
+
+  return (
+    <button
+      onClick={install}
+      className="hidden md:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+    >
+      <DevicePhoneMobileIcon className="w-5 h-5" />
+      <span>Instalar App</span>
+    </button>
+  );
+};
 
 const Header = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
+  const location = useLocation();
+
+  const getPageTitle = (pathname) => {
+    const path = pathname.endsWith('/') && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+    const routes = {
+      '/dashboard': 'Dashboard',
+      '/incidents': 'Incidencias',
+      '/create-incident': 'Nueva Incidencia',
+      '/reports': 'Reportes y Analíticas',
+      '/users': 'Gestión de Usuarios',
+      '/audit': 'Auditoría',
+      '/settings': 'Configuración',
+      '/documents': 'Documentos',
+      '/visit-reports': 'Reportes de Visita',
+    };
+    if (routes[path]) return routes[path];
+    if (path.includes('/incidents/')) return 'Detalle de Incidencia';
+    return 'Sistema de Postventa';
+  };
+
+  const pageTitle = getPageTitle(location.pathname);
 
   return (
-    <header className="bg-gradient-to-r from-white to-gray-50 shadow-lg border-b border-gray-200">
+    <header className="sticky top-0 z-40 w-full bg-white border-b border-gray-200">
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          {/* Menu button - visible on all screen sizes */}
-          <div className="flex items-center">
+          <div className="flex items-center gap-4">
             <button
               onClick={onMenuClick}
-              className="text-gray-600 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 p-2 rounded-lg hover:bg-blue-50 transition-all duration-200 shadow-sm"
+              className="p-2 text-gray-400 hover:text-gray-600 focus:outline-none"
             >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <Bars3Icon className="w-6 h-6" />
             </button>
+
+            <h1 className="text-lg font-semibold text-gray-900 truncate">
+              {pageTitle}
+            </h1>
           </div>
 
-          {/* Logo - hidden on mobile */}
-          <div className="hidden lg:flex items-center">
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">P</span>
+          <div className="flex items-center gap-4 sm:gap-6">
+            <InstallAppButton />
+
+            <div className="flex items-center border-x border-gray-100 px-4 sm:px-6">
+              <NotificationCenter />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right lg:block">
+                <p className="text-sm font-medium text-gray-900">
+                  {user?.full_name || user?.username}
+                </p>
+                <p className="text-xs text-gray-500 capitalize">
+                  {user?.role || 'Usuario'}
+                </p>
               </div>
-              <span className="ml-3 text-xl font-bold text-gray-900">Polifusión</span>
-            </div>
-          </div>
 
-          {/* User menu */}
-          <div className="flex items-center space-x-4">
-            {/* Notification Center */}
-            <NotificationCenter />
-
-            {/* User dropdown */}
-            <div className="relative">
-              <button className="flex items-center space-x-3 text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-primary">
-                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                  <span className="text-white font-medium text-sm">
-                    {user?.username?.charAt(0).toUpperCase() || 'U'}
-                  </span>
+              <div className="flex-shrink-0 relative">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-medium">
+                  {user?.username?.charAt(0).toUpperCase() || 'U'}
                 </div>
-                <div className="hidden md:block text-left">
-                  <p className="text-sm font-medium text-gray-900">{user?.full_name || user?.username}</p>
-                  <p className="text-xs text-gray-500">{user?.role || 'Usuario'}</p>
-                </div>
-                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>
+              </div>
             </div>
 
-            {/* Logout button */}
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
               onClick={logout}
-              className="text-gray-500 hover:text-gray-700"
+              className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+              title="Cerrar sesión"
             >
-              <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Salir
-            </Button>
+              <ArrowRightOnRectangleIcon className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
@@ -74,4 +104,5 @@ const Header = ({ onMenuClick }) => {
   );
 };
 
+export { Header };
 export default Header;

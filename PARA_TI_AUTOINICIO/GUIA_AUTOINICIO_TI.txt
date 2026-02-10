@@ -1,0 +1,63 @@
+GUÍA TÉCNICA: CONFIGURACIÓN DE AUTO-INICIO (MODO SERVICIO)
+Sistema de Postventa - Polifusion S.A.
+============================================================
+
+OBJETIVO:
+Configurar el sistema para que se ejecute automáticamente al
+encender el servidor, SIN necesidad de que un usuario inicie sesión.
+
+TIEMPO ESTIMADO: 3 minutos.
+
+ARCHIVOS NECESARIOS:
+Ubicados en esta carpeta:
+1. INICIAR_SISTEMA_AUTO.bat
+2. run_hidden.vbs
+
+============================================================
+PASOS DE CONFIGURACIÓN (TASK SCHEDULER)
+============================================================
+
+1. Abra el "Programador de Tareas" (Task Scheduler) como Administrador.
+
+2. Haga clic en "Crear Tarea..." (Create Task).
+
+3. Pestaña [General]:
+   - Nombre: "Sistema Postventa AutoStart"
+   - Usuario: Seleccione la cuenta "jdiaz" (o una de servicio).
+   - OPCIÓN CRÍTICA: Marque "Ejecutar tanto si el usuario inició sesión como si no"
+     (Run whether user is logged on or not).
+   - Marque "Ejecutar con los privilegios más altos" (Run with highest privileges).
+   - Configurar para: Windows Server 2019/2022 (o el que corresponda).
+
+4. Pestaña [Desencadenadores] (Triggers):
+   - Nuevo...
+   - Iniciar la tarea: "Al iniciar el sistema" (At Startup).
+   - Aceptar.
+
+5. Pestaña [Acciones] (Actions):
+   - Nuevo...
+   - Acción: "Iniciar un programa".
+   - Programa/Script: Busque y seleccione el archivo:
+     "C:\Users\jdiaz\Desktop\postventa-system\PARA_TI_AUTOINICIO\INICIAR_SISTEMA_AUTO.bat"
+   - Iniciar en (Start in):
+     "C:\Users\jdiaz\Desktop\postventa-system\PARA_TI_AUTOINICIO\"
+     (Es vital poner la ruta de la carpeta aquí, sin comillas al final).
+
+6. Pestaña [Condiciones] (Conditions):
+   - Desmarque "Iniciar la tarea solo si el equipo está conectado a la red eléctrica" (si aplica).
+
+7. Haga clic en Aceptar.
+   - Windows le pedirá la contraseña del usuario "jdiaz". Ingrésela.
+
+============================================================
+VERIFICACIÓN
+============================================================
+
+1. Reinicie el servidor (si es posible) o ejecute la tarea manualmente.
+2. Espere 1 minuto.
+3. Intente acceder desde otro PC a: https://192.168.1.234:5173
+4. Si carga, ¡Felicitaciones! El sistema está corriendo como servicio.
+
+NOTA: No verá ninguna ventana negra. El sistema corre oculto.
+Para detenerlo, debe finalizar los procesos "python.exe" / "pythonw.exe" y "node.exe"
+desde el Administrador de Tareas.

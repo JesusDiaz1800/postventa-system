@@ -10,14 +10,16 @@ import hashlib
 import json
 from typing import Dict, Any, Optional
 
-# Importación condicional de Google Generative AI
+# Importación de Google Generative AI (nueva API)
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     genai = None
+    types = None
     GEMINI_AVAILABLE = False
-    logging.warning("Google Generative AI no está disponible. Instalar con: pip install google-generativeai")
+    logging.warning("Google Generative AI no está disponible. Instalar con: pip install google-genai")
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class GeminiService:
     def __init__(self):
         """Inicializar el servicio con la API key"""
         if not GEMINI_AVAILABLE:
-            raise ImportError("Google Generative AI no está disponible. Instalar con: pip install google-generativeai")
+            raise ImportError("Google Generative AI no está disponible. Instalar con: pip install google-genai")
         
         self.api_key = getattr(settings, 'GEMINI_API_KEY', None)
         if not self.api_key:
@@ -38,13 +40,18 @@ class GeminiService:
             self.api_key = os.getenv('GEMINI_API_KEY')
         
         if not self.api_key or self.api_key == 'your-gemini-api-key-here':
-            raise ValueError("GEMINI_API_KEY no está configurada en settings o variables de entorno")
+            # Instead of crashing, allow initialization but fail on generation
+            logger.warning("GEMINI_API_KEY no configurada. El servicio funcionará pero fallará al generar contenido.")
+            self.client = None
+        else:
+            # Configurar el cliente con la nueva API
+            self.client = genai.Client(api_key=self.api_key)
         
-        # Configurar el SDK
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
         self.cache_timeout = 3600  # 1 hora de cache
-        logger.info("GeminiService inicializado correctamente")
+        logger.info("GeminiService inicializado correctamente con google.genai")
+
+    # ... (rest of methods need to check if self.model is None) ...
+
     
     def _get_cache_key(self, content: str, analysis_type: str) -> str:
         """Generar clave de cache única"""
@@ -62,15 +69,10 @@ class GeminiService:
     def generate_content(self, prompt: str, max_tokens: int = None, use_cache: bool = True) -> str:
         """
         Generar contenido usando Gemini AI con cache
-        
-        Args:
-            prompt (str): El prompt para enviar a Gemini
-            max_tokens (int, optional): Número máximo de tokens en la respuesta
-            use_cache (bool): Si usar cache o no
-            
-        Returns:
-            str: La respuesta generada por Gemini
         """
+        if not self.client:
+            raise ValueError("API Key no configurada. Configure GEMINI_API_KEY en el servidor.")
+
         try:
             # Verificar cache si está habilitado
             if use_cache:
@@ -82,14 +84,16 @@ class GeminiService:
             
             logger.info(f"Enviando prompt a Gemini: {prompt[:100]}...")
             
-            # Configurar parámetros de generación
-            generation_config = {}
-            if max_tokens:
-                generation_config['max_output_tokens'] = max_tokens
+            # Configurar parámetros de generación con nueva API
+            config = types.GenerateContentConfig(
+                temperature=1.0,
+                max_output_tokens=max_tokens if max_tokens else 2048
+            )
             
-            response = self.model.generate_content(
-                prompt,
-                generation_config=generation_config if generation_config else None
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=prompt,
+                config=config
             )
             
             # Guardar en cache si está habilitado
@@ -101,6 +105,33 @@ class GeminiService:
             
         except Exception as e:
             logger.error(f"Error al generar contenido con Gemini: {e}")
+            raise
+
+    def analyze_document_file(self, file_bytes: bytes, mime_type: str, prompt: str) -> str:
+        """
+        Analiza un archivo (PDF) directamente usando Gemini con capacidades multimodales.
+        """
+        if not self.client:
+            raise ValueError("API Key no configurada.")
+        
+        try:
+            # Preparar parte con archivo
+            file_part = types.Part.from_bytes(
+                data=file_bytes,
+                mime_type=mime_type
+            )
+            
+            logger.info(f"Enviando archivo {mime_type} a Gemini para análisis multimodal...")
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=[file_part, prompt]
+            )
+            
+            logger.info("Análisis multimodal completado exitosamente")
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Error en análisis multimodal de documento: {e}")
             raise
     
     def analyze_real_image(self, image_file, analysis_type: str = 'comprehensive_technical_analysis', 
@@ -172,28 +203,34 @@ class GeminiService:
             observables y proporciona recomendaciones prácticas.
             """
             
-            # Usar el modelo de visión de Gemini
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # Verificar cliente
+            if not self.client:
+                raise ValueError("API Key no configurada.")
             
-            # Preparar contenido con imagen y texto
-            content = [
-                {
-                    "mime_type": "image/jpeg",
-                    "data": img_byte_arr
-                },
-                prompt
-            ]
+            # Preparar parte con imagen
+            image_part = types.Part.from_bytes(
+                data=img_byte_arr,
+                mime_type="image/jpeg"
+            )
             
             logger.info(f"Enviando imagen a Gemini para análisis (ID: {analysis_id})")
             
-            # Generar análisis
-            response = model.generate_content(content)
+            # Generar análisis con nueva API
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=[image_part, prompt]
+            )
             
             processing_time = round(time.time() - start_time, 2)
             
-            # Intentar parsear como JSON
+            # Intentar parsear como JSON (Limpiando markdown si existe)
             try:
-                analysis = json.loads(response.text)
+                text_response = response.text.strip()
+                if text_response.startswith('```'):
+                    # Eliminar bloques de código markdown
+                    text_response = text_response.replace('```json', '').replace('```', '').strip()
+                    
+                analysis = json.loads(text_response)
             except json.JSONDecodeError:
                 # Si no es JSON válido, crear estructura manual
                 analysis = {
@@ -214,7 +251,7 @@ class GeminiService:
                 'confidence_score': 0.85,  # Score estimado
                 'processing_time': processing_time,
                 'tokens_used': len(response.text) // 4,  # Estimación aproximada
-                'model_used': 'gemini-1.5-flash',
+                'model_used': 'gemini-flash-latest',
                 'analysis_id': analysis_id
             }
             
@@ -392,7 +429,7 @@ class GeminiService:
             'service_status': 'Operativo',
             'cache_enabled': True,
             'cache_timeout': self.cache_timeout,
-            'model': 'gemini-1.5-flash',
+            'model': 'gemini-flash-latest',
             'optimization': 'Cache habilitado para optimizar cuotas'
         }
 

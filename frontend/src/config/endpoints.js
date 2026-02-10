@@ -4,20 +4,16 @@ const USE_TEST_ENDPOINTS = false; // Cambiar a false para usar endpoints normale
 const ENDPOINTS = {
   // Endpoints normales (con autenticación)
   normal: {
-    generatePolifusionLabReport: '/api/documents/generate-polifusion-lab-report/',
     generatePolifusionIncidentReport: '/api/documents/generate-polifusion-incident-report/',
     generatePolifusionVisitReport: '/api/documents/generate-polifusion-visit-report/',
-    generatePolifusionLabReportPDF: '/api/documents/generate-polifusion-lab-report-pdf/',
     generatePolifusionIncidentReportPDF: '/api/documents/generate-polifusion-incident-report-pdf/',
     generatePolifusionVisitReportPDF: '/api/documents/generate-polifusion-visit-report-pdf/',
   },
-  
+
   // Endpoints de prueba (sin autenticación)
   test: {
-    generatePolifusionLabReport: '/api/documents/test/generate-polifusion-lab-report/',
     generatePolifusionIncidentReport: '/api/documents/test/generate-polifusion-incident-report/',
     generatePolifusionVisitReport: '/api/documents/test/generate-polifusion-visit-report/',
-    generatePolifusionLabReportPDF: '/api/documents/generate-polifusion-lab-report-pdf/',
     generatePolifusionIncidentReportPDF: '/api/documents/generate-polifusion-incident-report-pdf/',
     generatePolifusionVisitReportPDF: '/api/documents/generate-polifusion-visit-report-pdf/',
   }
@@ -34,7 +30,7 @@ export const getHeaders = () => {
   const headers = {
     'Content-Type': 'application/json',
   };
-  
+
   // Solo agregar autenticación si no estamos usando endpoints de prueba
   if (!USE_TEST_ENDPOINTS) {
     const token = localStorage.getItem('access_token');
@@ -42,7 +38,7 @@ export const getHeaders = () => {
       headers['Authorization'] = `Bearer ${token}`;
     }
   }
-  
+
   return headers;
 };
 

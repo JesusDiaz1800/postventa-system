@@ -26,36 +26,40 @@ class AuditLogManager:
 class AuditLog(models.Model):
     """Registro de auditoría simplificado para todas las acciones del sistema"""
     
-    # Tipos de acción en español
+    # Tipos de acción - Solo las acciones actuales permitidas
     ACTION_CHOICES = [
-        ('login', 'Iniciar Sesión'),
-        ('logout', 'Cerrar Sesión'),
-        ('crear', 'Crear'),
-        ('actualizar', 'Actualizar'),
-        ('eliminar', 'Eliminar'),
-        ('ver', 'Ver'),
-        ('subir', 'Subir Archivo'),
-        ('descargar', 'Descargar Archivo'),
-        ('escalar', 'Escalar'),
-        ('cerrar', 'Cerrar'),
-        ('aprobar', 'Aprobar'),
-        ('rechazar', 'Rechazar'),
-        ('exportar', 'Exportar'),
-        ('buscar', 'Buscar'),
-        ('filtrar', 'Filtrar'),
-        ('error', 'Error'),
+        # Autenticación
+        ('user_login', 'Iniciar Sesión'),
+        ('user_logout', 'Cerrar Sesión'),
+        
+        # Incidentes
+        ('incident_created', 'Incidente Creado'),
+        ('incident_closed', 'Incidente Cerrado'),
+        ('escalation_triggered', 'Incidente Escalado'),
+        
+        # Reportes
+        ('report_attached', 'Reporte Adjuntado'),
+        
+        # Operaciones Genéricas
+        ('create', 'Crear'),
+        ('delete', 'Eliminar'),
+        ('item_restored', 'Elemento Restaurado'),
     ]
     
     # Campos principales
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Usuario')
-    action = models.CharField(max_length=50, choices=ACTION_CHOICES, verbose_name='Acción')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='Usuario', db_index=True)
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES, verbose_name='Acción', db_index=True)
     description = models.TextField(verbose_name='Descripción')
     details = models.JSONField(default=dict, blank=True, verbose_name='Detalles Adicionales')
-    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name='Dirección IP')
-    timestamp = models.DateTimeField(auto_now_add=True, verbose_name='Fecha y Hora')
+    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name='Dirección IP', db_index=True)
+    timestamp = models.DateTimeField(auto_now_add=True, verbose_name='Fecha y Hora', db_index=True)
     
     class Meta:
         ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp', 'action']),
+            models.Index(fields=['user', 'action']),
+        ]
         verbose_name = 'Registro de Auditoría'
         verbose_name_plural = 'Registros de Auditoría'
     
@@ -66,35 +70,25 @@ class AuditLog(models.Model):
     @property
     def formatted_timestamp(self):
         """Timestamp formateado en español"""
+        # Ajustar timezone si es necesario, pero settings.py ya tiene Santiago.
         return self.timestamp.strftime('%d/%m/%Y %H:%M:%S')
-    
-    @property
-    def user_display(self):
-        """Usuario formateado"""
-        if self.user:
-            return f"{self.user.username} ({self.user.get_full_name() or self.user.email})"
-        return 'Sistema'
     
     @property
     def action_icon(self):
         """Icono para la acción"""
         icon_map = {
-            'login': '🔑',
-            'logout': '🚪',
-            'crear': '➕',
-            'actualizar': '✏️',
-            'eliminar': '🗑️',
-            'ver': '👁️',
-            'subir': '📤',
-            'descargar': '📥',
-            'escalar': '⬆️',
-            'cerrar': '✅',
-            'aprobar': '👍',
-            'rechazar': '👎',
-            'exportar': '📊',
-            'buscar': '🔍',
-            'filtrar': '🔽',
-            'error': '❌',
+            'user_login': '🔑',
+            'user_logout': '🚪',
+            
+            'incident_created': '➕',
+            'incident_closed': '✅',
+            'escalation_triggered': '🔥',
+            
+            'report_attached': '📎',
+            
+            'create': '➕',
+            'delete': '🗑️',
+            'item_restored': '♻️',
         }
         return icon_map.get(self.action, '📝')
     
@@ -102,21 +96,66 @@ class AuditLog(models.Model):
     def action_color(self):
         """Color para la acción"""
         color_map = {
-            'login': 'text-green-600',
-            'logout': 'text-gray-600',
-            'crear': 'text-blue-600',
-            'actualizar': 'text-yellow-600',
-            'eliminar': 'text-red-600',
-            'ver': 'text-gray-600',
-            'subir': 'text-blue-600',
-            'descargar': 'text-green-600',
-            'escalar': 'text-orange-600',
-            'cerrar': 'text-green-600',
-            'aprobar': 'text-green-600',
-            'rechazar': 'text-red-600',
-            'exportar': 'text-purple-600',
-            'buscar': 'text-blue-600',
-            'filtrar': 'text-gray-600',
-            'error': 'text-red-600',
+            'user_login': 'text-green-600',
+            'user_logout': 'text-gray-500',
+            
+            'incident_created': 'text-blue-700',
+            'incident_closed': 'text-green-700 font-bold',
+            'escalation_triggered': 'text-red-600 font-bold',
+            
+            'report_attached': 'text-purple-600',
+            
+            'create': 'text-blue-600',
+            'delete': 'text-red-700',
+            'item_restored': 'text-teal-600',
         }
         return color_map.get(self.action, 'text-gray-600')
+
+
+class DeletedItem(models.Model):
+    """
+    Modelo para almacenar elementos eliminados (Papelera de Reciclaje)
+    Retención por 3 días para restauración.
+    """
+    original_id = models.CharField(max_length=255, help_text="ID original del objeto")
+    model_name = models.CharField(max_length=100, help_text="Nombre del modelo (ej. Incident)")
+    app_label = models.CharField(max_length=100, help_text="App del modelo (ej. incidents)")
+    
+    # Datos completos serializados para restauración
+    serialized_data = models.JSONField(help_text="Datos completos del objeto en formato JSON")
+    
+    deleted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='deleted_items'
+    )
+    
+    # Fecha límite para restaurar (se calcula al crear)
+    restore_deadline = models.DateTimeField(db_index=True)
+    
+    # Representación legible del objeto (ej: "Incidencia #123 - Fuga de agua")
+    object_repr = models.CharField(max_length=255, default="Elemento eliminado", help_text="Representación legible del objeto")
+    
+    # Razón de eliminación
+    deletion_reason = models.TextField(blank=True, null=True)
+    
+    def save(self, *args, **kwargs):
+        if not self.restore_deadline:
+            # 3 días de retención por defecto
+            self.restore_deadline = timezone.now() + timezone.timedelta(days=3)
+        super().save(*args, **kwargs)
+        
+    class Meta:
+        verbose_name = 'Elemento Eliminado'
+        verbose_name_plural = 'Elementos Eliminados (Papelera)'
+        ordering = ['-deleted_at']
+        indexes = [
+            models.Index(fields=['app_label', 'model_name']),
+            models.Index(fields=['deleted_at']),
+        ]
+        
+    def __str__(self):
+        return f"{self.model_name} #{self.original_id} - Eliminado el {self.deleted_at.strftime('%d/%m/%Y')}"

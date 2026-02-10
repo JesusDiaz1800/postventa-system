@@ -20,6 +20,7 @@ import PDFViewer from './PDFViewer';
 const SupplierReportsList = () => {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedIncidentId, setSelectedIncidentId] = useState('');
   const [createMode, setCreateMode] = useState('form'); // 'form' o 'upload'
   const [selectedFile, setSelectedFile] = useState(null);
@@ -92,15 +93,15 @@ const SupplierReportsList = () => {
   // Filtrar incidencias que ya tienen reportes de proveedor
   const availableIncidents = useMemo(() => {
     if (!openIncidents?.results || !reports) return [];
-    
+
     // Extraer el array de reportes de la respuesta
     const reportsArray = reports?.results || reports?.data || reports || [];
-    
+
     const incidentIdsWithSupplierReports = new Set(
       reportsArray.map(report => report.related_incident?.id).filter(Boolean)
     );
-    
-    return openIncidents.results.filter(incident => 
+
+    return openIncidents.results.filter(incident =>
       !incidentIdsWithSupplierReports.has(incident.id)
     );
   }, [openIncidents, reports]);
@@ -309,90 +310,131 @@ const SupplierReportsList = () => {
     );
   }
 
+  const filteredReports = (reports?.results || reports?.data || reports || []).filter(report =>
+    report.report_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    report.supplier_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    report.subject.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-4">
-      {/* Header con botón de crear */}
-      <div className="flex justify-between items-center">
+    <div className="space-y-8">
+      {/* Modern Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h3 className="text-lg font-medium text-gray-900">Informes para Proveedores</h3>
-          <p className="text-sm text-gray-500">Gestión de informes técnicos enviados a proveedores</p>
+          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600">
+            🚚 Reportes de Proveedores
+          </h1>
+          <p className="mt-1 text-slate-500 font-medium">Gestione y supervise la comunicación técnica con sus proveedores</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-        >
-          <PlusIcon className="h-4 w-4 mr-2" />
-          Nuevo Informe
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transform hover:-translate-y-0.5 transition-all duration-200"
+          >
+            <PlusIcon className="h-5 w-5 mr-2" />
+            Nuevo Informe
+          </button>
+        </div>
       </div>
 
-      {/* Lista de Informes */}
-      <div className="bg-white shadow overflow-hidden sm:rounded-md">
-        <ul className="divide-y divide-gray-200">
-          {(reports?.results || reports?.data || reports || []).map((report) => (
-            <li key={report.id}>
-              <div className="px-4 py-4 flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    {getStatusIcon(report.status)}
-                  </div>
-                  <div className="ml-4">
-                    <div className="flex items-center">
-                      <p className="text-sm font-medium text-gray-900">
-                        {report.report_number}
-                      </p>
-                      <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                        {getStatusText(report.status)}
-                      </span>
+      {/* Search Bar Professional */}
+      <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-6 shadow-xl shadow-indigo-100 text-white">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+            <DocumentTextIcon className="h-6 w-6 text-white" />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-indigo-100 uppercase tracking-wide mb-1">
+              Búsqueda Rápida
+            </label>
+            <input
+              type="text"
+              placeholder="Buscar por número, proveedor o asunto..."
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/60 focus:outline-none focus:bg-white/20 focus:border-white/40 transition-all font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Modern Glass List */}
+      <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-100">
+            <thead className="bg-slate-50/50">
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Detalles del Informe</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Fecha</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 bg-white">
+              {filteredReports.map((report) => (
+                <tr key={report.id} className="hover:bg-slate-50/80 transition-colors duration-150">
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${report.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
+                        report.status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          report.status === 'pending_review' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            'bg-slate-50 text-slate-600 border-slate-200'
+                      }`}>
+                      {getStatusIcon(report.status)}
+                      <span className="ml-2">{getStatusText(report.status)}</span>
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-slate-800">{report.report_number}</span>
+                      <span className="text-sm text-slate-600 font-medium">{report.supplier_name}</span>
+                      <span className="text-xs text-slate-400 mt-1">{report.subject}</span>
+                      {report.related_incident?.code && (
+                        <span className="inline-flex items-center mt-1 text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded w-fit">
+                          Ref: {report.related_incident.code}
+                        </span>
+                      )}
                     </div>
-                    <div className="mt-1">
-                      <p className="text-sm text-gray-600">
-                        <strong>Proveedor:</strong> {report.supplier_name}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        <strong>Asunto:</strong> {report.subject}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        <strong>Incidencia:</strong> {report.related_incident?.code || 'N/A'}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        <strong>Informe de Lab:</strong> {report.related_lab_report?.report_number || 'N/A'}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        <strong>Fecha:</strong> {new Date(report.report_date).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  {report.pdf_path && (
+                  </td>
+                  <td className="px-6 py-4 text-sm font-medium text-slate-500">
+                    {new Date(report.report_date).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 text-right space-x-2">
+                    {report.pdf_path && (
+                      <button
+                        onClick={() => handleViewPDF(report)}
+                        className="text-white bg-purple-100 hover:bg-purple-200 p-2 rounded-lg transition-colors group"
+                        title="Ver PDF"
+                      >
+                        <EyeIcon className="h-5 w-5 text-purple-600 group-hover:text-purple-700" />
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleViewPDF(report)}
-                      className="text-purple-600 hover:text-purple-900"
-                      title="Ver PDF generado"
+                      onClick={() => handleEdit(report)}
+                      className="text-white bg-blue-100 hover:bg-blue-200 p-2 rounded-lg transition-colors group"
+                      title="Editar"
                     >
-                      <EyeIcon className="h-4 w-4" />
+                      <PencilIcon className="h-5 w-5 text-blue-600 group-hover:text-blue-700" />
                     </button>
-                  )}
-                  <button
-                    onClick={() => handleEdit(report)}
-                    className="text-blue-600 hover:text-blue-900"
-                    title="Editar informe"
-                  >
-                    <PencilIcon className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(report)}
-                    className="text-red-600 hover:text-red-900"
-                    title="Eliminar informe"
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+                    <button
+                      onClick={() => handleDelete(report)}
+                      className="text-white bg-red-100 hover:bg-red-200 p-2 rounded-lg transition-colors group"
+                      title="Eliminar"
+                    >
+                      <TrashIcon className="h-5 w-5 text-red-600 group-hover:text-red-700" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filteredReports.length === 0 && (
+            <div className="p-12 text-center text-slate-400">
+              <TruckIcon className="w-16 h-16 mx-auto mb-4 text-slate-200" />
+              <p className="text-lg font-medium">No se encontraron reportes</p>
+              <p className="text-sm">Intente cambiar el filtro o cree uno nuevo.</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Modal de Confirmación de Eliminación */}
@@ -408,7 +450,7 @@ const SupplierReportsList = () => {
               </h3>
               <div className="mt-2">
                 <p className="text-sm text-gray-500">
-                  ¿Estás seguro de que deseas eliminar el informe {selectedReport?.report_number}? 
+                  ¿Estás seguro de que deseas eliminar el informe {selectedReport?.report_number}?
                   Esta acción no se puede deshacer.
                 </p>
               </div>
@@ -464,26 +506,26 @@ const SupplierReportsList = () => {
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Seleccionar Incidencia
                   </label>
-                  <select 
+                  <select
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                     value={selectedIncidentId}
                     onChange={(e) => setSelectedIncidentId(e.target.value)}
                   >
                     <option value="">Selecciona una incidencia abierta</option>
-                                    {availableIncidents?.map((incident) => (
-                                        <option key={incident.id} value={incident.id}>
-                                            {incident.code} - {incident.cliente} - {incident.sku}
-                                        </option>
-                                    ))}
+                    {availableIncidents?.map((incident) => (
+                      <option key={incident.id} value={incident.id}>
+                        {incident.code} - {incident.cliente} - {incident.sku}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                
+
                 <div className="flex justify-end space-x-3">
                   <button
                     onClick={() => setShowCreateModal(false)}

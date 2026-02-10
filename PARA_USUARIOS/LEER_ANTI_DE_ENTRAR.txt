@@ -1,0 +1,13 @@
+SISTEMA DE POSTVENTA - POLIFUSION
+================================
+
+Para acceder al sistema desde su computadora:
+
+1. Asegúrese de que TI haya habilitado su equipo.
+2. Haga doble clic en el archivo "Acceso_Postventa" adjunto.
+3. Se abrirá automáticamente el navegador en el sistema.
+
+Si tiene problemas de acceso o ve advertencias de seguridad,
+por favor contacte al departamento de TI.
+
+URL Directa: https://192.168.1.234:5173

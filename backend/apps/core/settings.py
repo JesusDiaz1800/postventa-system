@@ -19,7 +19,19 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-default-key-for-development-only')
 
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,192.168.1.234,testserver').split(',')
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver,*').split(',')
+
+if not DEBUG:
+    # Production Security Settings
+    SECURE_SSL_REDIRECT = False # Set to True if using HTTPS
+    SESSION_COOKIE_SECURE = False # Set to True if using HTTPS
+    CSRF_COOKIE_SECURE = False # Set to True if using HTTPS
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 # --- Application Definition ---
 DJANGO_APPS = [
@@ -47,15 +59,20 @@ LOCAL_APPS = [
     'apps.users',
     'apps.incidents',
     'apps.documents',
-    'apps.audit',
-    'apps.dashboard',
+    'apps.integrations',
     'apps.notifications',
-    'apps.reports',
+    'apps.audit',
     'apps.ai',
     'apps.ai_orchestrator',
-    'apps.workflows',
-    'apps.integrations',
+    'apps.ai_agents',  # NEW: LangGraph-style multi-step reasoning agents
+    'apps.sap_integration',
+    'apps.reports',
+    'apps.dashboard',
+    # 'apps.advanced_reports',
+    # 'apps.backup',
+    # 'apps.monitoring',
 ]
+
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -70,14 +87,22 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'apps.audit.navigation_middleware.NavigationAuditMiddleware',
-    'apps.audit.middleware.AuditMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # 'apps.audit.navigation_middleware.NavigationAuditMiddleware', # Desactivado para evitar logs basura
+    # 'apps.audit.middleware.AuditMiddleware', # Desactivado: Causa logs duplicados y genéricos. Usamos signals.py
 ]
 
 # --- URLs and Templates ---
 ROOT_URLCONF = 'postventa_system.urls'
 WSGI_APPLICATION = 'postventa_system.wsgi.application'
 ASGI_APPLICATION = 'postventa_system.asgi.application'
+
+# --- Django Channels (WebSocket) ---
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    }
+}
 
 TEMPLATES = [
     {
@@ -148,8 +173,22 @@ def _build_database_config_from_env():
     }
 
 DATABASES = {
-    'default': _build_database_config_from_env()
+    'default': _build_database_config_from_env(),
+    'sap_db': {
+        'ENGINE': 'mssql',
+        'NAME': 'PRDPOLIFUSION',  # Base de datos de PRODUCCIÓN
+        'USER': 'ccalidad',
+        'PASSWORD': 'Plf2025**',
+        'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
+        'PORT': '',
+        'OPTIONS': {
+            'driver': 'ODBC Driver 13 for SQL Server',
+            'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'  # READ ONLY
+        },
+    }
 }
+
+DATABASE_ROUTERS = ['apps.sap_integration.routers.SapRouter']
 
 # --- Caching, Channels ---
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
@@ -166,7 +205,15 @@ CHANNEL_LAYERS = {
 }
 
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/0')
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# --- Email Configuration (Office 365) ---
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.office365.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')  # Tu correo de Office 365
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')  # Contraseña o App Password
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_ACCEPT_CONTENT = ['json']
@@ -197,20 +244,36 @@ if not DEBUG:
     STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # --- CORS / CSRF ---
-CORS_ALLOW_ALL_ORIGINS = True  # For dev simplicity
+# CORS_ALLOW_ALL_ORIGINS = True  # For dev simplicity - DISABLED FOR PRODUCTION
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only enable for dev/LAN if needed, otherwise rely on whitelist
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000", "http://127.0.0.1:3000",
     "http://localhost:5173", "http://127.0.0.1:5173",
-    "http://192.168.1.234:5173",
+    "https://localhost:5173", "https://127.0.0.1:5173",
+    os.getenv('FRONTEND_URL', 'http://localhost:3000'),
 ]
-CSRF_TRUSTED_ORIGINS = ["http://localhost", "http://127.0.0.1", "http://192.168.1.234"]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost", "http://127.0.0.1",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "https://localhost:5173", "https://127.0.0.1:5173",
+    os.getenv('FRONTEND_URL', 'http://localhost:3000'),
+]
+
+# Allow any 192.168.x.x origin for LAN development
+import re
+CORS_ORIGIN_REGEX_WHITELIST = [
+    r"^https?://192\.168\.\d+\.\d+(:\d+)?$",
+    r"^https?://localhost(:\d+)?$",
+    r"^https?://postventa\.local(:\d+)?$",
+]
+CSRF_COOKIE_DOMAIN = None  # Allow cookies for any domain
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ('rest_framework_simplejwt.authentication.JWTAuthentication',),
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'DEFAULT_PAGINATION_CLASS': 'apps.core.pagination.StandardResultsSetPagination',
+    # 'PAGE_SIZE': 20, # Defined in pagination class
     'DEFAULT_FILTER_BACKENDS': ('django_filters.rest_framework.DjangoFilterBackend', 'rest_framework.filters.SearchFilter', 'rest_framework.filters.OrderingFilter',),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
@@ -254,5 +317,15 @@ SHARED_DOCUMENTS_PATH = os.getenv('SHARED_DOCUMENTS_PATH', os.path.join(BASE_DIR
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+
+# --- AI Model Configurations ---
+AI_OPENAI_MODEL = os.getenv('AI_OPENAI_MODEL', 'gpt-4o')
+AI_ANTHROPIC_MODEL = os.getenv('AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
+AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-1.5-flash')
+
+# Suppress Google API key warning
+import warnings
+warnings.filterwarnings('ignore', message='.*GOOGLE_API_KEY.*')
+warnings.filterwarnings('ignore', message='.*GEMINI_API_KEY.*')
 
 os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)

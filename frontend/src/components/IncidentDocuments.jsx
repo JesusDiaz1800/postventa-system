@@ -16,57 +16,77 @@ const IncidentDocuments = ({ incidentId, onDownloadSuccess, onDownloadError }) =
     queryKey: ['incident-documents', incidentId],
     queryFn: async () => {
       if (!incidentId) return null;
-      
+
       try {
-        const [documentsRes, visitReportsRes, qualityReportsRes, supplierReportsRes, labReportsRes] = await Promise.all([
+        const [documentsRes, visitReportsRes, qualityReportsRes, supplierReportsRes, labReportsRes, attachmentsRes] = await Promise.all([
           fetch(`/api/documents/?incident_id=${incidentId}`),
           fetch(`/api/documents/visit-reports/?incident_id=${incidentId}`),
           fetch(`/api/documents/quality-reports/?incident_id=${incidentId}`),
           fetch(`/api/documents/supplier-reports/?incident_id=${incidentId}`),
-          fetch(`/api/documents/lab-reports/?incident_id=${incidentId}`)
+          fetch(`/api/documents/lab-reports/?incident_id=${incidentId}`),
+          fetch(`/api/documents/attachments/incident/${incidentId}/`)  // ← ENDPOINT CORRECTO
         ]);
 
-        const [documents, visitReports, qualityReports, supplierReports, labReports] = await Promise.all([
+        const [documents, visitReports, qualityReports, supplierReports, labReports, attachments] = await Promise.all([
           documentsRes.ok ? documentsRes.json() : { results: [] },
           visitReportsRes.ok ? visitReportsRes.json() : { results: [] },
           qualityReportsRes.ok ? qualityReportsRes.json() : { results: [] },
           supplierReportsRes.ok ? supplierReportsRes.json() : { results: [] },
-          labReportsRes.ok ? labReportsRes.json() : { results: [] }
+          labReportsRes.ok ? labReportsRes.json() : { results: [] },
+          attachmentsRes.ok ? attachmentsRes.json() : { attachments: [] }
         ]);
+
+        // DEBUG: Ver qué attachments se están cargando
+        console.log('🔍 Attachments cargados para incidencia', incidentId, ':', attachments);
 
         // Combinar todos los documentos con su tipo
         const allDocs = [
-          ...(documents.results || documents.data || documents || []).map(doc => ({ 
-            ...doc, 
-            type: 'document', 
+          ...(documents.results || documents.data || documents || []).map(doc => ({
+            ...doc,
+            type: 'document',
             typeLabel: 'Documento',
             typeColor: 'bg-blue-100 text-blue-800'
           })),
-          ...(visitReports.results || visitReports.data || visitReports || []).map(doc => ({ 
-            ...doc, 
-            type: 'visit_report', 
+          ...(visitReports.results || visitReports.data || visitReports || []).map(doc => ({
+            ...doc,
+            type: 'visit_report',
             typeLabel: 'Reporte de Visita',
             typeColor: 'bg-green-100 text-green-800'
           })),
-          ...(qualityReports.results || qualityReports.data || qualityReports || []).map(doc => ({ 
-            ...doc, 
-            type: 'quality_report', 
+          ...(qualityReports.results || qualityReports.data || qualityReports || []).map(doc => ({
+            ...doc,
+            type: 'quality_report',
             typeLabel: 'Reporte de Calidad',
             typeColor: 'bg-yellow-100 text-yellow-800'
           })),
-          ...(supplierReports.results || supplierReports.data || supplierReports || []).map(doc => ({ 
-            ...doc, 
-            type: 'supplier_report', 
+          ...(supplierReports.results || supplierReports.data || supplierReports || []).map(doc => ({
+            ...doc,
+            type: 'supplier_report',
             typeLabel: 'Reporte de Proveedor',
             typeColor: 'bg-purple-100 text-purple-800'
           })),
-          ...(labReports.results || labReports.data || labReports || []).map(doc => ({ 
-            ...doc, 
-            type: 'lab_report', 
+          ...(labReports.results || labReports.data || labReports || []).map(doc => ({
+            ...doc,
+            type: 'lab_report',
             typeLabel: 'Reporte de Laboratorio',
             typeColor: 'bg-red-100 text-red-800'
+          })),
+          // NUEVO: Agregar archivos adjuntos (DocumentAttachment)
+          ...(attachments.attachments || []).map(att => ({
+            ...att,
+            id: `attachment-${att.id}`,
+            type: 'attachment',
+            typeLabel: att.document_type_display || 'Archivo Adjunto',
+            typeColor: 'bg-orange-100 text-orange-800',
+            title: att.filename,
+            name: att.filename,
+            description: att.description,
+            created_at: att.uploaded_at
           }))
         ];
+
+        console.log('📄 Total documentos combinados:', allDocs.length);
+        console.log('📎 Attachments en la lista:', allDocs.filter(d => d.type === 'attachment').length);
 
         return allDocs;
       } catch (error) {
@@ -75,7 +95,7 @@ const IncidentDocuments = ({ incidentId, onDownloadSuccess, onDownloadError }) =
       }
     },
     enabled: !!incidentId,
-    staleTime: 30000, // 30 segundos
+    // Eliminar staleTime para evitar cache
   });
 
   const documents = documentsData || [];
@@ -93,7 +113,7 @@ const IncidentDocuments = ({ incidentId, onDownloadSuccess, onDownloadError }) =
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        
+
         if (onDownloadSuccess) {
           onDownloadSuccess(`Documento ${document.title || document.name} descargado exitosamente`);
         }
@@ -111,7 +131,7 @@ const IncidentDocuments = ({ incidentId, onDownloadSuccess, onDownloadError }) =
   const viewDocument = (document) => {
     setSelectedDocument(document);
     // Aquí podrías implementar un visor de documentos
-    console.log('View document:', document);
+    // console.log('View document:', document);
   };
 
   if (documentsLoading) {
@@ -158,7 +178,7 @@ const IncidentDocuments = ({ incidentId, onDownloadSuccess, onDownloadError }) =
                     {doc.title || doc.name || `Documento ${index + 1}`}
                   </p>
                 </div>
-                
+
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`inline-block px-2 py-1 text-xs rounded-full ${doc.typeColor}`}>
                     {doc.typeLabel}

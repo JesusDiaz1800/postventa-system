@@ -11,10 +11,13 @@ from docx import Document
 from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from .pdf_generator_service import pdf_generator
+from .services.professional_pdf_generator import ProfessionalPDFGenerator
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Instancia global del generador PDF
+pdf_generator = ProfessionalPDFGenerator()
 
 class DocumentGeneratorService:
     """
@@ -75,40 +78,58 @@ class DocumentGeneratorService:
     def generate_visit_report_pdf(self, visit_report):
         """Generar documento PDF profesional para reporte de visita"""
         try:
+            # Obtener imágenes de la incidencia relacionada
+            images = []
+            if visit_report.related_incident:
+                for img in visit_report.related_incident.images.all():
+                    # Construir ruta absoluta correctamente
+                    if os.path.isabs(img.path):
+                        img_path = img.path
+                    else:
+                        img_path = os.path.join(settings.MEDIA_ROOT, img.path)
+                    
+                    if os.path.exists(img_path):
+                        images.append({
+                            'path': img_path,
+                            'description': img.caption_ai or img.filename
+                        })
+
             # Preparar datos del reporte
             report_data = {
                 'report_number': visit_report.report_number,
                 'project_name': visit_report.project_name,
-                'location': visit_report.location,
+                'location': visit_report.location if hasattr(visit_report, 'location') else f"{visit_report.commune}, {visit_report.city}",
                 'visit_date': visit_report.visit_date.strftime('%d/%m/%Y') if visit_report.visit_date else 'N/A',
-                'technician_name': visit_report.technician_name,
+                'technician_name': visit_report.technician,
                 'client_name': visit_report.client_name,
-                'client_contact': visit_report.client_contact,
-                'objective': visit_report.objective,
-                'observations': visit_report.observations,
-                'actions_taken': visit_report.actions_taken,
-                'recommendations': visit_report.recommendations,
-                'conclusions': visit_report.conclusions,
+                'client_contact': getattr(visit_report, 'client_contact', 'N/A'),
+                'objective': visit_report.visit_reason,
+                'observations': visit_report.general_observations,
+                'actions_taken': getattr(visit_report, 'actions_taken', ''),
+                'recommendations': getattr(visit_report, 'recommendations', ''),
+                'conclusions': getattr(visit_report, 'conclusions', ''),
+                'images': images  # Pasar imágenes al generador
             }
             
             # Preparar datos de la incidencia si existe
             incident_data = None
-            if visit_report.incident:
+            if visit_report.related_incident:
+                incident = visit_report.related_incident
                 incident_data = {
-                    'code': visit_report.incident.code,
-                    'cliente': visit_report.incident.cliente,
-                    'obra': visit_report.incident.obra,
-                    'provider': visit_report.incident.provider,
-                    'categoria': visit_report.incident.categoria.name if visit_report.incident.categoria else '',
-                    'subcategoria': visit_report.incident.subcategoria,
-                    'prioridad': visit_report.incident.prioridad,
-                    'estado': visit_report.incident.estado,
-                    'fecha_deteccion': visit_report.incident.fecha_deteccion.strftime('%d/%m/%Y') if visit_report.incident.fecha_deteccion else 'N/A',
-                    'hora_deteccion': visit_report.incident.hora_deteccion,
-                    'sku': visit_report.incident.sku,
-                    'lote': visit_report.incident.lote,
-                    'factura_num': visit_report.incident.factura_num,
-                    'pedido_num': visit_report.incident.pedido_num,
+                    'code': incident.code,
+                    'cliente': incident.cliente,
+                    'obra': incident.obra,
+                    'provider': incident.provider,
+                    'categoria': incident.categoria.name if incident.categoria else '',
+                    'subcategoria': incident.subcategoria,
+                    'prioridad': incident.prioridad,
+                    'estado': incident.estado,
+                    'fecha_deteccion': incident.fecha_deteccion.strftime('%d/%m/%Y') if incident.fecha_deteccion else 'N/A',
+                    'hora_deteccion': incident.hora_deteccion,
+                    'sku': incident.sku,
+                    'lote': incident.lote,
+                    'factura_num': incident.factura_num,
+                    'pedido_num': incident.pedido_num,
                     'created_by': visit_report.created_by.username if visit_report.created_by else 'Sistema',
                     'document_type': 'Reporte de Visita'
                 }
@@ -144,41 +165,58 @@ class DocumentGeneratorService:
     def generate_lab_report_pdf(self, lab_report):
         """Generar documento PDF profesional para informe de laboratorio"""
         try:
+            # Obtener imágenes de la incidencia relacionada
+            images = []
+            if lab_report.related_incident:
+                for img in lab_report.related_incident.images.all():
+                    if os.path.isabs(img.path):
+                        img_path = img.path
+                    else:
+                        img_path = os.path.join(settings.MEDIA_ROOT, img.path)
+                    
+                    if os.path.exists(img_path):
+                        images.append({
+                            'path': img_path,
+                            'description': img.caption_ai or img.filename
+                        })
+
             # Preparar datos del reporte
             report_data = {
                 'report_number': lab_report.report_number,
-                'sample_id': lab_report.sample_id,
-                'analysis_type': lab_report.analysis_type,
-                'received_date': lab_report.received_date.strftime('%d/%m/%Y') if lab_report.received_date else 'N/A',
-                'analysis_date': lab_report.analysis_date.strftime('%d/%m/%Y') if lab_report.analysis_date else 'N/A',
-                'analyst_name': lab_report.analyst_name,
-                'method_used': lab_report.method_used,
-                'executive_summary': lab_report.executive_summary,
-                'methodology': lab_report.methodology,
-                'results': lab_report.results,
-                'analysis': lab_report.analysis,
+                'sample_id': getattr(lab_report, 'sample_id', 'N/A'),
+                'analysis_type': getattr(lab_report, 'analysis_type', 'N/A'),
+                'received_date': getattr(lab_report, 'received_date', timezone.now()).strftime('%d/%m/%Y'),
+                'analysis_date': getattr(lab_report, 'analysis_date', timezone.now()).strftime('%d/%m/%Y'),
+                'analyst_name': getattr(lab_report, 'expert_name', 'N/A'),
+                'method_used': getattr(lab_report, 'method_used', 'Estándar'),
+                'executive_summary': getattr(lab_report, 'description', ''),
+                'methodology': getattr(lab_report, 'methodology', ''),
+                'results': getattr(lab_report, 'tests_performed', {}),
+                'analysis': getattr(lab_report, 'observations', ''),
                 'conclusions': lab_report.conclusions,
                 'recommendations': lab_report.recommendations,
+                'images': images
             }
             
             # Preparar datos de la incidencia si existe
             incident_data = None
-            if lab_report.incident:
+            if lab_report.related_incident:
+                incident = lab_report.related_incident
                 incident_data = {
-                    'code': lab_report.incident.code,
-                    'cliente': lab_report.incident.cliente,
-                    'obra': lab_report.incident.obra,
-                    'provider': lab_report.incident.provider,
-                    'categoria': lab_report.incident.categoria.name if lab_report.incident.categoria else '',
-                    'subcategoria': lab_report.incident.subcategoria,
-                    'prioridad': lab_report.incident.prioridad,
-                    'estado': lab_report.incident.estado,
-                    'fecha_deteccion': lab_report.incident.fecha_deteccion.strftime('%d/%m/%Y') if lab_report.incident.fecha_deteccion else 'N/A',
-                    'hora_deteccion': lab_report.incident.hora_deteccion,
-                    'sku': lab_report.incident.sku,
-                    'lote': lab_report.incident.lote,
-                    'factura_num': lab_report.incident.factura_num,
-                    'pedido_num': lab_report.incident.pedido_num,
+                    'code': incident.code,
+                    'cliente': incident.cliente,
+                    'obra': incident.obra,
+                    'provider': incident.provider,
+                    'categoria': incident.categoria.name if incident.categoria else '',
+                    'subcategoria': incident.subcategoria,
+                    'prioridad': incident.prioridad,
+                    'estado': incident.estado,
+                    'fecha_deteccion': incident.fecha_deteccion.strftime('%d/%m/%Y') if incident.fecha_deteccion else 'N/A',
+                    'hora_deteccion': incident.hora_deteccion,
+                    'sku': incident.sku,
+                    'lote': incident.lote,
+                    'factura_num': incident.factura_num,
+                    'pedido_num': incident.pedido_num,
                     'created_by': lab_report.created_by.username if lab_report.created_by else 'Sistema',
                     'document_type': 'Informe de Laboratorio'
                 }
@@ -205,7 +243,6 @@ class DocumentGeneratorService:
             lab_report.pdf_path = filepath
             lab_report.save(update_fields=['pdf_path'])
             
-            logger.info(f"PDF de informe de laboratorio generado: {filepath}")
             return filepath
             
         except Exception as e:
@@ -215,41 +252,58 @@ class DocumentGeneratorService:
     def generate_supplier_report_pdf(self, supplier_report):
         """Generar documento PDF profesional para informe de proveedor"""
         try:
+            # Obtener imágenes de la incidencia relacionada
+            images = []
+            if supplier_report.related_incident:
+                for img in supplier_report.related_incident.images.all():
+                    if os.path.isabs(img.path):
+                        img_path = img.path
+                    else:
+                        img_path = os.path.join(settings.MEDIA_ROOT, img.path)
+                    
+                    if os.path.exists(img_path):
+                        images.append({
+                            'path': img_path,
+                            'description': img.caption_ai or img.filename
+                        })
+
             # Preparar datos del reporte
             report_data = {
                 'report_number': supplier_report.report_number,
                 'supplier_name': supplier_report.supplier_name,
                 'supplier_contact': supplier_report.supplier_contact,
-                'product_name': supplier_report.product_name,
-                'batch_number': supplier_report.batch_number,
-                'issue_date': supplier_report.issue_date.strftime('%d/%m/%Y') if supplier_report.issue_date else 'N/A',
-                'responsible_person': supplier_report.responsible_person,
+                'product_name': supplier_report.related_incident.sku if supplier_report.related_incident else 'N/A',
+                'batch_number': supplier_report.related_incident.lote if supplier_report.related_incident else 'N/A',
+                'issue_date': supplier_report.report_date.strftime('%d/%m/%Y') if supplier_report.report_date else 'N/A',
+                'responsible_person': supplier_report.created_by.username if supplier_report.created_by else 'N/A',
                 'problem_description': supplier_report.problem_description,
-                'analysis_performed': supplier_report.analysis_performed,
-                'findings': supplier_report.findings,
-                'required_actions': supplier_report.required_actions,
-                'deadlines': supplier_report.deadlines,
-                'contact_info': supplier_report.contact_info,
+                'analysis_performed': supplier_report.technical_analysis,
+                'findings': getattr(supplier_report, 'findings', ''),
+                'required_actions': supplier_report.recommendations,
+                'deadlines': getattr(supplier_report, 'deadlines', ''),
+                'contact_info': supplier_report.supplier_email,
+                'images': images
             }
             
             # Preparar datos de la incidencia si existe
             incident_data = None
-            if supplier_report.incident:
+            if supplier_report.related_incident:
+                incident = supplier_report.related_incident
                 incident_data = {
-                    'code': supplier_report.incident.code,
-                    'cliente': supplier_report.incident.cliente,
-                    'obra': supplier_report.incident.obra,
-                    'provider': supplier_report.incident.provider,
-                    'categoria': supplier_report.incident.categoria.name if supplier_report.incident.categoria else '',
-                    'subcategoria': supplier_report.incident.subcategoria,
-                    'prioridad': supplier_report.incident.prioridad,
-                    'estado': supplier_report.incident.estado,
-                    'fecha_deteccion': supplier_report.incident.fecha_deteccion.strftime('%d/%m/%Y') if supplier_report.incident.fecha_deteccion else 'N/A',
-                    'hora_deteccion': supplier_report.incident.hora_deteccion,
-                    'sku': supplier_report.incident.sku,
-                    'lote': supplier_report.incident.lote,
-                    'factura_num': supplier_report.incident.factura_num,
-                    'pedido_num': supplier_report.incident.pedido_num,
+                    'code': incident.code,
+                    'cliente': incident.cliente,
+                    'obra': incident.obra,
+                    'provider': incident.provider,
+                    'categoria': incident.categoria.name if incident.categoria else '',
+                    'subcategoria': incident.subcategoria,
+                    'prioridad': incident.prioridad,
+                    'estado': incident.estado,
+                    'fecha_deteccion': incident.fecha_deteccion.strftime('%d/%m/%Y') if incident.fecha_deteccion else 'N/A',
+                    'hora_deteccion': incident.hora_deteccion,
+                    'sku': incident.sku,
+                    'lote': incident.lote,
+                    'factura_num': incident.factura_num,
+                    'pedido_num': incident.pedido_num,
                     'created_by': supplier_report.created_by.username if supplier_report.created_by else 'Sistema',
                     'document_type': 'Informe para Proveedor'
                 }

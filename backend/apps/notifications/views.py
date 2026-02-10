@@ -119,7 +119,7 @@ def create_incident_notification(incident, action, user=None):
             message=message,
             notification_type=notification_type,
             related_incident=incident,
-            is_important=(incident.priority == 'Alta')
+            is_important=(incident.prioridad == 'Alta')
         )
     
     # Notificar al usuario que realizó la acción (si es diferente)
@@ -175,14 +175,18 @@ def create_system_notification(users, title, message, is_important=False):
     """Crear notificación del sistema para múltiples usuarios"""
     notifications = []
     for user in users:
-        notification = Notification.create_notification(
+        notifications.append(Notification(
             user=user,
             title=title,
             message=message,
             notification_type='system_alert',
             is_important=is_important
-        )
-        notifications.append(notification)
+        ))
+    
+    # Optimization: Use bulk_create
+    if notifications:
+        Notification.objects.bulk_create(notifications)
+    
     return notifications
 
 

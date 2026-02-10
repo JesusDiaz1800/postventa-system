@@ -40,7 +40,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
-    
+
     // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
@@ -49,12 +49,12 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
 
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.username.trim()) newErrors.username = 'El nombre de usuario es requerido';
     if (!formData.email.trim()) newErrors.email = 'El email es requerido';
     if (!formData.first_name.trim()) newErrors.first_name = 'El nombre es requerido';
     if (!formData.last_name.trim()) newErrors.last_name = 'El apellido es requerido';
-    
+
     // Only validate password if it's provided
     if (formData.password) {
       if (formData.password.length < 8) {
@@ -64,7 +64,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
         newErrors.password_confirm = 'Las contraseñas no coinciden';
       }
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -72,12 +72,25 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (validateForm()) {
-      // Remove empty password fields if password is not being changed
-      const submitData = { ...formData };
-      if (!submitData.password) {
-        delete submitData.password;
-        delete submitData.password_confirm;
-      }
+      const submitData = new FormData();
+
+      // Append text fields
+      Object.keys(formData).forEach(key => {
+        if (key === 'digital_signature') {
+          // Only append if it's actually a File object
+          if (formData[key] instanceof File) {
+            submitData.append(key, formData[key]);
+          }
+          // Skip if undefined or not a File
+        } else if (key === 'password' || key === 'password_confirm') {
+          // Only append if set
+          if (formData[key]) submitData.append(key, formData[key]);
+        } else {
+          submitData.append(key, formData[key] !== null ? formData[key] : '');
+        }
+      });
+
+      // Submit FormData
       onSubmit(submitData);
     }
   };
@@ -105,7 +118,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={handleClose}></div>
-        
+
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
           <form onSubmit={handleSubmit}>
             <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
@@ -119,7 +132,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              
+
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -131,13 +144,12 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                       name="first_name"
                       value={formData.first_name}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        errors.first_name ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.first_name ? 'border-red-500' : 'border-gray-300'
+                        }`}
                     />
                     {errors.first_name && <p className="text-red-500 text-xs mt-1">{errors.first_name}</p>}
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Apellido *
@@ -147,14 +159,13 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                       name="last_name"
                       value={formData.last_name}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        errors.last_name ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.last_name ? 'border-red-500' : 'border-gray-300'
+                        }`}
                     />
                     {errors.last_name && <p className="text-red-500 text-xs mt-1">{errors.last_name}</p>}
                   </div>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nombre de Usuario *
@@ -164,13 +175,12 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     name="username"
                     value={formData.username}
                     onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      errors.username ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.username ? 'border-red-500' : 'border-gray-300'
+                      }`}
                   />
                   {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username}</p>}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Email *
@@ -180,13 +190,12 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      errors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.email ? 'border-red-500' : 'border-gray-300'
+                      }`}
                   />
                   {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Rol
@@ -207,7 +216,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     <option value="provider">Proveedor</option>
                   </select>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -221,7 +230,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Departamento
@@ -235,7 +244,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     />
                   </div>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nueva Contraseña (opcional)
@@ -246,13 +255,12 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     value={formData.password}
                     onChange={handleInputChange}
                     placeholder="Dejar vacío para mantener la contraseña actual"
-                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                      errors.password ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.password ? 'border-red-500' : 'border-gray-300'
+                      }`}
                   />
                   {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
                 </div>
-                
+
                 {formData.password && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -263,14 +271,13 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                       name="password_confirm"
                       value={formData.password_confirm}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        errors.password_confirm ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.password_confirm ? 'border-red-500' : 'border-gray-300'
+                        }`}
                     />
                     {errors.password_confirm && <p className="text-red-500 text-xs mt-1">{errors.password_confirm}</p>}
                   </div>
                 )}
-                
+
                 <div className="flex items-center">
                   <input
                     type="checkbox"
@@ -283,9 +290,46 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                     Usuario activo
                   </label>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Firma Digital (Opcional)
+                  </label>
+                  <div className="mt-1 flex items-center">
+                    {user.digital_signature && (
+                      <div className="mr-4">
+                        <img
+                          src={user.digital_signature}
+                          alt="Current Signature"
+                          className="h-10 w-auto object-contain border border-gray-200 rounded"
+                        />
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      name="digital_signature"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          setFormData(prev => ({ ...prev, digital_signature: file }));
+                        }
+                      }}
+                      className="block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Sube una imagen (PNG/JPG) de la firma. Reemplazará la actual.
+                  </p>
+                </div>
               </div>
             </div>
-            
+
             <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
               <button
                 type="submit"

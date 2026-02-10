@@ -30,30 +30,30 @@ const Users = () => {
   const [selectedRole, setSelectedRole] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  
+
   // Hook de permisos
   const { canManageUsers, canAccessAdmin, user: currentUser } = usePermissions();
-  
-  
+
+
   // Funciones auxiliares para determinar permisos
   const canEditUser = (user) => {
     return canManageUsers() || (currentUser && currentUser.id === user.id);
   };
-  
+
   const canDeleteUser = (user) => {
     return canManageUsers() && currentUser && currentUser.id !== user.id;
   };
-  
+
   const canResetPassword = (user) => {
     return canManageUsers() || (currentUser && currentUser.id === user.id);
   };
-  
+
   const [selectedUser, setSelectedUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [userToChangePassword, setUserToChangePassword] = useState(null);
-  
+
   const { showSuccess, showError, showWarning } = useNotifications();
   const queryClient = useQueryClient();
 
@@ -91,7 +91,7 @@ const Users = () => {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: ({ id, ...data }) => usersAPI.update(id, data),
+    mutationFn: ({ id, data }) => usersAPI.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries(['users']);
       showSuccess('Usuario actualizado exitosamente');
@@ -139,7 +139,8 @@ const Users = () => {
   };
 
   const handleUpdateUser = (userData) => {
-    updateUserMutation.mutate({ id: selectedUser.id, ...userData });
+    // userData can be FormData or Object
+    updateUserMutation.mutate({ id: selectedUser.id, data: userData });
   };
 
   const handleDeleteUser = (user) => {
@@ -164,14 +165,14 @@ const Users = () => {
 
   // Filter users based on search and role
   const filteredUsers = users.filter(user => {
-    const matchesSearch = !searchTerm || 
+    const matchesSearch = !searchTerm ||
       user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.last_name.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesRole = !selectedRole || user.role === selectedRole;
-    
+
     return matchesSearch && matchesRole;
   });
 
@@ -237,7 +238,7 @@ const Users = () => {
       >
         <div className="flex space-x-3">
           {canManageUsers() && (
-            <button 
+            <button
               onClick={() => setShowCreateModal(true)}
               className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-105"
             >
@@ -300,7 +301,7 @@ const Users = () => {
             Usuarios ({filteredUsers.length})
           </h3>
         </div>
-        
+
         <div className="table-container">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -334,7 +335,7 @@ const Users = () => {
                 </tr>
               ) : (
                 filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                  <tr key={user.id} className="hover:bg-gray-50 table-row-hover">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
@@ -359,16 +360,15 @@ const Users = () => {
                       {user.department || 'No asignado'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        user.is_active 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.is_active
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                        }`}>
                         {user.is_active ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.last_login 
+                      {user.last_login
                         ? new Date(user.last_login).toLocaleDateString('es-ES')
                         : 'Nunca'
                       }
@@ -376,7 +376,7 @@ const Users = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end space-x-2">
                         {canEditUser(user) && (
-                          <button 
+                          <button
                             onClick={() => handleEditUser(user)}
                             className="p-2 rounded-lg text-blue-600 hover:text-blue-900 hover:bg-blue-50 transition-colors"
                             title="Editar usuario"
@@ -385,7 +385,7 @@ const Users = () => {
                           </button>
                         )}
                         {canResetPassword(user) && (
-                          <button 
+                          <button
                             onClick={() => handleChangePassword(user)}
                             className="p-2 rounded-lg text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50 transition-colors"
                             title="Cambiar contraseña"
@@ -394,7 +394,7 @@ const Users = () => {
                           </button>
                         )}
                         {canDeleteUser(user) && (
-                          <button 
+                          <button
                             onClick={() => handleDeleteUser(user)}
                             className="p-2 rounded-lg text-red-600 hover:text-red-900 hover:bg-red-50 transition-colors"
                             title="Eliminar usuario"

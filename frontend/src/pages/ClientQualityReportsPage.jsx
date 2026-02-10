@@ -1,64 +1,127 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { api } from '../services/api';
-import { 
-  PlusIcon, 
-  DocumentArrowUpIcon, 
-  EyeIcon, 
+import { api, incidentsAPI, qualityReportsAPI, aiAPI } from '../services/api';
+import {
+  PlusIcon,
+  EyeIcon,
   TrashIcon,
   XMarkIcon,
   CheckCircleIcon,
   MagnifyingGlassIcon,
-  DocumentTextIcon,
   CalendarIcon,
   UserIcon,
   BuildingOfficeIcon,
   BeakerIcon,
   FunnelIcon,
+  ArrowUpIcon,
+  PaperClipIcon,
+  CloudArrowUpIcon,
+  ExclamationTriangleIcon,
+  DocumentTextIcon,
   ArrowPathIcon,
-  ArrowUpIcon
+  EnvelopeIcon,
+  PaperAirplaneIcon,
+  DocumentChartBarIcon,
+  ClockIcon,
+  ArrowTopRightOnSquareIcon
 } from '@heroicons/react/24/outline';
-import QualityReportForm from '../components/QualityReportForm';
+
 import IncidentDocuments from '../components/IncidentDocuments';
+import IncidentClosureForm from '../components/IncidentClosureForm';
+import { openDocument, downloadDocument } from '../utils/documentUtils';
+import { useNotifications } from '../hooks/useNotifications';
 
 const ClientQualityReportsPage = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // Estados principales
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSelectionModal, setShowSelectionModal] = useState(false); // New state for selection flow
   const [showUploadModal, setShowUploadModal] = useState(false);
-  
+  const [showIncidentClosure, setShowIncidentClosure] = useState(false);
+
   const [selectedIncidentId, setSelectedIncidentId] = useState('');
+  const [selectedIncidentForClosure, setSelectedIncidentForClosure] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [uploadedDocuments, setUploadedDocuments] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [emailData, setEmailData] = useState({
+    to: '',
+    subject: '',
+    message: ''
+  });
+
+  // Estado para el modal de cierre estandarizado
+  const [closureData, setClosureData] = useState({
+    stage: 'calidad',
+    reason: '',
+    closure_summary: '',
+    closure_attachment: null
+  });
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+
+  const handleGenerateAIClosure = async () => {
+    if (!selectedIncidentForClosure || !closureData.stage) {
+      alert('Por favor selecciona una etapa de cierre primero.');
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    try {
+      const response = await aiAPI.analyzeClosure({
+        incident_id: selectedIncidentForClosure.id,
+        stage: closureData.stage
+      });
+
+      if (response.data && response.data.analysis) {
+        setClosureData(prev => ({
+          ...prev,
+          closure_summary: response.data.analysis
+        }));
+      }
+    } catch (error) {
+      console.error('Error generating AI closure:', error);
+      alert('Error al generar la conclusión con IA. Por favor intenta manualmente.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // Scroll to top on page mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Query para obtener reportes de calidad para cliente con datos de incidencia
   const { data: reports, isLoading: reportsLoading } = useQuery({
-    queryKey: ['quality-reports', { report_type: 'cliente' }],
+    queryKey: ['quality-reports', { report_type: 'cliente', search: searchTerm }],
     queryFn: async () => {
       const response = await api.get('/documents/quality-reports/', {
-        params: { 
+        params: {
           report_type: 'cliente',
           include_incident_data: true,
-          expand: 'incident'
+          expand: 'incident',
+          search: searchTerm
         }
       });
-      console.log('Reports response:', response.data); // Debug
       return response.data;
-    }
+    },
+    keepPreviousData: true // Mantener datos previos mientras carga para evitar parpadeo
   });
 
-  // Query para obtener incidencias escaladas a calidad (sin reporte de calidad existente)
+  // Query para obtener incidencias escaladas a calidad
   const { data: openIncidents, isLoading: incidentsLoading } = useQuery({
     queryKey: ['escalatedIncidents'],
     queryFn: async () => {
       const response = await api.get('/incidents/escalated/', {
-        params: { 
-          without_quality_report: true,
+        params: {
+          // fetch all escalated, filter locally
           report_type: 'cliente'
         }
       });
@@ -66,203 +129,101 @@ const ClientQualityReportsPage = () => {
     }
   });
 
-  // Filtrar reportes por término de búsqueda
+  // Filtrar incidencias disponibles (que no tengan reporte aún)
+  const availableIncidents = useMemo(() => {
+    if (!openIncidents?.results && !openIncidents?.incidents) return [];
+
+    // Lista base de incidencias
+    const rawIncidents = openIncidents.results || openIncidents.incidents || [];
+
+    // IDs de incidencias que YA tienen reporte en la lista actual
+    const incidentsWithReports = new Set(reports?.results?.map(r => r.incident_id || r.incident?.id).filter(Boolean));
+
+    // Filtrar: Solo mostrar si NO tiene reporte
+    return rawIncidents.filter(inc => !incidentsWithReports.has(inc.id));
+  }, [openIncidents, reports]);
+
+  // Filtrar reportes para la tabla
+  // Filtrar reportes para la tabla (Ahora Server-Side)
   const filteredReports = useMemo(() => {
-    if (!reports?.results) return [];
-    
-    return reports.results.filter(report => 
-      !searchTerm || 
-      report.report_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.incident_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.cliente?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.provider?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [reports?.results, searchTerm]);
+    return reports?.results || [];
+  }, [reports?.results]);
 
-  // Manejar creación de reporte (redirigir al formulario específico)
-  const handleCreateReport = () => {
-    if (!selectedIncidentId) {
-      alert('Por favor selecciona una incidencia');
-      return;
-    }
-    
-    // Redirigir al formulario específico de reporte de calidad
-    navigate(`/quality-report-form/${selectedIncidentId}?report_type=cliente`);
+  // Handlers
+  const handleCreateReportClick = () => {
+    setShowSelectionModal(true);
   };
 
-  // Manejar subida de documento
-  const handleUploadDocument = async () => {
-    if (!selectedIncidentId) {
-      alert('Por favor selecciona una incidencia');
-      return;
-    }
-
-    // Crear input de archivo dinámicamente
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf,.doc,.docx';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      setIsSubmitting(true);
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('incident_id', selectedIncidentId);
-        formData.append('report_type', 'cliente');
-
-        const response = await api.post('/documents/upload/quality-report/', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-
-        if (response.data.success) {
-          setShowUploadModal(false);
-          setSelectedIncidentId('');
-          queryClient.invalidateQueries(['quality-reports']);
-          alert('Documento adjuntado exitosamente');
-        }
-      } catch (error) {
-        console.error('Error uploading document:', error);
-        alert('Error al subir el documento');
-      } finally {
-        setIsSubmitting(false);
-      }
-    };
-    input.click();
+  const handleIncidentSelectForCreate = (incidentId) => {
+    setSelectedIncidentId(incidentId);
+    setShowSelectionModal(false);
+    navigate(`/quality-report-form/${incidentId}`);
   };
 
-  // Manejar apertura de documento
+  // Handlers for report actions
   const handleOpenDocument = async (report) => {
-    console.log('Report data:', report); // Debug
-    
     try {
-      // Intentar diferentes formas de obtener el documento
-      const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
-      const filename = report.filename || report.report_number || `quality_report_${report.id}`;
-      
-      if (!incidentId) {
-        // Si no hay incident_id, intentar usar el endpoint directo del reporte
-  const { API_ORIGIN } = await import('../services/api');
-        const directUrl = `${API_ORIGIN}/api/documents/quality-reports/${report.id}/view/`;
-        window.open(directUrl, '_blank');
-        return;
-      }
-      
-      // Intentar diferentes endpoints
-  const { API_ORIGIN } = await import('../services/api');
-      const urls = [
-        `${API_ORIGIN}/api/documents/open/quality-report/${incidentId}/${encodeURIComponent(filename)}`,
-        `${API_ORIGIN}/api/documents/quality-reports/${report.id}/view/`,
-        `${API_ORIGIN}/api/documents/real-files/quality-report/${encodeURIComponent(filename)}/serve/`
-      ];
-      
-      // Intentar el primer endpoint
-      try {
-        const response = await fetch(urls[0]);
-        if (response.ok) {
-          window.open(urls[0], '_blank');
-          return;
-        }
-      } catch (error) {
-        console.log('First URL failed, trying second...');
-      }
-      
-      // Intentar el segundo endpoint
-      try {
-        const response = await fetch(urls[1]);
-        if (response.ok) {
-          window.open(urls[1], '_blank');
-          return;
-        }
-      } catch (error) {
-        console.log('Second URL failed, trying third...');
-      }
-      
-      // Intentar el tercer endpoint
-      window.open(urls[2], '_blank');
-      
+      const url = `/documents/quality-reports/${report.id}/download/`;
+      const response = await api.get(url, { responseType: 'blob' });
+      const file = new Blob([response.data], { type: 'application/pdf' });
+      const fileURL = URL.createObjectURL(file);
+      window.open(fileURL, '_blank');
     } catch (error) {
       console.error('Error opening document:', error);
-      alert('Error al abrir el documento. Verifique que el archivo existe.');
+      alert('Error al visualizar el documento. Verifique permisos o disponibilidad.');
     }
   };
 
-  // Manejar descarga de documento
-  const handleDownloadDocument = async (report) => {
-    try {
-      const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
-      const filename = report.filename || report.report_number || `quality_report_${report.id}`;
-      
-      // Intentar diferentes endpoints para descarga
-  const { API_ORIGIN } = await import('../services/api');
-      const urls = [
-        incidentId ? `${API_ORIGIN}/api/documents/open/quality-report/${incidentId}/${encodeURIComponent(filename)}` : null,
-        `${API_ORIGIN}/api/documents/quality-reports/${report.id}/download/`,
-        `${API_ORIGIN}/api/documents/real-files/quality-report/${encodeURIComponent(filename)}/serve/`
-      ].filter(Boolean);
-      
-      // Intentar cada URL hasta que una funcione
-      for (const url of urls) {
-        try {
-          const response = await fetch(url);
-          if (response.ok) {
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.click();
-            return;
-          }
-        } catch (error) {
-          console.log(`URL ${url} failed, trying next...`);
-        }
-      }
-      
-      alert('No se pudo descargar el documento. Verifique que el archivo existe.');
-      
-    } catch (error) {
-      console.error('Error downloading document:', error);
-      alert('Error al descargar el documento.');
-    }
-  };
 
-  // Manejar generación de documento PDF
-  const handleGenerateDocument = async (report) => {
-    try {
-      const response = await api.post(`/documents/quality-reports/${report.id}/generate/`);
-      if (response.data.success) {
-        alert('Documento PDF generado exitosamente');
-        queryClient.invalidateQueries(['quality-reports']);
-      }
-    } catch (error) {
-      console.error('Error generating document:', error);
-      alert('Error al generar el documento PDF');
-    }
-  };
 
-  // Manejar visualización de trazabilidad e interconexión
-  const handleViewTraceability = (report) => {
-    const incidentId = report.incident_id || report.incident?.id || report.related_incident_id;
-    
+  const handleEscalateToInternal = async (report) => {
+    const incidentId = report.incident_id || report.incident?.id;
     if (!incidentId) {
-      alert('No se pudo obtener el ID de la incidencia para mostrar la trazabilidad');
+      alert('No se encontró la incidencia asociada.');
       return;
     }
-    
-    // Abrir página de trazabilidad en nueva ventana
-    const traceabilityUrl = `/traceability/${incidentId}?report_id=${report.id}&report_type=quality`;
-    window.open(traceabilityUrl, '_blank');
+
+    if (confirm(`¿Estás seguro de escalar este reporte a Calidad Interna? Solamente se habilitará en el sistema.`)) {
+      try {
+        // 1. Update Incident to allow internal report creation
+        await incidentsAPI.update(incidentId, { escalated_to_internal_quality: true });
+
+        // 2. Update Report Status to 'escalated'
+        await api.patch(`/documents/quality-reports/${report.id}/`, { status: 'escalated' });
+
+        alert('Reporte escalado a Calidad Interna correctamente.');
+        queryClient.invalidateQueries(['quality-reports']);
+      } catch (error) {
+        console.error('Error escalando:', error);
+        alert('Error al escalar el reporte.');
+      }
+    }
   };
 
-  // Manejar eliminación de reporte
-  const handleDeleteReport = async (reportId) => {
-    if (window.confirm('¿Estás seguro de que quieres eliminar este reporte?')) {
+  const handleEscalateToSupplier = async (incident) => {
+    if (!incident || !incident.id) {
+      alert('Incidencia no válida');
+      return;
+    }
+    if (confirm(`¿Desea escalar la incidencia ${incident.code} a proveedor?`)) {
       try {
-        await api.delete(`/documents/quality-reports/${reportId}/`);
+        await api.post(`/incidents/${incident.id}/escalate/supplier/`);
+        alert('Incidencia escalada a proveedor');
         queryClient.invalidateQueries(['quality-reports']);
-        alert('Reporte eliminado exitosamente');
+        queryClient.invalidateQueries(['escalatedIncidents']);
+      } catch (error) {
+        console.error(error);
+        alert('Error al escalar incidencia');
+      }
+    }
+  };
+
+  const handleDeleteReport = async (reportId) => {
+    if (confirm('¿Estás seguro de que deseas eliminar este reporte?')) {
+      try {
+        await qualityReportsAPI.delete(reportId);
+        queryClient.invalidateQueries(['quality-reports']);
+        alert('Reporte eliminado correctamente');
       } catch (error) {
         console.error('Error deleting report:', error);
         alert('Error al eliminar el reporte');
@@ -270,371 +231,823 @@ const ClientQualityReportsPage = () => {
     }
   };
 
-  // Manejar escalamiento a proveedor
-  const handleEscalateToSupplier = async (incidentId) => {
-    if (!window.confirm('¿Estás seguro de que quieres escalar esta incidencia a proveedor?')) {
-      return;
-    }
-
+  // Helper function for secure download
+  const handleDownloadQualityReport = async (reportId, filename) => {
     try {
-      const incidentIdValue = typeof incidentId === 'object' ? incidentId.id : incidentId;
-      const response = await api.post(`/incidents/${incidentIdValue}/escalate/supplier/`, {
-        reason: 'Escalado automáticamente desde reporte de calidad'
+      const response = await api.get(`/documents/quality-reports/${reportId}/download/`, {
+        responseType: 'blob',
       });
-      
-      if (response.data.success) {
-        queryClient.invalidateQueries(['quality-reports']);
-        alert('Incidencia escalada a proveedor exitosamente. Se ha enviado un correo de notificación.');
-      }
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename || `Reporte_Calidad_${reportId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      return true;
     } catch (error) {
-      console.error('Error escalating to supplier:', error);
-      alert('Error al escalar la incidencia a proveedor');
+      console.error('Error downloading quality report:', error);
+      alert('No se pudo descargar el reporte automáticamente. Por favor inténtelo desde la tabla.');
+      return false;
     }
   };
 
-  // Manejar cierre de incidencia
-  const handleCloseIncident = async (incidentId) => {
-    if (window.confirm('¿Estás seguro de que quieres cerrar esta incidencia?')) {
+  const handleOpenEmailModal = (report) => {
+    setSelectedReport(report);
+
+    // Recuperar correo guardado del cliente
+    const clientName = report.incident?.cliente || report.cliente;
+    let savedEmail = report.client_email || '';
+
+    if (!savedEmail && clientName) {
       try {
-        const incidentIdValue = typeof incidentId === 'object' ? incidentId.id : incidentId;
-        const response = await api.post(`/incidents/${incidentIdValue}/close/`);
-        
-        if (response.data.success) {
-          queryClient.invalidateQueries(['quality-reports']);
-          alert('Incidencia cerrada exitosamente');
+        const clientEmails = JSON.parse(localStorage.getItem('client_emails') || '{}');
+        savedEmail = clientEmails[clientName] || '';
+      } catch (e) {
+        console.warn('Error reading client emails from local storage', e);
+      }
+    }
+
+    // Template profesional SIN enlaces (cliente no tiene acceso)
+    const professionalBody = `Estimado Cliente ${clientName || ''},
+
+Esperamos que se encuentre muy bien.
+
+Adjunto a este correo encontrará el Reporte de Calidad N° ${report.report_number || report.id} correspondiente a su proyecto ${report.incident?.obra || report.obra || 'Sin Nombre'}.
+
+Este documento contiene:
+• Detalle completo de la incidencia reportada
+• Análisis técnico y evaluación
+• Resultados de ensayos de laboratorio (si aplica)
+• Especificaciones y normativas aplicables
+• Conclusiones y recomendaciones
+
+El informe ha sido elaborado por nuestro equipo técnico de Control de Calidad y Postventa, garantizando la trazabilidad y transparencia del proceso.
+
+Si tiene alguna consulta o requiere información adicional sobre este reporte, no dude en contactarnos.
+
+Atentamente,
+
+Departamento de Control de Calidad
+POLIFUSION S.A.`;
+
+    setEmailData({
+      to: savedEmail,
+      subject: `Reporte de Calidad N° ${report.report_number || report.id} - Proyecto ${report.incident?.obra || report.obra || 'Sin Nombre'}`,
+      message: professionalBody
+    });
+    setShowEmailModal(true);
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedReport) return;
+
+    // Validación de email
+    if (!emailData.to) {
+      alert('Por favor ingresa el correo del cliente');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailData.to)) {
+      alert('Por favor ingresa un correo electrónico válido');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // 1. Guardar email del cliente
+      const clientName = selectedReport.incident?.cliente || selectedReport.cliente;
+      if (clientName && emailData.to) {
+        try {
+          const clientEmails = JSON.parse(localStorage.getItem('client_emails') || '{}');
+          clientEmails[clientName] = emailData.to;
+          localStorage.setItem('client_emails', JSON.stringify(clientEmails));
+        } catch (e) {
+          console.warn('Error saving client email', e);
         }
+      }
+
+      // 2. Descargar PDF de forma segura
+      const downloadSuccess = await handleDownloadQualityReport(
+        selectedReport.id,
+        `Reporte_Calidad_${selectedReport.report_number}.pdf`
+      );
+
+      if (!downloadSuccess) {
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 3. Abrir Outlook con mensaje profesional
+      const mailtoLink = `mailto:${emailData.to}?subject=${encodeURIComponent(emailData.subject)}&body=${encodeURIComponent(emailData.message)}`;
+
+      setTimeout(() => {
+        window.location.href = mailtoLink;
+      }, 800);
+
+      // 4. Registrar en backend (Log Only)
+      await api.post(`/documents/quality-reports/${selectedReport.id}/send-email/`, {
+        to: emailData.to,
+        action: 'log_only'
+      });
+
+      alert('Abriendo Outlook... Por favor ADJUNTA el reporte descargado.');
+
+      setShowEmailModal(false);
+      setEmailData({ to: '', subject: '', message: '' });
+      queryClient.invalidateQueries(['quality-reports']);
+
+    } catch (error) {
+      console.error('Error in email flow:', error);
+      alert('Se abrió el correo pero falló el registro en el sistema.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUploadDocument = async () => {
+    if (!selectedIncidentId || !uploadedDocuments[selectedIncidentId]) {
+      // Logic for single file upload from modal
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.pdf,.doc,.docx';
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsSubmitting(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('incident_id', selectedIncidentId);
+        formData.append('report_type', 'cliente');
+
+        try {
+          await api.post('/documents/upload/quality-report/', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          alert('Documento subido exitosamente');
+          setShowUploadModal(false);
+          queryClient.invalidateQueries(['quality-reports']);
+          setIsSubmitting(false);
+        } catch (error) {
+          console.error(error);
+          alert('Error al subir documento');
+          setIsSubmitting(false);
+        }
+      };
+      fileInput.click();
+    } else {
+      // Logic for dragged file in modal
+      setIsSubmitting(true);
+      const formData = new FormData();
+      formData.append('file', uploadedDocuments[selectedIncidentId]);
+      formData.append('incident_id', selectedIncidentId);
+      formData.append('report_type', 'cliente');
+
+      try {
+        await api.post('/documents/upload/quality-report/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        alert('Documento subido exitosamente');
+        setShowUploadModal(false);
+        setUploadedDocuments(prev => {
+          const newState = { ...prev };
+          delete newState[selectedIncidentId];
+          return newState;
+        });
+        queryClient.invalidateQueries(['quality-reports']);
+        setIsSubmitting(false);
       } catch (error) {
-        console.error('Error closing incident:', error);
-        alert('Error al cerrar la incidencia');
+        console.error(error);
+        alert('Error al subir documento');
+        setIsSubmitting(false);
       }
     }
   };
 
   if (reportsLoading || incidentsLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-6"></div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Cargando Reportes</h3>
-          <p className="text-gray-600">Preparando la información...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <BeakerIcon className="h-8 w-8 text-blue-600" />
+    <div className="scroll-container-sticky">
+      <div className="scroll-content-wrapper">
+        <div className="w-full px-4 sm:px-6 lg:px-8 space-y-6 py-8">
+
+          {/* Compact Professional Header Section */}
+          <div className="relative mb-6 p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200 shadow-sm overflow-hidden group flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="p-2.5 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-xl shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform duration-500">
+                <BeakerIcon className="h-6 w-6 text-white" />
               </div>
-              <div className="ml-4">
-                <h1 className="text-xl font-semibold text-gray-900">
-                  Reportes de Calidad para Cliente
+              <div>
+                <h1 className="text-xl font-bold text-gray-800 tracking-tight flex items-center gap-2">
+                  Reportes de Clientes
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-bold uppercase tracking-wider border border-blue-100">
+                    Control de Calidad
+                  </span>
                 </h1>
-                <p className="text-sm text-gray-500">
-                  Gestión de reportes de control de calidad para clientes
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Gestión detallada de informes externos y auditorías
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <PlusIcon className="h-5 w-5 mr-2" />
-                Crear Reporte
-              </button>
+
+            <div className="flex items-center gap-3 relative z-10">
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-xl text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-lg hover:shadow-xl transition-all duration-200"
+                className="inline-flex items-center px-3 py-2 bg-white border border-slate-200 text-slate-600 font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm text-xs"
               >
-                <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
-                Adjuntar Documento
+                <ArrowUpIcon className="h-4 w-4 mr-1.5 text-slate-400" />
+                Subir Reporte
+              </button>
+              <button
+                onClick={handleCreateReportClick}
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-sm shadow-blue-500/30 hover:bg-blue-700 hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all"
+              >
+                <PlusIcon className="h-4 w-4 mr-1.5" />
+                Nuevo Reporte
               </button>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filtros y Búsqueda */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6 relative z-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-medium text-gray-900">Filtros y Búsqueda</h2>
-            <button
-              onClick={() => setSearchTerm('')}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <ArrowPathIcon className="h-4 w-4 mr-2" />
-              Limpiar
-            </button>
-          </div>
-          <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por número de reporte, código de incidencia, cliente o proveedor..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-
-        {/* Lista de Reportes */}
-        <div className="bg-white rounded-lg shadow-sm">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">
-                Reportes de Calidad Generados
-              </h2>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {filteredReports.length} reportes
-              </span>
-            </div>
-          </div>
-          
-          {filteredReports.length > 0 ? (
-        <div className="table-container">
-          <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Reporte
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Incidencia
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Cliente
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Fecha
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Estado
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Documentos
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReports.map((report) => (
-                    <tr key={report.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                              <DocumentTextIcon className="h-5 w-5 text-blue-600" />
-                            </div>
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">
-                              {report.report_number}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {report.title}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {report.incident?.code || report.incident_code || report.related_incident?.code || 'N/A'}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {report.incident?.provider || report.provider || report.related_incident?.provider || 'N/A'}
-                        </div>
-                        <div className="text-xs text-blue-600 font-medium">
-                          {report.incident?.categoria || report.categoria || report.related_incident?.categoria || 'N/A'}
-                        </div>
-                        {(report.incident?.subcategoria || report.related_incident?.subcategoria) && (
-                          <div className="text-xs text-gray-500">
-                            {report.incident?.subcategoria || report.related_incident?.subcategoria}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {report.incident?.cliente || report.cliente || report.related_incident?.cliente || 'N/A'}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {report.incident?.obra || report.obra || report.related_incident?.obra || 'N/A'}
-                        </div>
-                        {(report.incident?.proyecto || report.related_incident?.proyecto) && (
-                          <div className="text-xs text-gray-500">
-                            {report.incident?.proyecto || report.related_incident?.proyecto}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {new Date(report.created_at).toLocaleDateString()}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {new Date(report.created_at).toLocaleTimeString()}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          report.status === 'cerrado' ? 'bg-green-100 text-green-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {report.status === 'cerrado' ? 'CERRADO' : 'ABIERTO'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <IncidentDocuments 
-                          incidentId={report.incident?.id || report.incident_id || report.related_incident?.id}
-                          onDownloadSuccess={(message) => console.log(message)}
-                          onDownloadError={(error) => console.error(error)}
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleOpenDocument(report)}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded-md hover:bg-blue-50"
-                            title="Ver reporte"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDownloadDocument(report)}
-                            className="text-green-600 hover:text-green-900 p-1 rounded-md hover:bg-green-50"
-                            title="Descargar reporte"
-                          >
-                            <DocumentArrowUpIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleGenerateDocument(report)}
-                            className="text-purple-600 hover:text-purple-900 p-1 rounded-md hover:bg-purple-50"
-                            title="Generar documento PDF"
-                          >
-                            <DocumentTextIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleViewTraceability(report)}
-                            className="text-indigo-600 hover:text-indigo-900 p-1 rounded-md hover:bg-indigo-50"
-                            title="Ver trazabilidad e interconexión"
-                          >
-                            <ArrowPathIcon className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteReport(report.id)}
-                            className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50"
-                            title="Eliminar reporte"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <BeakerIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No hay reportes</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Comienza creando un nuevo reporte de calidad.
-              </p>
-              <div className="mt-6">
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  Crear Primer Reporte
-                </button>
+          {/* Filter Section - Minimalist Glass */}
+          <div className="bg-white/40 backdrop-blur-md rounded-2xl p-1.5 mb-8 shadow-sm border border-white/50">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-2">
+              <div className="relative w-full md:max-w-md group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  className="block w-full pl-10 pr-3 py-2.5 bg-white/60 backdrop-blur-sm border-transparent text-gray-900 placeholder-gray-500 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent rounded-xl transition-all duration-200 shadow-sm font-medium"
+                  placeholder="Buscar por cliente, obra o N° reporte..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="flex-shrink-0 px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors text-sm font-bold border border-red-100/50"
+                >
+                  Limpiar búsqueda
+                </button>
+              )}
             </div>
-          )}
+          </div>
+
+
+
+          {/* Reports Table - Modern Glass */}
+          <div className="bg-white/60 backdrop-blur-2xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 overflow-hidden">
+            {filteredReports.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+                <div className="bg-gray-50/50 backdrop-blur-sm p-6 rounded-full mb-4">
+                  <DocumentTextIcon className="h-10 w-10 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-800">No hay reportes</h3>
+                <p className="text-gray-500 mt-1 text-sm">No se encontraron documentos.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-visible scroll-horizontal-sticky">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200/50 bg-gray-50/20">
+                      <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">N° Reporte</th>
+                      <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Incidencia</th>
+                      <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Cliente / Obra</th>
+                      <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Fecha</th>
+                      <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Estado</th>
+                      <th className="px-6 py-4 text-right text-[11px] font-bold text-gray-400 uppercase tracking-widest">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100/50">
+                    {filteredReports.map((report) => (
+                      <tr key={report.id} className="group hover:bg-white/60 transition-colors duration-150">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-9 w-9 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 mr-3 shadow-sm border border-blue-100">
+                              <DocumentTextIcon className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-bold text-gray-900 bg-clip-text bg-gradient-to-r from-gray-900 to-gray-700">{report.report_number || 'S/N'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2.5 py-1 text-xs font-bold text-gray-600 bg-gray-100/80 rounded-lg border border-gray-200 backdrop-blur-sm">
+                            {report.incident_code || report.incident?.code || '-'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-semibold text-gray-900">{report.cliente}</div>
+                          <div className="text-xs text-gray-500 font-medium">{report.obra}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
+                          {new Date(report.created_at).toLocaleDateString('es-CL')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {(() => {
+                            const incidentStatus = report.incident?.estado;
+                            const status = report.status || 'draft';
+
+                            // Check for closed incident FIRST
+                            if (incidentStatus === 'cerrado') {
+                              return (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border bg-gray-100 text-gray-600 border-gray-200">
+                                  <CheckCircleIcon className="w-3.5 h-3.5 mr-1" />
+                                  Cerrado
+                                </span>
+                              );
+                            }
+
+                            const styles = {
+                              final: 'bg-gray-100 text-gray-600 border-gray-200', // Cerrado
+                              draft: 'bg-emerald-50 text-emerald-700 border-emerald-100', // Listo
+                              pending: 'bg-emerald-50 text-emerald-700 border-emerald-100', // Listo (alias)
+                              sent: 'bg-blue-50 text-blue-700 border-blue-100', // Enviado
+                              escalated: 'bg-purple-50 text-purple-700 border-purple-100' // Escalado
+                            };
+                            const labels = {
+                              final: 'Cerrado',
+                              draft: 'Listo',
+                              pending: 'Listo',
+                              sent: 'Enviado',
+                              escalated: 'Escalado'
+                            };
+                            return (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${styles[status] || styles.draft}`}>
+                                {status === 'final' ? <CheckCircleIcon className="w-3.5 h-3.5 mr-1" /> :
+                                  status === 'sent' ? <PaperAirplaneIcon className="w-3.5 h-3.5 mr-1" /> :
+                                    status === 'escalated' ? <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" /> :
+                                      <CheckCircleIcon className="w-3.5 h-3.5 mr-1" />}
+                                {labels[status] || labels.draft}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                          <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleOpenDocument(report)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Ver PDF">
+                              <EyeIcon className="h-4 w-4" />
+                            </button>
+
+                            <button onClick={() => handleOpenEmailModal(report)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Enviar Email">
+                              <EnvelopeIcon className="h-4 w-4" />
+                            </button>
+
+                            {report.incident?.estado !== 'cerrado' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedIncidentForClosure(report.incident || { id: report.incident_id, code: report.incident_code });
+                                  setClosureData({ stage: 'calidad', reason: '', closure_summary: '', closure_attachment: null });
+                                  setShowIncidentClosure(true);
+                                }}
+                                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                title="Cerrar Incidencia"
+                              >
+                                <CheckCircleIcon className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {report.status !== 'escalated' && report.status !== 'final' && report.incident?.estado !== 'cerrado' && (
+                              <button
+                                onClick={() => handleEscalateToInternal(report)}
+                                className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                title="Escalar a Interno"
+                              >
+                                <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button onClick={() => handleDeleteReport(report.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Eliminar">
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
 
-      {/* Modal de Crear Reporte */}
-      {showCreateModal && (
-        <QualityReportForm
-          incidents={openIncidents?.incidents || []}
-          onSubmit={handleCreateReport}
-          onClose={() => setShowCreateModal(false)}
-          reportType="cliente"
-        />
-      )}
-
-      {/* Modal de Subida de Documento */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
-                  Adjuntar Documento
-                </h3>
-                <button
-                  onClick={() => setShowUploadModal(false)}
-                  className="text-white hover:text-gray-200 transition-colors duration-200"
-                >
+      {/* Selection Modal for Create Report - Blue Theme */}
+      {
+        showSelectionModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-white/20 p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Seleccionar Incidencia</h3>
+                <button onClick={() => setShowSelectionModal(false)} className="text-gray-400 hover:text-gray-600">
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-            </div>
-            <div className="p-6">
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Seleccionar Incidencia
-                </label>
+
+              <div className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded-xl mb-4">
+                  <p className="text-sm text-blue-800 font-medium flex items-center">
+                    <ExclamationTriangleIcon className="h-5 w-5 mr-2" />
+                    Solo se muestran incidencias escaladas a calidad pendientes.
+                  </p>
+                </div>
+
+                <label className="block text-sm font-bold text-gray-700 mb-2">Incidencia</label>
                 <select
-                  value={selectedIncidentId}
-                  onChange={(e) => setSelectedIncidentId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  onChange={(e) => {
+                    if (e.target.value) handleIncidentSelectForCreate(e.target.value);
+                  }}
+                  defaultValue=""
                 >
-                  <option value="">Seleccionar incidencia...</option>
-                  {(openIncidents?.incidents || []).map((incident) => (
+                  <option value="" disabled>Seleccione para continuar...</option>
+                  {availableIncidents.map((incident) => (
                     <option key={incident.id} value={incident.id}>
-                      {incident.code} - {incident.cliente} - {incident.provider}
+                      {incident.code} — {incident.cliente || 'Sin cliente'}
                     </option>
                   ))}
                 </select>
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setShowSelectionModal(false)}
+                    className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Create Modal - Full Screen */}
+      {
+        showCreateModal && (
+          <QualityReportForm
+            isOpen={showCreateModal}
+            onClose={() => setShowCreateModal(false)}
+            incidentId={selectedIncidentId}
+            onSuccess={() => {
+              setShowCreateModal(false);
+              queryClient.invalidateQueries(['quality-reports']);
+              queryClient.invalidateQueries(['escalatedIncidents']);
+            }}
+            fullScreen={true}
+          />
+        )
+      }
+
+      {/* Upload Modal */}
+      {
+        showUploadModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full shadow-2xl border border-white/50">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Subir Reporte Externo</h3>
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Seleccionar Incidencia
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedIncidentId}
+                    onChange={(e) => setSelectedIncidentId(e.target.value)}
+                    className="w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none font-medium text-gray-700"
+                  >
+                    <option value="">Selecciona una opción...</option>
+                    {availableIncidents.map((incident) => (
+                      <option key={incident.id} value={incident.id}>
+                        {incident.code} — {incident.cliente || 'Sin cliente'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
               </div>
 
-              <div className="mb-6">
-                <button
-                  onClick={handleUploadDocument}
-                  disabled={!selectedIncidentId || isSubmitting}
-                  className="w-full flex items-center justify-center px-6 py-4 border-2 border-dashed border-gray-300 text-sm font-semibold rounded-xl text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <DocumentArrowUpIcon className="h-5 w-5 mr-3" />
-                  {isSubmitting ? 'Subiendo...' : '📎 Seleccionar Archivo'}
-                </button>
+              <p className="text-sm text-gray-500 mb-6">Selecciona o arrastra el archivo PDF del reporte firmado.</p>
+
+              <div className={`border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center transition-all cursor-pointer group ${!selectedIncidentId ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/50 hover:border-blue-400'}`}
+                onClick={() => selectedIncidentId && handleUploadDocument()}
+              >
+                <CloudArrowUpIcon className="h-12 w-12 text-gray-400 group-hover:text-blue-500 transition-colors mx-auto mb-3" />
+                <span className="text-sm font-bold text-blue-600">Click para seleccionar</span>
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="mt-6 w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showEmailModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+            <div className="bg-white rounded-3xl p-0 max-w-lg w-full shadow-2xl border border-white/40 overflow-hidden">
+              <div className="px-6 py-4 bg-gray-50/80 backdrop-blur-sm border-b border-gray-100 flex justify-between items-center">
+                <h3 className="text-lg font-bold text-gray-900">Enviar Reporte por Correo</h3>
+                <button onClick={() => setShowEmailModal(false)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="h-6 w-6" /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Destinatario</label>
+                  <input
+                    type="email"
+                    value={emailData.to}
+                    onChange={(e) => setEmailData({ ...emailData, to: e.target.value })}
+                    className="w-full px-4 py-2 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                    placeholder="correo@cliente.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Asunto</label>
+                  <input
+                    type="text"
+                    value={emailData.subject}
+                    onChange={(e) => setEmailData({ ...emailData, subject: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Mensaje</label>
+                  <textarea
+                    value={emailData.message}
+                    onChange={(e) => setEmailData({ ...emailData, message: e.target.value })}
+                    rows={6}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                  />
+                </div>
                 <button
-                  onClick={() => setShowUploadModal(false)}
-                  className="px-6 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  onClick={handleSendEmail}
+                  className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition-all hover:-translate-y-0.5"
                 >
-                  Cancelar
+                  Abrir Correo
                 </button>
               </div>
             </div>
           </div>
+        )
+      }
+
+      {/* Close Incident Modal - Premium Design */}
+      {
+        showIncidentClosure && selectedIncidentForClosure && (
+          <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.25)] w-full max-w-2xl overflow-hidden border border-white/40">
+              {/* Header - Premium Green Gradient */}
+              <div className="px-5 py-4 bg-gradient-to-r from-emerald-600 to-green-600 flex items-center gap-3">
+                <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
+                  <CheckCircleIcon className="h-5 w-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-white">Cerrar Incidencia</h3>
+                  <p className="text-xs text-emerald-100">{selectedIncidentForClosure.code || selectedIncidentForClosure.id}</p>
+                </div>
+                <button onClick={() => setShowIncidentClosure(false)} className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+                <p className="text-sm text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                  ⚠️ Esta acción es definitiva y cerrará la incidencia asociada.
+                </p>
+
+                {/* Etapa */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Etapa de Cierre *</label>
+                  <select
+                    value={closureData.stage}
+                    onChange={(e) => setClosureData({ ...closureData, stage: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 bg-white text-sm"
+                  >
+                    <option value="calidad">Cerrada en Calidad</option>
+                    <option value="proveedor">Cerrada en Proveedor</option>
+                    <option value="reporte_visita">Cerrada en Reporte de Visita</option>
+                    <option value="incidencia">Cerrada en Incidencia</option>
+                  </select>
+                </div>
+
+                {/* Motivo */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Motivo de Cierre *</label>
+                  <select
+                    value={closureData.reason || ''}
+                    onChange={(e) => setClosureData({ ...closureData, reason: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 bg-white text-sm"
+                  >
+                    <option value="">-- Seleccionar motivo --</option>
+                    <option value="Resuelto satisfactoriamente">Resuelto satisfactoriamente</option>
+                    <option value="Sin garantía aplicable">Sin garantía aplicable</option>
+                    <option value="Producto reemplazado">Producto reemplazado</option>
+                    <option value="Crédito emitido">Crédito emitido</option>
+                    <option value="Problema no reproducible">Problema no reproducible</option>
+                    <option value="Solicitud del cliente">Solicitud del cliente</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+
+                {/* Resumen */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Resumen de Acciones y Conclusiones *</label>
+                  <textarea
+                    value={closureData.closure_summary}
+                    onChange={(e) => setClosureData({ ...closureData, closure_summary: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 bg-white text-sm resize-none"
+                    placeholder="Describa las acciones tomadas (mínimo 10 caracteres)..."
+                  />
+                  <p className={`mt-1 text-xs ${closureData.closure_summary.length < 10 ? 'text-red-500' : 'text-green-600'}`}>
+                    {closureData.closure_summary.length}/10 caracteres mínimos
+                  </p>
+                </div>
+
+                {/* Archivo */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Archivo Adjunto (opcional)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="file" id="closure-file-client" className="hidden" onChange={(e) => setClosureData({ ...closureData, closure_attachment: e.target.files[0] || null })} />
+                    <label htmlFor="closure-file-client" className="px-3 py-2 bg-gray-100 text-gray-700 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium">
+                      Seleccionar
+                    </label>
+                    {closureData.closure_attachment && (
+                      <div className="flex items-center gap-2 text-xs text-gray-600 bg-green-50 px-2 py-1 rounded-lg">
+                        <PaperClipIcon className="h-3 w-3" />
+                        <span className="truncate max-w-[120px]">{closureData.closure_attachment.name}</span>
+                        <button type="button" onClick={() => setClosureData({ ...closureData, closure_attachment: null })} className="text-red-500 hover:text-red-700">
+                          <XMarkIcon className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowIncidentClosure(false)}
+                  className="px-4 py-2 text-sm font-bold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors shadow-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || closureData.closure_summary.length < 10 || !closureData.reason}
+                  onClick={async () => {
+                    if (!closureData.reason) { alert('Por favor selecciona un motivo de cierre'); return; }
+                    if (closureData.closure_summary.length < 10) { alert('El resumen debe tener al menos 10 caracteres'); return; }
+                    setIsSubmitting(true);
+                    try {
+                      const incidentId = selectedIncidentForClosure.id;
+                      const finalSummary = `[Motivo: ${closureData.reason}] ${closureData.closure_summary}`;
+                      await incidentsAPI.close(incidentId, { stage: closureData.stage, closure_summary: finalSummary });
+                      alert('Incidencia cerrada exitosamente');
+                      setShowIncidentClosure(false);
+                      queryClient.invalidateQueries(['quality-reports']);
+                      queryClient.invalidateQueries(['escalatedIncidents']);
+                    } catch (error) {
+                      alert('Error al cerrar: ' + (error.response?.data?.error || error.message));
+                    } finally {
+                      setIsSubmitting(false);
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-green-600 rounded-xl hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg shadow-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
+                      Cerrando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircleIcon className="h-4 w-4" />
+                      Confirmar Cierre
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Email Modal - Professional Outlook Workflow */}
+      {showEmailModal && selectedReport && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-white/40">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gray-50/80 backdrop-blur-md border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <PaperAirplaneIcon className="h-5 w-5 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Enviar Reporte al Cliente</h3>
+              </div>
+              <button onClick={() => setShowEmailModal(false)} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+
+              {/* Destinatario */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Correo del Cliente
+                </label>
+                <input
+                  type="email"
+                  value={emailData.to}
+                  onChange={(e) => setEmailData({ ...emailData, to: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  placeholder="cliente@ejemplo.com"
+                />
+              </div>
+
+              {/* Instrucciones del Flujo */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-2">
+                  ℹ️ Flujo de Envío Profesional
+                </h4>
+                <ol className="list-decimal list-inside text-sm text-blue-700 dark:text-blue-400 space-y-1">
+                  <li>Al hacer clic en <strong>Enviar Correo</strong>, se descargará el reporte PDF.</li>
+                  <li>Se abrirá tu <strong>Outlook</strong> automáticamente.</li>
+                  <li>Debes <strong>ADJUNTAR MANUALMENTE</strong> el archivo descargado al correo.</li>
+                </ol>
+              </div>
+
+              {/* Attachment Preview (Visual only) */}
+              <div className="flex items-center gap-3 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="p-2 bg-white dark:bg-slate-700 rounded-md shadow-sm">
+                  <PaperClipIcon className="w-5 h-5 text-slate-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
+                    Reporte_Calidad_{selectedReport?.report_number}.pdf
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Se descargará automáticamente
+                  </p>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 rounded-b-2xl">
+              <button
+                onClick={() => setShowEmailModal(false)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendEmail}
+                disabled={isSubmitting}
+                className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <EnvelopeIcon className="w-4 h-4" />
+                    Enviar Correo
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </div >
   );
 };
 

@@ -71,7 +71,7 @@ def roles_required(roles):
 
 # Definición de permisos por rol
 ROLE_PERMISSIONS = {
-    'administrador': {
+    'admin': {
         'can_manage_users': True,
         'can_manage_incidents': True,
         'can_view_reports': True,
@@ -81,7 +81,8 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': True,
-        'can_view_supplier_reports': True,    },
+        'can_view_supplier_reports': True,
+    },
     'supervisor': {
         'can_manage_users': True,
         'can_manage_incidents': True,
@@ -92,7 +93,8 @@ ROLE_PERMISSIONS = {
         'can_export_data': True,
         'can_view_audit_logs': True,
         'can_manage_system_settings': False,
-        'can_view_supplier_reports': True,    },
+        'can_view_supplier_reports': True,
+    },
     'customer_service': {
         'can_manage_users': False,
         'can_manage_incidents': False,
@@ -103,6 +105,7 @@ ROLE_PERMISSIONS = {
         'can_export_data': False,
         'can_view_audit_logs': False,
         'can_manage_system_settings': False,
+         'can_view_supplier_reports': False,
     },
     'management': {
         'can_manage_users': False,
@@ -116,7 +119,7 @@ ROLE_PERMISSIONS = {
         'can_manage_system_settings': False,
         'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
     },
-    'servicio_tecnico': {
+    'technical_service': {
         'can_manage_users': False,
         'can_manage_incidents': True,
         'can_view_reports': True,
@@ -128,7 +131,7 @@ ROLE_PERMISSIONS = {
         'can_manage_system_settings': False,
         'can_view_supplier_reports': False,  # No puede ver reportes de proveedores
     },
-    'tecnico': {
+    'analyst': {
         'can_manage_users': False,
         'can_manage_incidents': True,
         'can_view_reports': True,
@@ -149,6 +152,18 @@ ROLE_PERMISSIONS = {
         'can_access_admin': False,
         'can_export_data': True,
         'can_view_audit_logs': True,
+        'can_manage_system_settings': False,
+        'can_view_supplier_reports': True,
+    },
+    'provider': {
+        'can_manage_users': False,
+        'can_manage_incidents': False,
+        'can_view_reports': True,
+        'can_manage_workflows': False,
+        'can_manage_documents': True,
+        'can_access_admin': False,
+        'can_export_data': True,
+        'can_view_audit_logs': False,
         'can_manage_system_settings': False,
         'can_view_supplier_reports': True,
     }

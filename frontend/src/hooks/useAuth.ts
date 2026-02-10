@@ -49,31 +49,15 @@ export function useAuth() {
   useEffect(() => {
     const loadAuthState = () => {
       try {
-        // Verificar si es la primera vez que se carga la app
-        const hasBeenInitialized = sessionStorage.getItem('app_initialized');
-        
-        if (!hasBeenInitialized) {
-          // Primera carga - forzar logout
-          localStorage.removeItem(AUTH_STORAGE_KEY);
-          localStorage.removeItem('refresh_token');
-          sessionStorage.setItem('app_initialized', 'true');
-          setAuthState({
-            user: null,
-            token: null,
-            isAuthenticated: false,
-          });
-        } else {
-          // Cargas posteriores - mantener sesión si existe
-          const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-          if (stored) {
-            const { user, token } = JSON.parse(stored);
-            if (user && token) {
-              setAuthState({
-                user,
-                token,
-                isAuthenticated: true,
-              });
-            }
+        const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (stored) {
+          const { user, token } = JSON.parse(stored);
+          if (user && token) {
+            setAuthState({
+              user,
+              token,
+              isAuthenticated: true,
+            });
           }
         }
       } catch (error) {
@@ -110,6 +94,17 @@ export function useAuth() {
     queryClient.clear();
   }, [queryClient]);
 
+  // Handle auth:logout event from api interceptor
+  useEffect(() => {
+    const handleLogout = () => {
+      clearAuthState();
+      toast.error('Tu sesión ha expirado');
+    };
+
+    window.addEventListener('auth:logout', handleLogout);
+    return () => window.removeEventListener('auth:logout', handleLogout);
+  }, [clearAuthState]);
+
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials): Promise<AuthResponse> => {
@@ -122,15 +117,14 @@ export function useAuth() {
       if (data.refresh) {
         localStorage.setItem('refresh_token', data.refresh);
       }
-      
+
       // Reconectar WebSocket después del login
       try {
         notificationService.connect();
-        console.log('🔌 WebSocket reconectado después del login');
       } catch (error) {
-        console.warn('⚠️ Error reconectando WebSocket:', error);
+        // Silent fail for WebSocket
       }
-      
+
       toast.success(`¡Bienvenido, ${data.user.username}!`);
     },
     onError: (error: Error) => {
@@ -141,30 +135,23 @@ export function useAuth() {
   // Logout mutation
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      console.log('🔄 Ejecutando logoutMutation');
-      
       // Desconectar WebSocket
       try {
         notificationService.disconnect();
-        console.log('🔌 WebSocket desconectado');
       } catch (error) {
-        console.warn('⚠️ Error desconectando WebSocket:', error);
+        // Silent fail
       }
-      
+
       const refreshToken = localStorage.getItem('refresh_token');
-      console.log('Refresh token encontrado:', refreshToken ? 'Sí' : 'No');
       if (refreshToken) {
         try {
-          console.log('📤 Enviando request de logout...');
           await api.post('auth/logout/', { refresh_token: refreshToken });
-          console.log('✅ Request de logout exitosa');
         } catch (error) {
-          console.warn('❌ Error during logout request:', error);
+          // Silent fail
         }
       }
     },
     onSuccess: () => {
-      console.log('✅ Logout mutation exitosa');
       clearAuthState();
       // Limpiar sessionStorage también
       sessionStorage.removeItem('app_initialized');
@@ -175,7 +162,6 @@ export function useAuth() {
       }, 1000);
     },
     onError: (error) => {
-      console.log('❌ Error en logout mutation:', error);
       clearAuthState();
       // Limpiar sessionStorage también
       sessionStorage.removeItem('app_initialized');
@@ -226,7 +212,6 @@ export function useAuth() {
 
   // Logout function
   const logout = useCallback(() => {
-    console.log('🔄 Función logout llamada desde useAuth');
     logoutMutation.mutate();
   }, [logoutMutation]);
 
@@ -238,7 +223,7 @@ export function useAuth() {
   // Check if user has permission
   const hasPermission = useCallback((permission: string): boolean => {
     if (!authState.user) return false;
-    
+
     const roleConfig = brandConfig.roles[authState.user.role as keyof typeof brandConfig.roles];
     if (!roleConfig) return false;
 
@@ -253,18 +238,18 @@ export function useAuth() {
   // Get user display name
   const getUserDisplayName = useCallback((): string => {
     if (!authState.user) return '';
-    
+
     if (authState.user.first_name && authState.user.last_name) {
       return `${authState.user.first_name} ${authState.user.last_name}`;
     }
-    
+
     return authState.user.username;
   }, [authState.user]);
 
   // Get role display name
   const getRoleDisplayName = useCallback((): string => {
     if (!authState.user) return '';
-    
+
     const roleConfig = brandConfig.roles[authState.user.role as keyof typeof brandConfig.roles];
     return roleConfig?.name || authState.user.role;
   }, [authState.user]);
@@ -275,21 +260,21 @@ export function useAuth() {
     token: authState.token,
     isAuthenticated: authState.isAuthenticated,
     isLoading: isLoading || loginMutation.isPending || logoutMutation.isPending,
-    
+
     // Actions
     login,
     logout,
     refreshToken,
-    
+
     // Utilities
     hasPermission,
     hasRole,
     getUserDisplayName,
     getRoleDisplayName,
-    
+
     // Queries
     userQuery,
-    
+
     // Mutations
     loginMutation,
     logoutMutation,

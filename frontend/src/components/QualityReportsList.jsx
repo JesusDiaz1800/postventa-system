@@ -16,8 +16,9 @@ const QualityReportsList = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useNotifications();
-  
+
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [selectedIncidentId, setSelectedIncidentId] = useState('');
   const [selectedReportType, setSelectedReportType] = useState('cliente');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -65,18 +66,18 @@ const QualityReportsList = () => {
   // Filtrar incidencias que no tienen reportes de calidad del tipo seleccionado
   const availableIncidents = useMemo(() => {
     if (!openIncidents?.results || !qualityReportsData) return [];
-    
+
     // Extraer el array de reportes de la respuesta
     const reportsArray = qualityReportsData?.results || qualityReportsData?.data || qualityReportsData || [];
-    
+
     const incidentIdsWithQualityReports = new Set(
       reportsArray
         .filter(report => report.report_type === selectedReportType)
         .map(report => report.related_incident?.id)
         .filter(Boolean)
     );
-    
-    return openIncidents.results.filter(incident => 
+
+    return openIncidents.results.filter(incident =>
       !incidentIdsWithQualityReports.has(incident.id)
     );
   }, [openIncidents, qualityReportsData, selectedReportType]);
@@ -208,9 +209,9 @@ const QualityReportsList = () => {
       showError('Por favor selecciona una incidencia');
       return;
     }
-    createQualityReportMutation.mutate({ 
-      incidentId: selectedIncidentId, 
-      reportType: selectedReportType 
+    createQualityReportMutation.mutate({
+      incidentId: selectedIncidentId,
+      reportType: selectedReportType
     });
   };
 
@@ -252,10 +253,10 @@ const QualityReportsList = () => {
       showError('Por favor selecciona un archivo');
       return;
     }
-    
+
     const title = `Documento ${attachReportType === 'cliente' ? 'para Cliente' : 'Interno'} - ${selectedFile.name}`;
-    uploadDocumentMutation.mutate({ 
-      incidentId: attachIncidentId, 
+    uploadDocumentMutation.mutate({
+      incidentId: attachIncidentId,
       reportType: attachReportType,
       file: selectedFile,
       title: title
@@ -285,154 +286,173 @@ const QualityReportsList = () => {
 
   const reports = qualityReportsData?.results || qualityReportsData?.data || qualityReportsData || [];
 
+  const filteredReports = reports.filter(report => {
+    const matchesSearch =
+      report.report_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      report.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (report.related_incident?.code || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    // El filtro de tipo ya se hace en el backend? No, se hace en availableIncidents filters.
+    // Pero la lista 'reports' trae TODOS? 
+    // Viendo queryFn: fetch('/api/documents/quality-reports/') -> Trae todos.
+    // Así que filtraremos por tipo aquí para la vista.
+    const matchesType = report.report_type === selectedReportType;
+
+    return matchesSearch && matchesType;
+  });
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+    <div className="space-y-8">
+      {/* Modern Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Reportes de Calidad</h2>
-          <p className="text-gray-600">Gestión de informes para cliente e internos</p>
+          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600">
+            🧪 Reportes de Calidad
+          </h1>
+          <p className="mt-1 text-slate-500 font-medium">Gestión integral de calidad (Interna y Cliente)</p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setShowAttachModal(true)}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="flex items-center px-5 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
           >
-            <DocumentTextIcon className="h-4 w-4 mr-2" />
-            Adjuntar Documento
+            <DocumentTextIcon className="h-5 w-5 mr-2 text-slate-500" />
+            Adjuntar
           </button>
           <button
             onClick={() => navigate('/quality-reports/form')}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="flex items-center px-6 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200 hover:shadow-blue-300 transform hover:-translate-y-0.5 transition-all duration-200"
           >
-            <PlusIcon className="h-4 w-4 mr-2" />
+            <PlusIcon className="h-5 w-5 mr-2" />
             Nuevo Reporte
           </button>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="bg-white p-4 rounded-lg shadow">
-        <div className="flex space-x-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tipo de Reporte
-            </label>
-            <select
-              value={selectedReportType}
-              onChange={(e) => setSelectedReportType(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="cliente">Informe para Cliente</option>
-              <option value="interno">Informe Interno</option>
-            </select>
+      {/* Search Bar & Tabs Container */}
+      <div className="bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-2xl p-6 shadow-xl shadow-fuchsia-100 text-white space-y-6">
+        {/* Search */}
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+            <EyeIcon className="h-6 w-6 text-white" />
           </div>
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-fuchsia-100 uppercase tracking-wide mb-1">
+              Búsqueda Inteligente
+            </label>
+            <input
+              type="text"
+              placeholder="Buscar por título, número o incidencia..."
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-white/60 focus:outline-none focus:bg-white/20 focus:border-white/40 transition-all font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Modern Tabs */}
+        <div className="flex space-x-1 bg-black/20 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setSelectedReportType('cliente')}
+            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${selectedReportType === 'cliente'
+                ? 'bg-white text-violet-600 shadow-md'
+                : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+          >
+            📋 Para Cliente
+          </button>
+          <button
+            onClick={() => setSelectedReportType('interno')}
+            className={`px-6 py-2 rounded-lg text-sm font-bold transition-all duration-200 ${selectedReportType === 'interno'
+                ? 'bg-white text-violet-600 shadow-md'
+                : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+          >
+            🔍 Interno
+          </button>
         </div>
       </div>
 
-      {/* Tabla de reportes */}
-      <div className="bg-white shadow overflow-hidden sm:rounded-md">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Número
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tipo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Incidencia
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Título
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Estado
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Creado
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Acciones
-                  </th>
+      {/* Modern Glass List */}
+      <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-100">
+            <thead className="bg-slate-50/50">
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Reporte</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Incidencia</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Fecha</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 bg-white">
+              {filteredReports.map((report) => (
+                <tr key={report.id} className="hover:bg-slate-50/80 transition-colors duration-150">
+                  <td className="px-6 py-4">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${report.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
+                        report.status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          report.status === 'draft' ? 'bg-slate-50 text-slate-600 border-slate-200' :
+                            'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                      {report.status === 'draft' ? 'Borrador' :
+                        report.status === 'approved' ? 'Aprobado' :
+                          report.status === 'sent' ? 'Enviado' : 'Revisión'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-slate-800">{report.report_number}</span>
+                      <span className="text-sm text-slate-600 font-medium line-clamp-1">{report.title}</span>
+                      <span className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+                        {report.report_type}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {report.related_incident?.code ? (
+                      <span className="inline-flex items-center text-xs font-medium text-fuchsia-600 bg-fuchsia-50 px-2 py-1 rounded-md">
+                        {report.related_incident.code}
+                      </span>
+                    ) : <span className="text-slate-400 text-xs">N/A</span>}
+                  </td>
+                  <td className="px-6 py-4 text-sm font-medium text-slate-500">
+                    {new Date(report.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 text-right space-x-2">
+                    {report.pdf_path && (
+                      <button
+                        onClick={() => handleViewPDF(report)}
+                        className="text-white bg-purple-100 hover:bg-purple-200 p-2 rounded-lg transition-colors group"
+                        title="Ver PDF"
+                      >
+                        <EyeIcon className="h-5 w-5 text-purple-600 group-hover:text-purple-700" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleEdit(report)}
+                      className="text-white bg-blue-100 hover:bg-blue-200 p-2 rounded-lg transition-colors group"
+                      title="Editar"
+                    >
+                      <PencilIcon className="h-5 w-5 text-blue-600 group-hover:text-blue-700" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(report)}
+                      className="text-white bg-red-100 hover:bg-red-200 p-2 rounded-lg transition-colors group"
+                      title="Eliminar"
+                    >
+                      <TrashIcon className="h-5 w-5 text-red-600 group-hover:text-red-700" />
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {reports.map((report) => (
-                  <tr key={report.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {report.report_number}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        report.report_type === 'cliente' 
-                          ? 'bg-blue-100 text-blue-800' 
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {report.report_type === 'cliente' ? 'Cliente' : 'Interno'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {report.related_incident?.code || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {report.title}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        report.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                        report.status === 'approved' ? 'bg-green-100 text-green-800' :
-                        report.status === 'sent' ? 'bg-blue-100 text-blue-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {report.status === 'draft' ? 'Borrador' :
-                         report.status === 'approved' ? 'Aprobado' :
-                         report.status === 'sent' ? 'Enviado' :
-                         report.status === 'review' ? 'En Revisión' : 'Cerrado'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(report.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                      {report.pdf_path && (
-                        <button
-                          onClick={() => handleViewPDF(report)}
-                          className="text-purple-600 hover:text-purple-900"
-                          title="Ver PDF generado"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleEdit(report)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Editar reporte"
-                      >
-                        <PencilIcon className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(report)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Eliminar reporte"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          {reports.length === 0 && (
-            <div className="text-center py-8">
-              <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No hay reportes de calidad</h3>
-              <p className="mt-1 text-sm text-gray-500">Comienza creando un nuevo reporte de calidad.</p>
+              ))}
+            </tbody>
+          </table>
+          {filteredReports.length === 0 && (
+            <div className="p-12 text-center text-slate-400">
+              <DocumentTextIcon className="w-16 h-16 mx-auto mb-4 text-slate-200" />
+              <p className="text-lg font-medium">No se encontraron reportes</p>
+              <p className="text-sm">Cambie el tipo de filtro o cree un nuevo reporte.</p>
             </div>
           )}
         </div>
@@ -456,7 +476,7 @@ const QualityReportsList = () => {
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -471,7 +491,7 @@ const QualityReportsList = () => {
                     <option value="interno">🔍 Informe Interno de la Incidencia</option>
                   </select>
                   <p className="text-sm text-gray-500 mt-1">
-                    {selectedReportType === 'cliente' 
+                    {selectedReportType === 'cliente'
                       ? 'Versión para el cliente (información comercial)'
                       : 'Versión interna (causa real del problema)'
                     }
@@ -489,10 +509,10 @@ const QualityReportsList = () => {
                     onChange={(e) => setSelectedIncidentId(e.target.value)}
                   >
                     <option value="">
-                      {openIncidentsLoading 
-                        ? "Cargando incidencias..." 
-                        : openIncidentsError 
-                          ? "Error al cargar incidencias" 
+                      {openIncidentsLoading
+                        ? "Cargando incidencias..."
+                        : openIncidentsError
+                          ? "Error al cargar incidencias"
                           : "Selecciona una incidencia abierta"
                       }
                     </option>
@@ -504,7 +524,7 @@ const QualityReportsList = () => {
                   </select>
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-3 mt-6">
                 <button
                   onClick={() => setShowCreateModal(false)}
@@ -579,7 +599,7 @@ const QualityReportsList = () => {
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -594,7 +614,7 @@ const QualityReportsList = () => {
                     <option value="interno">🔍 Documento Interno</option>
                   </select>
                   <p className="text-sm text-gray-500 mt-1">
-                    {attachReportType === 'cliente' 
+                    {attachReportType === 'cliente'
                       ? 'Documento que se compartirá con el cliente'
                       : 'Documento interno para análisis técnico'
                     }
@@ -612,10 +632,10 @@ const QualityReportsList = () => {
                     onChange={(e) => setAttachIncidentId(e.target.value)}
                   >
                     <option value="">
-                      {openIncidentsLoading 
-                        ? "Cargando incidencias..." 
-                        : openIncidentsError 
-                          ? "Error al cargar incidencias" 
+                      {openIncidentsLoading
+                        ? "Cargando incidencias..."
+                        : openIncidentsError
+                          ? "Error al cargar incidencias"
                           : "Selecciona una incidencia abierta"
                       }
                     </option>
@@ -644,7 +664,7 @@ const QualityReportsList = () => {
                   )}
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-3 mt-6">
                 <button
                   onClick={() => setShowAttachModal(false)}

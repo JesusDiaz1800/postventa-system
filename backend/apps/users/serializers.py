@@ -12,6 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
     """
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     full_name = serializers.SerializerMethodField()
+    accessible_pages = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -19,7 +20,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'role', 'role_display', 'is_active', 'is_staff', 'is_superuser',
             'date_joined', 'last_login', 'created_at', 'updated_at',
-            'phone', 'department'
+            'phone', 'department', 'digital_signature', 'accessible_pages'
         ]
         read_only_fields = [
             'id', 'date_joined', 'last_login', 'created_at', 'updated_at',
@@ -28,14 +29,24 @@ class UserSerializer(serializers.ModelSerializer):
     
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}".strip()
+
+    def get_accessible_pages(self, obj):
+        from .permissions import get_accessible_pages
+        return get_accessible_pages(obj)
     
     def to_representation(self, instance):
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        logger.info(f"UserSerializer.to_representation called for user: {instance.username}")
         data = super().to_representation(instance)
-        logger.info(f"Serialized user data: {data}")
+        
+        # Convert digital_signature to relative URL to avoid mixed content errors
+        # When frontend is HTTPS and backend is HTTP (localhost)
+        if data.get('digital_signature'):
+            # Remove the domain part, keep only the path starting from /documentos/
+            url = data['digital_signature']
+            if 'localhost' in url or '127.0.0.1' in url:
+                # Extract just the path after the domain
+                if '/documentos/' in url:
+                    data['digital_signature'] = url.split('/documentos/', 1)[1]
+                    data['digital_signature'] = f'/documentos/{data["digital_signature"]}'
         
         return data
 
@@ -139,12 +150,14 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     """
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=False)
+    digital_signature = serializers.ImageField(required=False, allow_null=True)
     
     class Meta:
         model = User
         fields = [
             'username', 'email', 'first_name', 'last_name', 'role',
-            'is_active', 'phone', 'department', 'password', 'password_confirm'
+            'is_active', 'phone', 'department', 'password', 'password_confirm',
+            'digital_signature'
         ]
     
     def validate(self, attrs):
@@ -152,6 +165,22 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             if attrs['password'] != attrs['password_confirm']:
                 raise serializers.ValidationError("Las contraseñas no coinciden")
         return attrs
+    
+    def validate_digital_signature(self, value):
+        """
+        Validate digital_signature field.
+        Handle cases where empty objects or invalid data is sent.
+        """
+        # If value is None or empty, that's valid (field is optional)
+        if value is None or value == '':
+            return None
+        
+        # If it's not a proper uploaded file, ignore it
+        # This handles cases where FormData serialization fails
+        if not hasattr(value, 'read'):
+            return None
+            
+        return value
     
     def validate_username(self, value):
         # Check if username is being changed and if it already exists

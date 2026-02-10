@@ -1,99 +1,88 @@
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-from django.utils import timezone
-from django.conf import settings
+
 import logging
 import os
-import subprocess
-import tempfile
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-import win32com.client
+from django.core.mail import EmailMessage
+from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 class EmailService:
-    """Servicio para envío de correos automáticos usando Django"""
-        
-    def send_escalation_to_quality_email(self, incident, visit_report_path=None):
+    """Servicio para envío de correos usando Django SMTP"""
+
+    @staticmethod
+    def send_email_with_attachment(subject, message, recipient_list, attachment_path=None, from_email=None, cc_list=None):
         """
-        Crea un correo en Outlook usando COM automation
+        Envía un correo con archivo adjunto opcional.
+        Retorna: (success: bool, error_message: str)
         """
         try:
-            # Destinatarios
-            to_emails = 'vlutz@polifusion.cl; cmunizaga@polifusion.cl'
-            cc_emails = 'jdiaz@polifusion.cl; mmiranda@polifusion.cl; rcruz@polifusion.cl; pestay@polifusion.cl'
+            if not from_email:
+                from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@postventa.com')
+                
+            email = EmailMessage(
+                subject=subject,
+                body=message,
+                from_email=from_email,
+                to=recipient_list,
+                cc=cc_list or []
+            )
+            email.content_subtype = "html"  # Permitir HTML
             
-            # Asunto del correo
-            subject = f'[ESCALAMIENTO A CALIDAD] {incident.code} - {incident.cliente}'
+            if attachment_path and os.path.exists(attachment_path):
+                email.attach_file(attachment_path)
+            elif attachment_path:
+                logger.warning(f"Intento de adjuntar archivo inexistente: {attachment_path}")
             
-            # Generar contenido HTML
-            html_content = self._generate_quality_escalation_body(incident)
-            
-            # Crear aplicación de Outlook
-            outlook_app = win32com.client.Dispatch("Outlook.Application")
-            mail_item = outlook_app.CreateItem(0)  # 0 = olMailItem
-            
-            # Configurar el correo
-            mail_item.To = to_emails
-            mail_item.CC = cc_emails
-            mail_item.Subject = subject
-            mail_item.HTMLBody = html_content
-            
-            # Adjuntar reporte de visita si existe
-            if visit_report_path and os.path.exists(visit_report_path):
-                mail_item.Attachments.Add(visit_report_path)
-            
-            # Mostrar el correo (no enviar automáticamente)
-            mail_item.Display()
-            
-            logger.info(f"Correo de escalamiento creado en Outlook para incidencia {incident.code}")
-            return True
+            # Enviar
+            email.send(fail_silently=False)
+            logger.info(f"Correo enviado a {recipient_list} (CC: {cc_list}): {subject}")
+            return True, None
             
         except Exception as e:
-            logger.error(f"Error creando correo en Outlook: {str(e)}")
-            return False
+            error_msg = str(e)
+            logger.error(f"Error enviando correo a {recipient_list}: {error_msg}", exc_info=True)
+            return False, error_msg
+
+    def send_escalation_to_quality_email(self, incident, visit_report_path=None):
+        """
+        Envía correo de escalamiento a calidad
+        """
+        # Destinatarios (Hardcoded por requerimiento existente)
+        to_emails = ['vlutz@polifusion.cl', 'cmunizaga@polifusion.cl']
+        cc_emails = ['jdiaz@polifusion.cl', 'mmiranda@polifusion.cl', 'rcruz@polifusion.cl', 'pestay@polifusion.cl']
+        
+        subject = f'[ESCALAMIENTO A CALIDAD] {incident.code} - {incident.cliente}'
+        html_content = self._generate_quality_escalation_body(incident)
+        
+        success, _ = self.send_email_with_attachment(
+            subject=subject,
+            message=html_content,
+            recipient_list=to_emails,
+            cc_list=cc_emails,
+            attachment_path=visit_report_path
+        )
+        return success
     
     def send_escalation_to_supplier_email(self, incident, quality_report_path=None):
         """
-        Crea un correo en Outlook para escalamiento a proveedor usando COM automation
+        Envía correo de escalamiento a proveedor
         """
-        try:
-            # Destinatarios
-            to_emails = 'vlutz@polifusion.cl; cmunizaga@polifusion.cl'
-            cc_emails = 'jdiaz@polifusion.cl; mmiranda@polifusion.cl; rcruz@polifusion.cl; pestay@polifusion.cl'
-            
-            # Asunto del correo
-            subject = f'[ESCALAMIENTO A PROVEEDOR] {incident.code} - {incident.cliente}'
-            
-            # Generar contenido HTML
-            html_content = self._generate_supplier_escalation_body(incident)
-            
-            # Crear aplicación de Outlook
-            outlook_app = win32com.client.Dispatch("Outlook.Application")
-            mail_item = outlook_app.CreateItem(0)  # 0 = olMailItem
-            
-            # Configurar el correo
-            mail_item.To = to_emails
-            mail_item.CC = cc_emails
-            mail_item.Subject = subject
-            mail_item.HTMLBody = html_content
-            
-            # Adjuntar reporte de calidad si existe
-            if quality_report_path and os.path.exists(quality_report_path):
-                mail_item.Attachments.Add(quality_report_path)
-            
-            # Mostrar el correo (no enviar automáticamente)
-            mail_item.Display()
-            
-            logger.info(f"Correo de escalamiento a proveedor creado en Outlook para incidencia {incident.code}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error creando correo de escalamiento a proveedor en Outlook: {str(e)}")
-            return False
+        # Destinatarios
+        to_emails = ['vlutz@polifusion.cl', 'cmunizaga@polifusion.cl']
+        cc_emails = ['jdiaz@polifusion.cl', 'mmiranda@polifusion.cl', 'rcruz@polifusion.cl', 'pestay@polifusion.cl']
+        
+        subject = f'[ESCALAMIENTO A PROVEEDOR] {incident.code} - {incident.cliente}'
+        html_content = self._generate_supplier_escalation_body(incident)
+        
+        success, _ = self.send_email_with_attachment(
+            subject=subject,
+            message=html_content,
+            recipient_list=to_emails,
+            cc_list=cc_emails,
+            attachment_path=quality_report_path
+        )
+        return success
     
     def _generate_quality_escalation_body(self, incident):
         """Genera el cuerpo del correo de escalamiento a calidad"""
@@ -126,7 +115,7 @@ class EmailService:
                     <p><strong>Cliente:</strong> {incident.cliente}</p>
                     <p><strong>Proveedor:</strong> {incident.provider}</p>
                     <p><strong>Obra:</strong> {incident.obra}</p>
-                    <p><strong>Categoría:</strong> {incident.categoria}</p>
+                    <p><strong>Categoría:</strong> {str(incident.categoria)}</p>
                     <p><strong>Subcategoría:</strong> {incident.subcategoria or 'N/A'}</p>
                     <p><strong>Responsable Técnico:</strong> {incident.responsable}</p>
                     <p><strong>Prioridad:</strong> <span class="highlight">{incident.prioridad}</span></p>
@@ -136,7 +125,6 @@ class EmailService:
                     <h3>📝 Descripción del Problema</h3>
                     <p>{incident.descripcion}</p>
                 </div>
-                
                 
                 <p><strong>📎 Adjunto:</strong> Reporte de Visita Técnica (PDF)</p>
                 
@@ -193,7 +181,7 @@ class EmailService:
                     <p><strong>Cliente:</strong> {incident.cliente}</p>
                     <p><strong>Proveedor:</strong> {incident.provider}</p>
                     <p><strong>Obra:</strong> {incident.obra}</p>
-                    <p><strong>Categoría:</strong> {incident.categoria}</p>
+                    <p><strong>Categoría:</strong> {str(incident.categoria)}</p>
                     <p><strong>Subcategoría:</strong> {incident.subcategoria or 'N/A'}</p>
                     <p><strong>Prioridad:</strong> <span class="highlight">{incident.prioridad}</span></p>
                 </div>
@@ -202,7 +190,6 @@ class EmailService:
                     <h3>📝 Descripción del Problema</h3>
                     <p>{incident.descripcion}</p>
                 </div>
-                
                 
                 <p><strong>📎 Adjunto:</strong> Reporte de Calidad (PDF)</p>
                 

@@ -38,13 +38,13 @@ class AIProviderManager:
                     'priority': provider.priority
                 }
                 
-                if provider.type == 'openai':
+                if provider.name == 'openai':
                     self.providers[provider.name] = OpenAIProvider(provider)
-                elif provider.type == 'anthropic':
+                elif provider.name == 'anthropic':
                     self.providers[provider.name] = AnthropicProvider(provider)
-                elif provider.type == 'google':
+                elif provider.name == 'google':
                     self.providers[provider.name] = GoogleProvider(provider)
-                elif provider.type == 'local':
+                elif provider.name == 'local':
                     self.providers[provider.name] = LocalProvider(provider)
             
             logger.info(f"Cargados {len(self.providers)} proveedores de IA")

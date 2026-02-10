@@ -55,7 +55,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     email = models.EmailField(
         unique=True,
-        help_text='Email del usuario'
+        help_text='Email del usuario',
+        db_index=True
     )
     
     first_name = models.CharField(
@@ -74,7 +75,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=20,
         choices=ROLE_CHOICES,
         default='analyst',
-        help_text='Rol del usuario en el sistema'
+        help_text='Rol del usuario en el sistema',
+        db_index=True
     )
     
     is_active = models.BooleanField(
@@ -126,6 +128,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text='Departamento o área de trabajo'
     )
     
+    digital_signature = models.ImageField(
+        upload_to='users/signatures/',
+        null=True,
+        blank=True,
+        verbose_name="Firma Digital",
+        help_text="Imagen de la firma digital del usuario"
+    )
+    
     # Custom manager
     objects = UserManager()
     
@@ -141,8 +151,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         permissions = []
     
     # Override the many-to-many fields to disable them
-    groups = None
-    user_permissions = None
+    # groups = None
+    # user_permissions = None
     
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"

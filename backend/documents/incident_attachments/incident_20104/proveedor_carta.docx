@@ -1,0 +1,28 @@
+This is a placeholder for the supplier letter template. In a real implementation, this would be a Word document with placeholders.
+
+CARTA TÉCNICA - PROVEEDOR
+=========================
+
+Estimado proveedor,
+
+Adjuntamos evidencia (fotos y análisis) correspondiente a la incidencia {{INC_CODE}}. En el peritaje técnico se observa:
+
+PRODUCTO:
+- SKU: {{SKU}}
+- Lote: {{LOTE}}
+- N° Pedido: {{NUM_PEDIDO}}
+
+OBSERVACIONES TÉCNICAS:
+{{CONCLUSIONES_TECNICAS}}
+
+SOLICITAMOS:
+1. Revisar los procedimientos aplicados a dicho lote
+2. Proponer acciones correctivas y preventivas
+3. Coordinar una muestra para pruebas en laboratorio, si lo consideran necesario
+
+Quedamos atentos a sus observaciones.
+
+Saludos cordiales,
+{{FIRMANTE}} — {{FIRMA_CARGO}}
+
+Fecha: {{FECHA_ACTUAL}}

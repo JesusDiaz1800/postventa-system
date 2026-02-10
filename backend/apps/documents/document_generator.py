@@ -23,10 +23,7 @@ import subprocess
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from .templates_polifusion import polifusion_generator
-from .templates_polifusion_enhanced import polifusion_enhanced_generator
 from .templates_professional import ProfessionalTemplateGenerator
-from .templates_ultra_professional import UltraProfessionalTemplateGenerator
 
 logger = logging.getLogger(__name__)
 

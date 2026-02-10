@@ -127,7 +127,7 @@ class VisitReportSerializer(serializers.ModelSerializer):
             'pre_assembled_observations', 'exterior_observations', 
             'general_observations', 'status', 'created_by_name',
             'created_at', 'updated_at', 'technician_signature',
-            'installer_signature', 'attachments'
+            'installer_signature', 'attachments', 'sap_call_id'
         ]
         read_only_fields = ['report_number', 'created_by', 'created_at', 'updated_at']
 
@@ -141,14 +141,18 @@ class VisitReportListSerializer(serializers.ModelSerializer):
     provider = serializers.CharField(source='related_incident.provider', read_only=True)
     categoria = serializers.CharField(source='related_incident.categoria.name', read_only=True)
     subcategoria = serializers.CharField(source='related_incident.subcategoria', read_only=True)
+    escalated_to_quality = serializers.BooleanField(source='related_incident.escalated_to_quality', read_only=True)
     
     # URLs de descarga de archivos
     download_url = serializers.SerializerMethodField()
     has_document = serializers.SerializerMethodField()
+    attachment_count = serializers.SerializerMethodField()
     
     def get_download_url(self, obj):
         """Genera URL de descarga para el archivo del reporte"""
-        if obj.pdf_path:
+        if obj.pdf_file:  # FileField - PDF generado por signal
+            return f'/api/documents/visit-reports/{obj.id}/download/'
+        elif obj.pdf_path:  # CharField - PDF legacy/manual
             # Extraer nombre del archivo de la ruta
             import os
             filename = os.path.basename(obj.pdf_path)
@@ -162,7 +166,19 @@ class VisitReportListSerializer(serializers.ModelSerializer):
     
     def get_has_document(self, obj):
         """Indica si el reporte tiene un documento adjunto"""
-        return bool(obj.pdf_path or obj.docx_path)
+        return bool(obj.pdf_file or obj.pdf_path or obj.docx_path)
+
+    
+    def get_attachment_count(self, obj):
+        """Cuenta las imágenes/archivos adjuntos al reporte"""
+        try:
+            from .models import DocumentAttachment
+            return DocumentAttachment.objects.filter(
+                document_id=obj.id,
+                document_type='visit_report'
+            ).count()
+        except:
+            return 0
     
     class Meta:
         model = VisitReport
@@ -171,35 +187,45 @@ class VisitReportListSerializer(serializers.ModelSerializer):
             'related_incident', 'project_name', 'client_name', 'address',
             'salesperson', 'status', 'created_by_name', 'created_at',
             'incident_code', 'provider', 'categoria', 'subcategoria',
-            'download_url', 'has_document'
+            'download_url', 'has_document', 'pdf_path', 'escalated_to_quality',
+            'attachment_count'
         ]
 
 class VisitReportCreateSerializer(serializers.ModelSerializer):
-    related_incident_id = serializers.IntegerField(write_only=True)
+    related_incident_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     order_number = serializers.CharField(required=False, allow_blank=True)
+    report_number = serializers.CharField(required=False, allow_blank=True)  # Permitir pre-asignación
     
     class Meta:
         model = VisitReport
         fields = [
-            'order_number', 'visit_date', 'related_incident_id', 'project_name',
+            'report_number', 'order_number', 'visit_date', 'related_incident_id', 'project_name',
             'project_id', 'client_name', 'client_rut', 'address',
             'construction_company', 'salesperson', 'technician',
             'installer', 'installer_phone', 'commune', 'city',
             'visit_reason', 'machine_data', 'wall_observations',
             'matrix_observations', 'slab_observations', 'storage_observations',
             'pre_assembled_observations', 'exterior_observations',
-            'general_observations', 'status'
+            'general_observations', 'status', 'sap_call_id'
         ]
         extra_kwargs = {
+            'visit_date': {'required': False, 'allow_null': True},
+            'status': {'required': False, 'allow_blank': True},
             'project_name': {'required': False, 'allow_blank': True},
+            'project_id': {'required': False, 'allow_blank': True, 'allow_null': True},
             'client_name': {'required': False, 'allow_blank': True},
+            'client_rut': {'required': False, 'allow_blank': True},
             'address': {'required': False, 'allow_blank': True},
+            'construction_company': {'required': False, 'allow_blank': True},
             'salesperson': {'required': False, 'allow_blank': True},
+            'sap_call_id': {'required': False, 'allow_null': True},
             'technician': {'required': False, 'allow_blank': True},
+            'installer': {'required': False, 'allow_blank': True},
+            'installer_phone': {'required': False, 'allow_blank': True},
             'commune': {'required': False, 'allow_blank': True},
             'city': {'required': False, 'allow_blank': True},
             'visit_reason': {'required': False, 'allow_blank': True},
-            'machine_data': {'required': False},
+            'machine_data': {'required': False, 'allow_null': True},
             'wall_observations': {'required': False, 'allow_blank': True},
             'matrix_observations': {'required': False, 'allow_blank': True},
             'slab_observations': {'required': False, 'allow_blank': True},
@@ -208,6 +234,25 @@ class VisitReportCreateSerializer(serializers.ModelSerializer):
             'exterior_observations': {'required': False, 'allow_blank': True},
             'general_observations': {'required': False, 'allow_blank': True},
         }
+
+    def validate_machine_data(self, value):
+        import json
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return {} # Return empty dict on error
+        return value
+
+    def validate_materials_data(self, value):
+        import json
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return [] # Return empty list on error
+        return value
+
 
 class LabReportSerializer(serializers.ModelSerializer):
     related_incident = IncidentListSerializer(read_only=True)
@@ -282,6 +327,7 @@ class SupplierReportSerializer(serializers.ModelSerializer):
 class SupplierReportCreateSerializer(serializers.ModelSerializer):
     related_incident_id = serializers.IntegerField(write_only=True)
     related_lab_report_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    technical_details = serializers.JSONField(write_only=True, required=False) # Campo virtual para recibir JSON estructurado
     
     class Meta:
         model = SupplierReport
@@ -289,9 +335,12 @@ class SupplierReportCreateSerializer(serializers.ModelSerializer):
             'report_date', 'related_incident_id', 'related_lab_report_id',
             'supplier_name', 'supplier_contact', 'supplier_email', 'subject',
             'introduction', 'problem_description', 'technical_analysis',
-            'recommendations', 'expected_improvements', 'status'
+            'recommendations', 'expected_improvements', 'status',
+            'technical_details' # Incluir el campo virtual
         ]
         extra_kwargs = {
+            'report_date': {'required': False},
+            'status': {'required': False, 'allow_blank': True},
             'supplier_name': {'required': False, 'allow_blank': True},
             'supplier_contact': {'required': False, 'allow_blank': True},
             'supplier_email': {'required': False, 'allow_blank': True},
@@ -302,6 +351,76 @@ class SupplierReportCreateSerializer(serializers.ModelSerializer):
             'recommendations': {'required': False, 'allow_blank': True},
             'expected_improvements': {'required': False, 'allow_blank': True},
         }
+
+    def create(self, validated_data):
+        technical_details = validated_data.pop('technical_details', None)
+        # Si viene JSON estructurado, guardarlo como string en technical_analysis
+        if technical_details:
+            import json
+            validated_data['technical_analysis'] = json.dumps(technical_details)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        technical_details = validated_data.pop('technical_details', None)
+        if technical_details:
+            import json
+            validated_data['technical_analysis'] = json.dumps(technical_details)
+        return super().update(instance, validated_data)
+
+class SupplierReportListSerializer(serializers.ModelSerializer):
+    """
+    Serializer optimizado para lista de reportes de proveedor con datos de incidencia expandidos
+    """
+    created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
+    
+    # Datos de incidencia expandidos para acceso directo en frontend
+    incident_id = serializers.IntegerField(source='related_incident.id', read_only=True)
+    incident_code = serializers.CharField(source='related_incident.code', read_only=True)
+    cliente = serializers.CharField(source='related_incident.cliente', read_only=True)
+    provider = serializers.CharField(source='related_incident.provider', read_only=True)
+    obra = serializers.CharField(source='related_incident.obra', read_only=True)
+    sku = serializers.CharField(source='related_incident.sku', read_only=True)
+    categoria = serializers.SerializerMethodField()
+    subcategoria = serializers.CharField(source='related_incident.subcategoria', read_only=True)
+    incident_status = serializers.CharField(source='related_incident.estado', read_only=True)
+    
+    # URLs y estado de documentos
+    download_url = serializers.SerializerMethodField()
+    has_document = serializers.SerializerMethodField()
+    
+    def get_categoria(self, obj):
+        if obj.related_incident and obj.related_incident.categoria:
+            return str(obj.related_incident.categoria)
+        return None
+    
+    def get_download_url(self, obj):
+        if obj.pdf_path:
+            import os
+            filename = os.path.basename(obj.pdf_path)
+            return f'/api/documents/open/supplier-reports/{obj.related_incident.id}/{filename}'
+        return None
+    
+    def get_has_document(self, obj):
+        return bool(obj.pdf_path)
+    
+    # Include attachments
+    attachments = DocumentAttachmentSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = SupplierReport
+        fields = [
+            'id', 'report_number', 'report_date', 'related_incident',
+            # Campos de incidencia expandidos
+            'incident_id', 'incident_code', 'cliente', 'provider', 'obra', 
+            'sku', 'categoria', 'subcategoria', 'incident_status',
+            # Campos del reporte
+            'supplier_name', 'supplier_contact', 'supplier_email', 'subject',
+            'introduction', 'problem_description', 'technical_analysis',
+            'recommendations', 'expected_improvements', 'status', 'sent_date',
+            'created_by_name', 'created_at', 'updated_at',
+            'pdf_path', 'download_url', 'has_document',
+            'attachments'
+        ]
 
 class DocumentWorkflowSerializer(serializers.Serializer):
     """

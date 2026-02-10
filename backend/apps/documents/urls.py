@@ -1,53 +1,34 @@
 from django.urls import path
 from . import views
 from . import download_views
-from . import test_views
-from . import test_visit_view
 from . import file_views
-from . import pdf_views
 from . import views_traceability
 from . import document_views
 from . import attachment_views
 from . import views_upload
 from . import views_quality
 from . import views_documents
-from . import views_pdf_generation
-from . import views_pdf
-from . import test_visit_simple
 from . import incident_attachment_views
 from . import report_attachment_views
 from . import supplier_attachment_views
+from . import views_attachment
 
 urlpatterns = [
+    # ==================== REPORTES DE CALIDAD ====================
     path('quality-reports/internal/', views_quality.internal_quality_reports, name='internal_quality_reports'),
-    # ==================== GESTIÓN MEJORADA DE DOCUMENTOS ====================
+    
+    # ==================== GESTIÓN DE DOCUMENTOS ====================
     
     # Información de documentos
     path('info/<str:document_type>/<int:incident_id>/<int:document_id>/', views_documents.get_document_info, name='get_document_info'),
-    path('open/<str:document_type>/<int:incident_id>/<str:filename>/', views_documents.open_document_direct, name='open_document_direct'),
+    path('open/<str:document_type>/<int:incident_id>/<str:filename>', views_documents.open_document_direct, name='open_document_direct'),
     path('incident/<int:incident_id>/documents/', views_documents.list_incident_documents, name='list_incident_documents'),
-    
-    # ==================== GENERACIÓN DE PDFs PROFESIONALES ====================
-    
-    # Generación de PDFs
-    path('generate-pdf/visit-report/<int:report_id>/', views_pdf_generation.generate_visit_report_pdf, name='generate_visit_report_pdf'),
-    path('generate-pdf/lab-report/<int:report_id>/', views_pdf_generation.generate_lab_report_pdf, name='generate_lab_report_pdf'),
-    path('generate-pdf/supplier-report/<int:report_id>/', views_pdf_generation.generate_supplier_report_pdf, name='generate_supplier_report_pdf'),
-    
-    # Nuevos endpoints para generación de PDFs desde formularios
-    path('pdf/visit-report/', views_pdf.generate_visit_report_pdf, name='generate_visit_report_pdf_form'),
-    path('pdf/lab-report-client/', views_pdf.generate_lab_report_client_pdf, name='generate_lab_report_client_pdf_form'),
-    path('pdf/lab-report-internal/', views_pdf.generate_lab_report_internal_pdf, name='generate_lab_report_internal_pdf_form'),
-    path('pdf/supplier-report/', views_pdf.generate_supplier_report_pdf, name='generate_supplier_report_pdf_form'),
-    path('pdf/quality-report/', views_pdf.generate_quality_report_pdf, name='generate_quality_report_pdf_form'),
     
     # Generación de número de orden
     path('generate-order-number/', views.generate_order_number, name='generate_order_number'),
-    path('incident/<int:incident_id>/documents-status/', views_pdf.get_incident_documents_status, name='get_incident_documents_status'),
     
     # ==================== ADJUNTOS DE INCIDENCIAS ====================
     
-    # Adjuntos de incidencias
     path('incident-attachments/<int:incident_id>/', incident_attachment_views.list_incident_attachments, name='list_incident_attachments'),
     path('incident-attachments/<int:incident_id>/upload/', incident_attachment_views.upload_incident_attachment, name='upload_incident_attachment'),
     path('incident-attachments/<int:incident_id>/<int:attachment_id>/download/', incident_attachment_views.download_incident_attachment, name='download_incident_attachment'),
@@ -57,7 +38,6 @@ urlpatterns = [
     
     # ==================== ADJUNTOS DE REPORTES ====================
     
-    # Adjuntos de reportes
     path('report-attachments/<int:report_id>/<str:report_type>/', report_attachment_views.list_report_attachments, name='list_report_attachments'),
     path('report-attachments/<int:report_id>/<str:report_type>/upload/', report_attachment_views.upload_report_attachment, name='upload_report_attachment'),
     path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/download/', report_attachment_views.download_report_attachment, name='download_report_attachment'),
@@ -65,14 +45,52 @@ urlpatterns = [
     path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/delete/', report_attachment_views.delete_report_attachment, name='delete_report_attachment'),
     path('report-attachments/<int:report_id>/<str:report_type>/<int:attachment_id>/info/', report_attachment_views.get_report_attachment_info, name='get_report_attachment_info'),
     
-    # ==================== ADJUNTOS DE REPORTES DE PROVEEDORES ====================
+    # ==================== ADJUNTOS DE PROVEEDORES ====================
     
-    # Adjuntos específicos de reportes de proveedores
     path('supplier-reports/<int:report_id>/attachments/', supplier_attachment_views.list_supplier_report_attachments, name='list_supplier_report_attachments'),
     path('supplier-reports/upload/', supplier_attachment_views.upload_supplier_report_attachment, name='upload_supplier_report_attachment'),
     path('supplier-reports/attachments/<int:attachment_id>/download/', supplier_attachment_views.download_supplier_report_attachment, name='download_supplier_report_attachment'),
     path('supplier-reports/attachments/<int:attachment_id>/view/', supplier_attachment_views.view_supplier_report_attachment, name='view_supplier_report_attachment'),
     path('supplier-reports/attachments/<int:attachment_id>/delete/', supplier_attachment_views.delete_supplier_report_attachment, name='delete_supplier_report_attachment'),
     path('supplier-reports/attachments/<int:attachment_id>/info/', supplier_attachment_views.get_supplier_report_attachment_info, name='get_supplier_report_attachment_info'),
+
+    # ==================== TRAZABILIDAD Y REPORTES (Vistas basadas en clases) ====================
+    path('visit-reports/', views_traceability.VisitReportListCreateView.as_view(), name='visit-report-list'),
+    path('visit-reports/<int:pk>/', views_traceability.VisitReportRetrieveUpdateDestroyView.as_view(), name='visit-report-detail'),
+    path('visit-reports/<int:pk>/download/', views_traceability.download_visit_report, name='visit-report-download'),
     
+    path('lab-reports/', views_traceability.LabReportListCreateView.as_view(), name='lab-report-list'),
+    path('lab-reports/<int:pk>/', views_traceability.LabReportRetrieveUpdateDestroyView.as_view(), name='lab-report-detail'),
+    
+    path('supplier-reports/', views_traceability.SupplierReportListCreateView.as_view(), name='supplier-report-list'),
+    path('supplier-reports/<int:pk>/', views_traceability.SupplierReportRetrieveUpdateDestroyView.as_view(), name='supplier-report-detail'),
+    path('supplier-reports/<int:pk>/generate/', views_traceability.generate_supplier_report_document, name='supplier-report-generate'),
+    path('supplier-reports/<int:pk>/download/', views_traceability.download_supplier_report, name='supplier-report-download'),
+    path('upload/supplier-report/', views_traceability.upload_supplier_report_document, name='upload-supplier-report'),
+    
+    path('workflow/<int:incident_id>/', views_traceability.incident_workflow, name='incident-workflow'),
+    path('available-incidents/', views_traceability.available_incidents, name='available-incidents'),
+    path('statistics/', views_traceability.document_statistics, name='document-statistics'),
+    path('dashboard/', views_traceability.document_statistics, name='document-dashboard'),
+    
+    path('supplier-reports/<int:pk>/send-email/', views_traceability.send_supplier_report_email, name='supplier-report-send-email'),
+    
+    # ==================== REPORTES DE CALIDAD (CRUD) ====================
+    path('quality-reports/', views_quality.QualityReportListCreateView.as_view(), name='quality-report-list'),
+    path('quality-reports/<int:pk>/', views_quality.QualityReportRetrieveUpdateDestroyView.as_view(), name='quality-report-detail'),
+    path('quality-reports/<int:report_id>/generate/', views_quality.generate_quality_report_document, name='quality-report-generate'),
+    path('quality-reports/summary/', views_quality.quality_reports_summary, name='quality-report-summary'),
+    path('quality-reports/by-incident/<int:incident_id>/', views_quality.quality_reports_by_incident, name='quality-reports-by-incident'),
+    path('quality-reports/<int:pk>/escalate-supplier/', views_quality.escalate_to_supplier, name='quality-report-escalate-supplier'),
+    path('quality-reports/<int:pk>/send-email/', views_quality.send_quality_report_email, name='quality-report-send-email'),
+    path('quality-reports/<int:pk>/download/', views_quality.download_quality_report, name='quality-report-download'),
+    path('upload/quality-report/', views_quality.upload_quality_report_document, name='upload-quality-report'),
+    
+    # ==================== GENERAL ATTACHMENTS ====================
+    path('upload-attachment/', views_attachment.upload_attachment, name='upload-attachment'),
+    path('attachments/incident/<int:incident_id>/', views_attachment.list_attachments_by_incident, name='list-attachments-by-incident'),
+    path('attachments/incident/<int:incident_id>/<int:attachment_id>/download/', views_attachment.download_attachment, name='download-attachment'),
+    path('attachments/incident/<int:incident_id>/<int:attachment_id>/view/', views_attachment.view_attachment, name='view-attachment'),
+    path('attachments/incident/<int:incident_id>/<int:attachment_id>/delete/', views_attachment.delete_attachment, name='delete-attachment'),
 ]
+

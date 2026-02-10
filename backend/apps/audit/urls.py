@@ -1,6 +1,12 @@
-from django.urls import path
-from .views_simple import audit_logs_list, audit_action_choices
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import AuditLogViewSet
+from .views_restore import DeletedItemViewSet
+
+router = DefaultRouter()
+router.register(r'logs', AuditLogViewSet, basename='audit-log')
+router.register(r'deleted-items', DeletedItemViewSet, basename='deleted-item')
 
 urlpatterns = [
-    path('logs/', audit_logs_list, name='audit-logs-list'),
-    path('action-choices/', audit_action_choices, name='audit-action-choices'),]
+    path('', include(router.urls)),
+]

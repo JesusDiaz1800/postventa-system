@@ -1,140 +1,392 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../services/api';
-import { 
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api, aiAPI } from '../services/api';
+import {
   ArrowLeftIcon,
-  DocumentArrowDownIcon,
+  DocumentArrowUpIcon,
   PhotoIcon,
   XMarkIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ClipboardDocumentCheckIcon,
+  DocumentTextIcon,
+  UserIcon,
+  MagnifyingGlassIcon,
+  WrenchScrewdriverIcon,
+  ClipboardDocumentListIcon,
+  CalendarDaysIcon,
+  ChatBubbleBottomCenterTextIcon,
+  CameraIcon,
+  ExclamationTriangleIcon,
+  SparklesIcon,
+  BuildingOfficeIcon,
+  ClipboardIcon,
+  BeakerIcon,
+  ArrowPathIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
+import { useNotifications } from '../hooks/useNotifications';
+import IncidentImagesViewer from '../components/IncidentImagesViewer';
+
+// Componente de sección premium/wow
+const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color = 'blue' }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  const colorClasses = {
+    blue: 'from-blue-600 to-indigo-700',
+    indigo: 'from-indigo-600 to-violet-700',
+    emerald: 'from-emerald-600 to-teal-700',
+    amber: 'from-amber-500 to-orange-600',
+    rose: 'from-rose-500 to-pink-600',
+    slate: 'from-slate-700 to-slate-800'
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300 mb-6">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full px-6 py-4 flex items-center justify-between bg-gradient-to-r ${colorClasses[color]} text-white transition-all`}
+      >
+        <div className="flex items-center gap-3">
+          <Icon className="h-5 w-5 text-white/90" />
+          <span className="text-lg font-bold tracking-tight">{title}</span>
+        </div>
+        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
+          <ChevronDownIcon className="h-4 w-4" />
+        </div>
+      </button>
+      <div className={`transition-all duration-500 ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+        <div className="p-6 space-y-6">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Input con diseño ultra-moderno
+const GlassInput = ({ label, icon: Icon, required, ...props }) => (
+  <div className="space-y-1.5 group">
+    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+      {label}
+      {required && <span className="text-red-500">*</span>}
+    </label>
+    <div className="relative">
+      {Icon && (
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">
+          <Icon className="h-4 w-4" />
+        </div>
+      )}
+      <input
+        {...props}
+        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm`}
+      />
+    </div>
+  </div>
+);
+
+// Textarea con diseño ultra-moderno
+const GlassTextarea = ({ label, icon: Icon, required, rows = 3, ...props }) => (
+  <div className="space-y-1.5 group">
+    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+      {label}
+      {required && <span className="text-red-500">*</span>}
+    </label>
+    <div className="relative">
+      {Icon && (
+        <div className="absolute left-3.5 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors">
+          <Icon className="h-4 w-4" />
+        </div>
+      )}
+      <textarea
+        {...props}
+        rows={rows}
+        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-3 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm resize-none`}
+      />
+    </div>
+  </div>
+);
 
 const QualityReportForm = () => {
   const { incidentId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { showSuccess, showError } = useNotifications();
+  const queryClient = useQueryClient();
 
-  // Detectar tipo de reporte basado en la URL
-  const isInternalReport = window.location.pathname.includes('/internal/');
-  const reportType = isInternalReport ? 'interno' : 'cliente';
+  const isInternal = searchParams.get('internal') === 'true' || window.location.pathname.includes('/internal/');
+  const reportType = isInternal ? 'interno' : 'cliente';
+
   const [formData, setFormData] = useState({
-    incident_id: incidentId,
-    report_type: reportType, // Se determina automáticamente por la URL
-    report_date: '',
-    report_number: '',
-    quality_manager: '',
-    inspector_name: '',
-    inspector_phone: '',
-    inspector_email: '',
-    product_sku: '',
-    product_lot: '',
-    product_description: '',
-    supplier_name: '',
-    inspection_date: '',
-    inspection_location: '',
-    inspection_type: 'rutinaria', // rutinaria, especial, reclamacion
-    inspection_scope: '',
-    inspection_criteria: '',
-    sampling_method: '',
-    sample_size: '',
-    sample_condition: '',
-    test_parameters: '',
-    visual_inspection: '',
-    dimensional_analysis: '',
-    mechanical_tests: '',
-    chemical_analysis: '',
-    other_tests: '',
-    test_results: '',
-    non_conformities: '',
+    // Datos Generales (Inicializar vacío para evitar uncontrolled inputs)
+    title: '',
+    incident_code: '',
+    client_name: '',
+    project_name: '',
+    sap_call_id: '',
+    salesperson: '',
+    technician: '',
+
+    // Contenido del Reporte
+    executive_summary: '',
+    problem_description: '',
+    technical_analysis: '',
+    root_cause_analysis: '',
     corrective_actions: '',
-    preventive_actions: '',
-    conclusions: '',
+    preventive_measures: '',
     recommendations: '',
-    compliance_status: 'pendiente', // pendiente, cumplido, no_cumplido
-    follow_up_required: false,
-    follow_up_date: '',
-    follow_up_responsible: '',
-    additional_notes: ''
+    conclusions: '',
+    internal_notes: '',
+
+    // Datos del Producto
+    product_diameter: '',
+    product_pn: '',
+    product_sdr: '',
+    product_material: 'PP-R',
+    product_lot: '',
+
+    // Condiciones de Terreno
+    joining_method: 'Termofusión',
+    ambient_temperature: '',
+    tools_status: 'OK',
+    machine_id: '',
+    applicable_normative: 'ISO 15874 / NCh 3151',
+
+    // Ensayos de Laboratorio (NUEVO)
+    melt_index: '',
+    density: '',
+    tio: '',
+    dsc: '',
+    carbon_black_dispersion: '',
+    carbon_black_percentage: '',
+    ash_percentage: '',
+    moisture_percentage: '',
+
+    // Protocolo de Pruebas
+    visual_inspection: 'Conforme',
+    pressure_test: 'No Realizada',
+    test_pressure_bar: '',
+    test_duration_min: '',
+    test_result: 'N/A',
+
+    // Imágenes por sección (IDs de adjuntos o base64)
+    section_images: {
+      product: null,
+      site_conditions: null,
+      test_protocol: null,
+      lab_tests: null,
+      conclusions: null
+    },
+
+    // Estado
+    status: 'draft'
   });
-  
+
   const [images, setImages] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [createdReportId, setCreatedReportId] = useState(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-  // Obtener datos de la incidencia
+  // 1. Obtener datos de la incidencia real
   const { data: incident, isLoading: incidentLoading } = useQuery({
-    queryKey: ['incident', incidentId],
-    queryFn: async () => {
-      const response = await api.get(`/incidents/${incidentId}/`);
-      return response.data;
-    },
+    queryKey: ['incident-for-quality', incidentId],
+    queryFn: () => api.get(`/incidents/${incidentId}/`).then(res => res.data),
     enabled: !!incidentId
   });
 
-  // Pre-llenar datos cuando se carga la incidencia
+  // 2. Obtener imágenes de la incidencia
+  const { data: incidentImages } = useQuery({
+    queryKey: ['incidentImages-for-quality', incidentId],
+    queryFn: () => api.get(`/incidents/${incidentId}/images/list/`).then(res => res.data),
+    enabled: !!incidentId
+  });
+
+  // 3. Precargar datos AUTOMÁTICAMENTE (Feedback Usuario)
   useEffect(() => {
     if (incident) {
       setFormData(prev => ({
         ...prev,
-        report_date: new Date().toISOString().split('T')[0],
-        report_number: `QR-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-        product_sku: incident.sku || '',
-        product_lot: incident.lote || '',
-        product_category: incident.categoria || '',
-        product_subcategory: incident.subcategoria || '',
-        product_description: incident.descripcion || '',
-        supplier_name: incident.provider || '',
-        inspection_date: new Date().toISOString().split('T')[0],
-        inspection_location: incident.obra || '',
-        inspection_scope: `Análisis de calidad del producto ${incident.sku} del lote ${incident.lote || 'N/A'} reportado en la incidencia ${incident.code}`,
-        inspection_criteria: 'Normas ISO 9001, especificaciones técnicas del producto y requisitos del cliente',
-        sampling_method: 'Muestreo aleatorio según ISO 2859-1',
-        sample_size: '10 unidades del lote reportado',
-        sample_condition: 'Producto en condiciones de almacenamiento normal',
-        test_parameters: 'Análisis dimensional, pruebas mecánicas, análisis químico y evaluación visual',
-        visual_inspection: 'Inspección visual detallada del producto para identificar defectos superficiales',
-        dimensional_analysis: 'Medición de dimensiones críticas según especificaciones técnicas',
-        mechanical_tests: 'Pruebas de resistencia y durabilidad según normativas aplicables',
-        chemical_analysis: 'Análisis de composición química y propiedades del material',
-        other_tests: 'Pruebas adicionales según requerimientos específicos del producto',
-        test_results: 'Resultados detallados de todas las pruebas realizadas',
-        non_conformities: 'Identificación de no conformidades encontradas durante la inspección',
-        corrective_actions: 'Acciones correctivas implementadas para resolver no conformidades',
-        preventive_actions: 'Acciones preventivas para evitar recurrencia de problemas',
-        conclusions: 'Conclusiones basadas en los resultados de las pruebas realizadas',
-        recommendations: 'Recomendaciones para mejorar la calidad del producto',
-        follow_up_responsible: 'Equipo de Control de Calidad'
+        title: `Informe de Calidad - ${incident.code}`,
+        incident_code: incident.code,
+        client_name: incident.cliente || '',
+        project_name: incident.obra || incident.proyecto || '',
+        sap_call_id: incident.sap_call_id || 'Sin llamada SAP vinculada',
+        salesperson: incident.vendedor || incident.salesperson || 'No asignado',
+        technician: (typeof incident.responsable === 'object' ? incident.responsable?.full_name : incident.responsable) || 'No asignado',
+        problem_description: incident.descripcion || '',
       }));
     }
   }, [incident]);
 
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+  // Componente para seleccionar imagen de una sección
+  const SectionImageSlot = ({ section, label }) => {
+    const selectedImageId = formData.section_images[section];
+    const selectedImage = images.find(img => img.id === selectedImageId);
+
+    return (
+      <div className="space-y-2">
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">{label}</label>
+        <div
+          className={`relative h-40 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center p-4 text-center cursor-pointer overflow-hidden ${selectedImage
+            ? 'border-blue-500 bg-blue-50/20'
+            : 'border-gray-200 bg-gray-50/50 hover:bg-gray-100/50'
+            }`}
+          onClick={() => {
+            // Aquí podríamos abrir un modal para seleccionar de las imágenes subidas
+            // Por simplicidad en este paso, permitiremos subir/seleccionar directamente
+          }}
+        >
+          {selectedImage ? (
+            <>
+              <img
+                src={URL.createObjectURL(selectedImage)}
+                alt={label}
+                className="absolute inset-0 w-full h-full object-cover opacity-80"
+              />
+              <div className="relative z-10 bg-white/90 px-3 py-1 rounded-full text-[10px] font-bold text-blue-600 shadow-sm">
+                Cambiar Imagen
+              </div>
+              <button
+                className="absolute top-2 right-2 z-20 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 shadow-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleInputChange('section_images', { ...formData.section_images, [section]: null });
+                }}
+              >
+                <XMarkIcon className="h-3 w-3" />
+              </button>
+            </>
+          ) : (
+            <>
+              <PhotoIcon className="h-8 w-8 text-gray-300 mb-2" />
+              <p className="text-[10px] text-gray-400 font-medium">Click para asignar imagen de referencia ({label})</p>
+              <input
+                type="file"
+                accept="image/*"
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const newId = Date.now();
+                    const fileWithId = Object.assign(file, { id: newId });
+                    setImages(prev => [...prev, fileWithId]);
+                    handleInputChange('section_images', { ...formData.section_images, [section]: newId });
+                  }
+                }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    );
   };
 
-  const handleImageUpload = (e) => {
-    const files = Array.from(e.target.files);
-    const newImages = files.map(file => ({
-      file,
-      id: Date.now() + Math.random(),
-      preview: URL.createObjectURL(file)
-    }));
-    setImages(prev => [...prev, ...newImages]);
+  const handleInputChange = (name, value) => {
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const removeImage = (imageId) => {
-    setImages(prev => {
-      const imageToRemove = prev.find(img => img.id === imageId);
-      if (imageToRemove) {
-        URL.revokeObjectURL(imageToRemove.preview);
+  const handleImportClientData = async () => {
+    try {
+      const { data } = await api.get(`/documents/quality-reports/by-incident/${incidentId}/`);
+      if (data.success && data.reports && data.reports.length > 0) {
+        // Find latest client report or just latest report
+        const clientReport = data.reports.find(r => r.report_type === 'cliente') || data.reports[0];
+
+        if (clientReport) {
+          if (!confirm(`Se encontró un reporte previo del ${new Date(clientReport.created_at).toLocaleDateString()}. ¿Desea sobrescribir los datos actuales con la información de ese reporte?`)) return;
+
+          let techDetails = {};
+          try {
+            techDetails = typeof clientReport.technical_details === 'string'
+              ? JSON.parse(clientReport.technical_details)
+              : clientReport.technical_details || {};
+          } catch (e) { console.error("Error parsing technical details", e); }
+
+          setFormData(prev => ({
+            ...prev,
+            // Campos de texto directo
+            problem_description: clientReport.problem_description || prev.problem_description,
+            executive_summary: clientReport.executive_summary || prev.executive_summary,
+            root_cause_analysis: clientReport.root_cause_analysis || prev.root_cause_analysis,
+            corrective_actions: clientReport.corrective_actions || prev.corrective_actions,
+            preventive_measures: clientReport.preventive_measures || prev.preventive_measures,
+            recommendations: clientReport.recommendations || prev.recommendations,
+            conclusions: clientReport.conclusions || prev.conclusions,
+
+            // Campos técnicos (flatten object)
+            // Product
+            product_diameter: techDetails.product?.diameter || prev.product_diameter || '',
+            product_pn: techDetails.product?.pn || prev.product_pn || '',
+            product_sdr: techDetails.product?.sdr || prev.product_sdr || '',
+            product_material: techDetails.product?.material || prev.product_material || 'PP-R',
+            product_lot: techDetails.product?.lot || prev.product_lot || '',
+
+            // Site
+            joining_method: techDetails.site_conditions?.method || prev.joining_method || 'Termofusión',
+            ambient_temperature: techDetails.site_conditions?.temperature || prev.ambient_temperature || '',
+            tools_status: techDetails.site_conditions?.tools || prev.tools_status || 'OK',
+            machine_id: techDetails.site_conditions?.machine_id || prev.machine_id || '',
+            applicable_normative: techDetails.site_conditions?.normative || prev.applicable_normative || 'ISO 15874 / NCh 3151',
+
+            // Tests
+            visual_inspection: techDetails.test_protocol?.visual || prev.visual_inspection || 'Conforme',
+            pressure_test: techDetails.test_protocol?.pressure_test || prev.pressure_test || 'No Realizada',
+            test_pressure_bar: techDetails.test_protocol?.pressure_bar || prev.test_pressure_bar || '',
+            test_duration_min: techDetails.test_protocol?.duration_min || prev.test_duration_min || '',
+            test_result: techDetails.test_protocol?.result || prev.test_result || 'N/A',
+
+            // Lab
+            melt_index: techDetails.lab_tests?.melt_index || prev.melt_index || '',
+            density: techDetails.lab_tests?.density || prev.density || '',
+            tio: techDetails.lab_tests?.tio || prev.tio || '',
+            dsc: techDetails.lab_tests?.dsc || prev.dsc || '',
+            carbon_black_dispersion: techDetails.lab_tests?.carbon_black_dispersion || prev.carbon_black_dispersion || '',
+            carbon_black_percentage: techDetails.lab_tests?.carbon_black_percentage || prev.carbon_black_percentage || '',
+            ash_percentage: techDetails.lab_tests?.ash_percentage || prev.ash_percentage || '',
+            moisture_percentage: techDetails.lab_tests?.moisture_percentage || prev.moisture_percentage || '',
+          }));
+          showSuccess("Datos importados del reporte previo exitosamente");
+        } else {
+          showError("No se encontraron reportes previos para importar");
+        }
+      } else {
+        showError("No hay reportes previos asociados a esta incidencia");
       }
-      return prev.filter(img => img.id !== imageId);
-    });
+    } catch (error) {
+      console.error(error);
+      showError("Error al consultar reportes previos");
+    }
+  };
+
+  const handleAIAnalysis = async () => {
+    if (!formData.problem_description) {
+      showError("Se requiere una descripción del problema para analizar.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const response = await aiAPI.analyzeCause(formData.problem_description);
+      const analysis = response.data;
+
+      setFormData(prev => ({
+        ...prev,
+        technical_analysis: analysis.analysis || prev.technical_analysis,
+        root_cause_analysis: analysis.root_cause || prev.root_cause_analysis,
+        recommendations: analysis.recommendations || prev.recommendations,
+        conclusions: "Análisis generado mediante inteligencia artificial basado en la evidencia recolectada."
+      }));
+      showSuccess("Análisis de IA completado exitosamente");
+    } catch (error) {
+      console.error("AI Analysis error:", error);
+      showError("Error al generar análisis con IA");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -142,712 +394,667 @@ const QualityReportForm = () => {
     setIsSubmitting(true);
 
     try {
-      const formDataToSend = new FormData();
-      
-      // Agregar datos del formulario
-      Object.keys(formData).forEach(key => {
-        if (formData[key] !== null && formData[key] !== undefined) {
-          formDataToSend.append(key, formData[key]);
+      const dataToSend = new FormData();
+
+      const payload = {
+        related_incident_id: parseInt(incidentId),
+        report_type: reportType,
+        title: formData.title,
+        executive_summary: formData.executive_summary,
+        problem_description: formData.problem_description,
+        technical_analysis: formData.technical_analysis,
+        root_cause_analysis: formData.root_cause_analysis,
+        corrective_actions: formData.corrective_actions,
+        preventive_measures: formData.preventive_measures,
+        recommendations: formData.recommendations,
+        conclusions: formData.conclusions,
+        status: formData.status,
+        internal_notes: formData.internal_notes || '',
+        technical_details: JSON.stringify({
+          client: formData.client_name,
+          project: formData.project_name,
+          sap_call_id: formData.sap_call_id,
+          salesperson: formData.salesperson,
+          technician: formData.technician,
+          incident_code: formData.incident_code,
+          sku: incident?.sku || '-',
+          provider: incident?.provider || '-',
+          // Campos técnicos avanzados
+          product: {
+            diameter: formData.product_diameter,
+            pn: formData.product_pn,
+            sdr: formData.product_sdr,
+            material: formData.product_material,
+            lot: formData.product_lot
+          },
+          site_conditions: {
+            method: formData.joining_method,
+            temperature: formData.ambient_temperature,
+            tools: formData.tools_status,
+            machine_id: formData.machine_id,
+            normative: formData.applicable_normative
+          },
+          test_protocol: {
+            visual: formData.visual_inspection,
+            pressure_test: formData.pressure_test,
+            pressure_bar: formData.test_pressure_bar,
+            duration_min: formData.test_duration_min,
+            result: formData.test_result
+          },
+          lab_tests: {
+            melt_index: formData.melt_index,
+            density: formData.density,
+            tio: formData.tio,
+            dsc: formData.dsc,
+            carbon_black_dispersion: formData.carbon_black_dispersion,
+            carbon_black_percentage: formData.carbon_black_percentage,
+            ash_percentage: formData.ash_percentage,
+            moisture_percentage: formData.moisture_percentage
+          },
+          section_images: formData.section_images
+        })
+      };
+
+      Object.keys(payload).forEach(key => {
+        dataToSend.append(key, payload[key]);
+      });
+
+      images.forEach(img => {
+        // Encontrar si esta imagen está asignada a alguna sección específica
+        const sectionKey = Object.keys(formData.section_images).find(key => formData.section_images[key] === img.id);
+        if (sectionKey) {
+          dataToSend.append(`image_${sectionKey}`, img);
+        } else {
+          dataToSend.append('images', img);
         }
       });
 
-      // Agregar imágenes
-      images.forEach((image, index) => {
-        formDataToSend.append(`images`, image.file);
-      });
+      const response = await api.post('/documents/quality-reports/', dataToSend);
+      const newReport = response.data;
+      setCreatedReportId(newReport.id);
 
-      // Enviar formulario
-      const response = await api.post('/documents/quality-reports/', formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      showSuccess('Reporte de calidad guardado. Generando PDF profesional...');
 
-      if (response.data.success) {
-        setSubmitSuccess(true);
-        setTimeout(() => {
-          navigate(isInternalReport ? '/quality-reports/internal' : '/quality-reports/client');
-        }, 2000);
+      // AUTO GENERAR PDF PROFESIONAL
+      try {
+        setIsGeneratingPDF(true);
+        await api.post(`/documents/quality-reports/${newReport.id}/generate/`);
+        showSuccess('PDF Profesional generado con éxito');
+      } catch (pdfErr) {
+        console.error('PDF Generation error:', pdfErr);
+        showError('Reporte guardado pero hubo un error al generar el PDF');
+      } finally {
+        setIsGeneratingPDF(false);
       }
+
+      navigate(isInternal ? '/quality-reports/internal' : '/quality-reports/client');
     } catch (error) {
-      console.error('Error al enviar formulario:', error);
-      alert('Error al enviar el formulario. Por favor, inténtalo de nuevo.');
+      console.error('Submit error:', error);
+      showError('Error al crear el reporte de calidad');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handlePreviewPDF = async () => {
+    if (!createdReportId) {
+      showError("Debe guardar el reporte antes de previsualizar el PDF");
+      return;
+    }
+
+    try {
+      window.open(`${api.defaults.baseURL}/documents/quality-reports/${createdReportId}/download/`, '_blank');
+    } catch (error) {
+      showError("Error al abrir el PDF");
     }
   };
 
   if (incidentLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando datos de la incidencia...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (submitSuccess) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <CheckCircleIcon className="h-16 w-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {isInternalReport ? '¡Informe Enviado!' : '¡Reporte Enviado!'}
-          </h2>
-          <p className="text-gray-600">
-            {isInternalReport ? 'El informe interno de calidad se ha generado exitosamente.' : 'El reporte de calidad se ha generado exitosamente.'}
-          </p>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-gray-500 font-medium animate-pulse">Sincronizando con incidencia...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
+    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header Superior */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+          <div className="flex items-center gap-6">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-4 bg-white shadow-lg shadow-gray-200/50 rounded-2xl text-gray-400 hover:text-blue-600 hover:scale-105 transition-all active:scale-95"
+            >
+              <ArrowLeftIcon className="h-6 w-6" />
+            </button>
+            <div>
+              <h1 className="text-3xl font-black text-gray-900 tracking-tight">
+                {isInternal ? 'Informe de Calidad Interno' : 'Reporte de Calidad para Cliente'}
+              </h1>
+              <p className="text-gray-500 font-medium flex items-center gap-2 mt-1">
+                <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                Trazabilidad Activa: {incident?.code}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {isInternal && (
               <button
-                onClick={() => navigate(isInternalReport ? '/quality-reports/internal' : '/quality-reports/client')}
-                className="mr-4 p-2 text-gray-400 hover:text-gray-600"
+                onClick={handleImportClientData}
+                type="button"
+                className="flex items-center gap-2 px-4 py-3 bg-white border border-emerald-100 text-emerald-600 rounded-xl font-bold shadow-sm hover:bg-emerald-50 transition-all text-sm"
+                title="Precargar datos del reporte de cliente si existe"
               >
-                <ArrowLeftIcon className="h-5 w-5" />
+                <ArrowDownTrayIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Importar Datos</span>
               </button>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">
-                  {isInternalReport ? 'Nuevo Informe Interno de Calidad' : 'Nuevo Reporte de Calidad para Cliente'}
-                </h1>
-                <p className="text-sm text-gray-500">
-                  Incidencia: {incident?.code} - {incident?.provider}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {incident?.prioridad?.toUpperCase()}
-              </span>
-            </div>
-            </div>
+            )}
+            <button
+              onClick={handleAIAnalysis}
+              disabled={isAnalyzing}
+              className="flex items-center gap-2 px-5 py-3 bg-white border border-indigo-100 text-indigo-600 rounded-xl font-bold shadow-sm hover:bg-indigo-50 transition-all disabled:opacity-50 text-sm"
+            >
+              {isAnalyzing ? (
+                <ArrowPathIcon className="h-4 w-4 animate-spin" />
+              ) : (
+                <SparklesIcon className="h-4 w-4" />
+              )}
+              Asistente IA
+            </button>
+            <button
+              form="quality-form"
+              type="submit"
+              disabled={isSubmitting || isGeneratingPDF}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-200/50 hover:bg-blue-700 transition-all disabled:opacity-50 text-sm"
+            >
+              {isSubmitting || isGeneratingPDF ? (
+                <ArrowPathIcon className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircleIcon className="h-4 w-4" />
+              )}
+              {isGeneratingPDF ? 'Generando PDF...' : 'Finalizar Reporte'}
+            </button>
           </div>
         </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Información de la Incidencia */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información de la Incidencia
-              </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Código de Incidencia</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.code}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Proveedor</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.provider}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Cliente</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.cliente}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Obra</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.obra}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">SKU</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.sku}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Lote</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.lote || 'N/A'}</p>
-              </div>
-            </div>
+        <form id="quality-form" onSubmit={handleSubmit}>
+          {/* FASE 2: SECCIÓN DE TRAZABILIDAD (WOW Factor con datos reales) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="md:col-span-2 bg-slate-900 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group border border-slate-700">
+              <div className="relative z-10 grid grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-blue-400 text-[10px] font-bold uppercase tracking-wider mb-1">Cliente / Proyecto</p>
+                    <p className="text-lg font-bold leading-tight line-clamp-1">{formData.client_name || '-'}</p>
+                    <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{formData.project_name || '-'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">ID SAP</p>
+                      <p className="text-sm font-mono font-bold bg-slate-800 px-2 py-1 rounded inline-block">#{formData.sap_call_id}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Cód. Incidencia</p>
+                      <p className="text-sm font-mono font-bold text-blue-300 italic">{formData.incident_code}</p>
+                    </div>
+                  </div>
                 </div>
-
-          {/* Información del Reporte */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información del Reporte
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Fecha del Reporte</label>
-                <input
-                  type="date"
-                  name="report_date"
-                  value={formData.report_date}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Número de Reporte</label>
-                <input
-                  type="text"
-                  name="report_number"
-                  value={formData.report_number}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Gerente de Calidad</label>
-                <input
-                  type="text"
-                  name="quality_manager"
-                  value={formData.quality_manager}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Información del Inspector */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información del Inspector
-              </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Nombre del Inspector</label>
-                <input
-                  type="text"
-                  name="inspector_name"
-                  value={formData.inspector_name}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Teléfono del Inspector</label>
-                <input
-                  type="tel"
-                  name="inspector_phone"
-                  value={formData.inspector_phone}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Email del Inspector</label>
-                <input
-                  type="email"
-                  name="inspector_email"
-                  value={formData.inspector_email}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Información del Producto */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información del Producto
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">SKU del Producto</label>
-                <input
-                  type="text"
-                  name="product_sku"
-                  value={formData.product_sku}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Lote del Producto</label>
-                <input
-                  type="text"
-                  name="product_lot"
-                  value={formData.product_lot}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Categoría</label>
-                <input
-                  type="text"
-                  name="product_category"
-                  value={formData.product_category}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Subcategoría</label>
-                <input
-                  type="text"
-                  name="product_subcategory"
-                  value={formData.product_subcategory}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Descripción del Producto</label>
-                <textarea
-                  name="product_description"
-                  value={formData.product_description}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Información de la Inspección */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información de la Inspección
-              </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Fecha de Inspección</label>
-                <input
-                  type="date"
-                  name="inspection_date"
-                  value={formData.inspection_date}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Ubicación de Inspección</label>
-                <input
-                  type="text"
-                  name="inspection_location"
-                  value={formData.inspection_location}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Tipo de Inspección</label>
-                <select
-                  name="inspection_type"
-                  value={formData.inspection_type}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  <option value="rutinaria">Rutinaria</option>
-                  <option value="especial">Especial</option>
-                  <option value="reclamacion">Reclamación</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Alcance de Inspección</label>
-                <input
-                  type="text"
-                  name="inspection_scope"
-                  value={formData.inspection_scope}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Criterios y Métodos de Inspección */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Criterios y Métodos de Inspección
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Criterios de Inspección</label>
-                <textarea
-                  name="inspection_criteria"
-                  value={formData.inspection_criteria}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Método de Muestreo</label>
-                  <input
-                    type="text"
-                    name="sampling_method"
-                    value={formData.sampling_method}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Tamaño de Muestra</label>
-                  <input
-                    type="text"
-                    name="sample_size"
-                    value={formData.sample_size}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  />
+                <div className="space-y-4 border-l border-slate-800 pl-6">
+                  <div>
+                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Personal Responsable</p>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-5 h-5 bg-blue-500/20 rounded flex items-center justify-center">
+                        <UserIcon className="h-3 w-3 text-blue-400" />
+                      </div>
+                      <p className="text-xs font-medium">{formData.technician}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center">
+                        <BuildingOfficeIcon className="h-3 w-3 text-emerald-400" />
+                      </div>
+                      <p className="text-xs font-medium text-slate-300">{formData.salesperson}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Fecha de Creación</p>
+                    <p className="text-xs font-bold">{new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Condición de la Muestra</label>
-                <input
-                  type="text"
-                  name="sample_condition"
-                  value={formData.sample_condition}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
             </div>
-          </div>
 
-          {/* Parámetros de Prueba */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Parámetros de Prueba
-              </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Parámetros de Prueba</label>
-                <textarea
-                  name="test_parameters"
-                  value={formData.test_parameters}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Inspección Visual</label>
-                  <textarea
-                    name="visual_inspection"
-                    value={formData.visual_inspection}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-center">
+              <GlassInput
+                label="Título Técnico del Informe"
+                value={formData.title}
+                onChange={(e) => handleInputChange('title', e.target.value)}
+                placeholder="Ej: Análisis de Calidad - Tubería PP"
+                required
+              />
+              <div className="mt-4 flex gap-2">
+                <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100 italic">
+                  <p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Tipo de Informe</p>
+                  <p className="text-xs font-bold text-gray-700 capitalize">{reportType}</p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Análisis Dimensional</label>
-                  <textarea
-                    name="dimensional_analysis"
-                    value={formData.dimensional_analysis}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Pruebas Mecánicas</label>
-                  <textarea
-                    name="mechanical_tests"
-                    value={formData.mechanical_tests}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Análisis Químico</label>
-                  <textarea
-                    name="chemical_analysis"
-                    value={formData.chemical_analysis}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  />
+                <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100 italic">
+                  <p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Nivel</p>
+                  <p className="text-xs font-bold text-blue-600">Profesional V2</p>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Otras Pruebas</label>
-                <textarea
-                  name="other_tests"
-                  value={formData.other_tests}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
             </div>
           </div>
 
-          {/* Resultados y No Conformidades */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Resultados y No Conformidades
+          {/* NUEVA SECCIÓN: Especificaciones Técnicas del Producto */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 md:col-span-2">
+              <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
+                <span className="w-3 h-[1px] bg-blue-600"></span>
+                Especificaciones del Producto y Trazabilidad
               </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Resultados de Pruebas</label>
-                <textarea
-                  name="test_results"
-                  value={formData.test_results}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <GlassInput
+                  label="Diámetro (mm)"
+                  placeholder="Ej: 32"
+                  value={formData.product_diameter}
+                  onChange={(e) => handleInputChange('product_diameter', e.target.value)}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">No Conformidades</label>
-                <textarea
-                  name="non_conformities"
-                  value={formData.non_conformities}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                <GlassInput
+                  label="PN (Presión)"
+                  placeholder="Ej: 16"
+                  value={formData.product_pn}
+                  onChange={(e) => handleInputChange('product_pn', e.target.value)}
                 />
-              </div>
-            </div>
-          </div>
-
-          {/* Acciones Correctivas y Preventivas */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Acciones Correctivas y Preventivas
-              </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Acciones Correctivas</label>
-                <textarea
-                  name="corrective_actions"
-                  value={formData.corrective_actions}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                <GlassInput
+                  label="SDR"
+                  placeholder="Ej: 7.4"
+                  value={formData.product_sdr}
+                  onChange={(e) => handleInputChange('product_sdr', e.target.value)}
                 />
-            </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Acciones Preventivas</label>
-                <textarea
-                  name="preventive_actions"
-                  value={formData.preventive_actions}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Conclusiones y Recomendaciones */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Conclusiones y Recomendaciones
-              </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Conclusiones</label>
-                <textarea
-                  name="conclusions"
-                  value={formData.conclusions}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-            </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Recomendaciones</label>
-                <textarea
-                  name="recommendations"
-                  value={formData.recommendations}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Seguimiento */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Seguimiento
-            </h3>
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Estado de Cumplimiento</label>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Material</label>
                   <select
-                    name="compliance_status"
-                    value={formData.compliance_status}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    required
+                    value={formData.product_material}
+                    onChange={(e) => handleInputChange('product_material', e.target.value)}
+                    className="w-full px-4 py-2 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
                   >
-                    <option value="pendiente">Pendiente</option>
-                    <option value="cumplido">Cumplido</option>
-                    <option value="no_cumplido">No Cumplido</option>
+                    <option value="PP-R">PP-R</option>
+                    <option value="PP-RCT">PP-RCT</option>
+                    <option value="PE-AD">PE-AD</option>
+                    <option value="PEX">PEX</option>
                   </select>
                 </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    name="follow_up_required"
-                    checked={formData.follow_up_required}
-                    onChange={handleInputChange}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label className="ml-2 block text-sm text-gray-900">
-                    Seguimiento Requerido
-                  </label>
+              </div>
+              <div className="mt-4">
+                <GlassInput
+                  label="Lote de Fabricación / Código de Trazabilidad"
+                  icon={ClipboardIcon}
+                  placeholder="Ingrese el lote impreso en la tubería..."
+                  value={formData.product_lot}
+                  onChange={(e) => handleInputChange('product_lot', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
+                <span className="w-3 h-[1px] bg-emerald-600"></span>
+                Condiciones de Instalación
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Método de Unión</label>
+                  <select
+                    value={formData.joining_method}
+                    onChange={(e) => handleInputChange('joining_method', e.target.value)}
+                    className="w-full px-4 py-2 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value="Termofusión">Termofusión</option>
+                    <option value="Electrofusión">Electrofusión</option>
+                    <option value="Mecánico">Mecánico / Roscado</option>
+                    <option value="Compresión">Compresión</option>
+                  </select>
+                </div>
+                <GlassInput
+                  label="Temp. Ambiente (°C)"
+                  placeholder="Ej: 22"
+                  value={formData.ambient_temperature}
+                  onChange={(e) => handleInputChange('ambient_temperature', e.target.value)}
+                />
+                <GlassInput
+                  label="ID Máquina / Herramienta"
+                  placeholder="Ej: TF-2025-042"
+                  value={formData.machine_id}
+                  onChange={(e) => handleInputChange('machine_id', e.target.value)}
+                />
+                <GlassInput
+                  label="Normativa Aplicable"
+                  placeholder="Ej: ISO 15874"
+                  value={formData.applicable_normative}
+                  onChange={(e) => handleInputChange('applicable_normative', e.target.value)}
+                />
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Estado Herramientas</label>
+                  <div className="flex gap-2">
+                    {['OK', 'Revisión', 'Falla'].map(status => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => handleInputChange('tools_status', status)}
+                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all border ${formData.tools_status === status
+                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md'
+                          : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                          }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {formData.follow_up_required && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Fecha de Seguimiento</label>
-                    <input
-                      type="date"
-                      name="follow_up_date"
-                      value={formData.follow_up_date}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Responsable del Seguimiento</label>
-                    <input
-                      type="text"
-                      name="follow_up_responsible"
-                      value={formData.follow_up_responsible}
-                      onChange={handleInputChange}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+            </div>
+          </div>
+
+          {/* NUEVA SECCIÓN: Protocolo de Pruebas y Resultados */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
+            <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
+              <span className="w-3 h-[1px] bg-amber-600"></span>
+              Protocolo de Inspección y Pruebas de Terreno
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Inspección Visual</label>
+                <select
+                  value={formData.visual_inspection}
+                  onChange={(e) => handleInputChange('visual_inspection', e.target.value)}
+                  className={`w-full px-4 py-2 border rounded-xl text-sm font-bold ${formData.visual_inspection === 'Conforme' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'
+                    }`}
+                >
+                  <option value="Conforme">Conforme</option>
+                  <option value="No Conforme">No Conforme</option>
+                  <option value="No Aplica">No Aplica</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Prueba de Presión</label>
+                <select
+                  value={formData.pressure_test}
+                  onChange={(e) => handleInputChange('pressure_test', e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium"
+                >
+                  <option value="Realizada">Realizada</option>
+                  <option value="No Realizada">No Realizada</option>
+                  <option value="Pendiente">Pendiente</option>
+                </select>
+              </div>
+              <GlassInput
+                label="Presión de Prueba (Bar)"
+                placeholder="Ej: 10"
+                value={formData.test_pressure_bar}
+                onChange={(e) => handleInputChange('test_pressure_bar', e.target.value)}
+              />
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Veredicto de Prueba</label>
+                <div className="flex gap-2">
+                  {['Aprobado', 'Rechazado', 'N/A'].map(res => (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => handleInputChange('test_result', res)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border ${formData.test_result === res
+                        ? (res === 'Aprobado' ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg' : res === 'Rechazado' ? 'bg-red-600 border-red-600 text-white shadow-lg' : 'bg-slate-600 border-slate-600 text-white shadow-lg')
+                        : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300'
+                        }`}
+                    >
+                      {res}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* NUEVA SECCIÓN: Ensayos de Laboratorio */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
+            <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
+              <span className="w-3 h-[1px] bg-purple-600"></span>
+              Ensayos de Laboratorio y Análisis de Polímeros
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <GlassInput
+                label="Melt Index (g/10 min)"
+                placeholder="Ej: 0.35"
+                value={formData.melt_index}
+                onChange={(e) => handleInputChange('melt_index', e.target.value)}
+              />
+              <GlassInput
+                label="Densidad (g/cm³)"
+                placeholder="Ej: 0.905"
+                value={formData.density}
+                onChange={(e) => handleInputChange('density', e.target.value)}
+              />
+              <GlassInput
+                label="TIO (min)"
+                placeholder="Ej: > 20"
+                value={formData.tio}
+                onChange={(e) => handleInputChange('tio', e.target.value)}
+              />
+              <GlassInput
+                label="DSC (°C)"
+                placeholder="Ej: 145"
+                value={formData.dsc}
+                onChange={(e) => handleInputChange('dsc', e.target.value)}
+              />
+              <GlassInput
+                label="Dispersión Negro Humo"
+                placeholder="Ej: Grado 1-2"
+                value={formData.carbon_black_dispersion}
+                onChange={(e) => handleInputChange('carbon_black_dispersion', e.target.value)}
+              />
+              <GlassInput
+                label="% Negro de Humo"
+                placeholder="Ej: 2.2%"
+                value={formData.carbon_black_percentage}
+                onChange={(e) => handleInputChange('carbon_black_percentage', e.target.value)}
+              />
+              <GlassInput
+                label="% Cenizas"
+                placeholder="Ej: 0.05%"
+                value={formData.ash_percentage}
+                onChange={(e) => handleInputChange('ash_percentage', e.target.value)}
+              />
+              <GlassInput
+                label="% Humedad"
+                placeholder="Ej: < 0.02%"
+                value={formData.moisture_percentage}
+                onChange={(e) => handleInputChange('moisture_percentage', e.target.value)}
+              />
+            </div>
+            <div className="mt-8 border-t border-gray-50 pt-6">
+              <SectionImageSlot section="lab_tests" label="Captura/Gráfico de Ensayos" />
+            </div>
+          </div>
+
+          {/* NUEVA SECCIÓN: Documentación Visual Intercalada */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <SectionImageSlot section="product" label="Img. Producto / Lote" />
+            <SectionImageSlot section="site_conditions" label="Img. Instalación" />
+            <SectionImageSlot section="test_protocol" label="Img. Prueba Presión" />
+            <SectionImageSlot section="conclusions" label="Img. Conclusiones" />
+          </div>
+
+          {/* Sección: Análisis Técnico */}
+          <PremiumSection title="Análisis y Hallazgos Técnicos" icon={WrenchScrewdriverIcon} color="blue">
+            <div className="grid grid-cols-1 gap-6">
+              <GlassTextarea
+                label="Resumen Ejecutivo"
+                icon={DocumentTextIcon}
+                placeholder="Breve descripción del problema y la conclusión principal para gerencia..."
+                value={formData.executive_summary}
+                onChange={(e) => handleInputChange('executive_summary', e.target.value)}
+                rows={2}
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <GlassTextarea
+                  label="Descripción Detallada del Problema"
+                  icon={ClipboardDocumentListIcon}
+                  value={formData.problem_description}
+                  onChange={(e) => handleInputChange('problem_description', e.target.value)}
+                  required
+                />
+                <GlassTextarea
+                  label="Análisis Técnico"
+                  icon={BeakerIcon}
+                  placeholder="Detalle de las pruebas realizadas, mediciones y observaciones técnicas..."
+                  value={formData.technical_analysis}
+                  onChange={(e) => handleInputChange('technical_analysis', e.target.value)}
+                />
+              </div>
+              <GlassTextarea
+                label="Análisis de Causa Raíz (Root Cause)"
+                icon={MagnifyingGlassIcon}
+                placeholder="Identificación del origen del problema tras la investigación..."
+                value={formData.root_cause_analysis}
+                onChange={(e) => handleInputChange('root_cause_analysis', e.target.value)}
+                rows={2}
+              />
+            </div>
+          </PremiumSection>
+
+          {/* Sección: Acciones y Mejoras */}
+          <PremiumSection title="Acciones y Recomendaciones" icon={CheckCircleIcon} color="indigo">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <GlassTextarea
+                label="Acciones Correctivas Tomadas"
+                placeholder="¿Qué se hizo para solucionar el problema inmediato?"
+                value={formData.corrective_actions}
+                onChange={(e) => handleInputChange('corrective_actions', e.target.value)}
+              />
+              <GlassTextarea
+                label="Medidas Preventivas Sugeridas"
+                placeholder="¿Cómo evitamos que vuelva a suceder?"
+                value={formData.preventive_measures}
+                onChange={(e) => handleInputChange('preventive_measures', e.target.value)}
+              />
+              <GlassTextarea
+                label="Recomendaciones Técnicas"
+                placeholder="Sugerencias adicionales para el cliente/proveedor..."
+                value={formData.recommendations}
+                onChange={(e) => handleInputChange('recommendations', e.target.value)}
+              />
+              <GlassTextarea
+                label="Conclusiones Finales"
+                placeholder="Cierre y veredicto final del departamento de Calidad..."
+                value={formData.conclusions}
+                onChange={(e) => handleInputChange('conclusions', e.target.value)}
+              />
+              {isInternal && (
+                <div className="md:col-span-2">
+                  <GlassTextarea
+                    label="Notas Internas Confidenciales"
+                    icon={ExclamationTriangleIcon}
+                    placeholder="Observaciones privadas que NO aparecerán en el reporte del cliente..."
+                    value={formData.internal_notes}
+                    onChange={(e) => handleInputChange('internal_notes', e.target.value)}
+                    rows={2}
+                  />
                 </div>
               )}
             </div>
-          </div>
+          </PremiumSection>
 
-          {/* Notas Adicionales */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Notas Adicionales
-              </h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Notas Adicionales</label>
-              <textarea
-                name="additional_notes"
-                value={formData.additional_notes}
-                onChange={handleInputChange}
-                rows={4}
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Cualquier información adicional relevante"
-              />
-            </div>
-          </div>
+          {/* Sección: Evidencia Fotográfica (Sincronizada con Incidencia) */}
+          <PremiumSection title="Evidencia Fotográfica" icon={CameraIcon} color="slate">
+            {incidentImages && incidentImages.length > 0 && (
+              <div className="mb-10">
+                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6 px-1">Imágenes de la Incidencia (Referencia)</h4>
+                <IncidentImagesViewer incidentId={incidentId} images={incidentImages} />
+              </div>
+            )}
 
-          {/* Subida de Imágenes */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Imágenes del Reporte
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Subir Imágenes</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                  <div className="space-y-1 text-center">
-                    <PhotoIcon className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="flex text-sm text-gray-600">
-                      <label htmlFor="image-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                        <span>Subir imágenes</span>
+            <div className="space-y-6">
+              <label className="block text-sm font-bold text-gray-700 px-1">Adjuntar Nuevas Imágenes de Calidad</label>
+              <div className="border-4 border-dashed border-gray-100 rounded-[2rem] p-12 text-center group hover:border-blue-200 hover:bg-blue-50/50 transition-all duration-500 cursor-pointer relative">
                 <input
-                          id="image-upload"
-                          name="image-upload"
                   type="file"
                   multiple
                   accept="image/*"
-                          onChange={handleImageUpload}
-                          className="sr-only"
-                        />
-                      </label>
-                      <p className="pl-1">o arrastra y suelta</p>
-                    </div>
-                    <p className="text-xs text-gray-500">PNG, JPG, GIF hasta 10MB cada una</p>
+                  onChange={(e) => setImages(prev => [...prev, ...Array.from(e.target.files)])}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex flex-col items-center">
+                  <div className="p-5 bg-blue-50 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <PhotoIcon className="h-10 w-10 text-blue-600" />
                   </div>
+                  <p className="text-xl font-bold text-gray-900 mb-2">Subir nuevas fotos para el informe</p>
+                  <p className="text-gray-400 font-medium tracking-tight">Formatos: JPG, PNG • Máx 10MB por archivo</p>
                 </div>
               </div>
 
-              {/* Vista previa de imágenes */}
               {images.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {images.map((image) => (
-                    <div key={image.id} className="relative">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 pt-6">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="relative aspect-square group rounded-[1.5rem] overflow-hidden shadow-lg">
                       <img
-                        src={image.preview}
-                        alt="Preview"
-                        className="w-full h-32 object-cover rounded-lg"
+                        src={URL.createObjectURL(img)}
+                        alt={`New ${idx}`}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                       />
-                        <button
-                          type="button"
-                        onClick={() => removeImage(image.id)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                        >
+                      <button
+                        type="button"
+                        onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                        className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-xl shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
                         <XMarkIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
+          </PremiumSection>
 
-          {/* Botones de Acción */}
-          <div className="flex justify-end space-x-4">
-            <button
-              type="button"
-              onClick={() => navigate(isInternalReport ? '/quality-reports/internal' : '/quality-reports/client')}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Generando PDF...
-                </>
-              ) : (
-                <>
-                  <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
-                  Generar Reporte PDF
-                </>
+          {/* Botones de Acción Inferiores */}
+          <div className="flex items-center justify-between py-8 border-t border-gray-100 mt-8">
+            <div className="flex gap-3">
+              {createdReportId && (
+                <button
+                  type="button"
+                  onClick={handlePreviewPDF}
+                  className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center gap-2 text-sm border border-slate-200"
+                >
+                  <DocumentTextIcon className="h-4 w-4" />
+                  Ver PDF Generado
+                </button>
               )}
-            </button>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="px-6 py-3 bg-white text-gray-500 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || isGeneratingPDF}
+                className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200/50 hover:bg-blue-700 transition-all disabled:opacity-50 text-sm flex items-center gap-2"
+              >
+                {isSubmitting || isGeneratingPDF ? (
+                  <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircleIcon className="h-4 w-4" />
+                )}
+                {isSubmitting ? 'Guardando...' : isGeneratingPDF ? 'Generando PDF...' : 'Finalizar y Guardar'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

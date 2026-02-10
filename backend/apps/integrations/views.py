@@ -144,7 +144,8 @@ class IntegrationTemplateViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # Optimize query with select_related
+        queryset = super().get_queryset().select_related('source_system', 'target_system')
         
         # Filtros
         template_type = self.request.query_params.get('template_type')
@@ -226,7 +227,8 @@ class IntegrationInstanceViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # Optimize query with select_related
+        queryset = super().get_queryset().select_related('template', 'related_incident', 'related_document')
         
         # Filtros
         template = self.request.query_params.get('template')
@@ -361,7 +363,8 @@ class IntegrationLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # Optimize query with select_related
+        queryset = super().get_queryset().select_related('instance')
         
         # Filtros
         instance = self.request.query_params.get('instance')
@@ -490,7 +493,8 @@ class WebhookLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # Optimize query with select_related
+        queryset = super().get_queryset().select_related('endpoint')
         
         # Filtros
         endpoint = self.request.query_params.get('endpoint')

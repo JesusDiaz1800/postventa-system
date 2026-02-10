@@ -1,20 +1,15 @@
 import axios from 'axios';
 
-// Normalize API base: prefer relative '/api' in dev; if an absolute URL is provided
-// and it is https://localhost, force http to avoid dev server HTTPS errors.
+// Normalize API base: prefer relative '/api' in dev to utilize Vite Proxy (handling HTTPS->HTTP)
 function resolveApiBase() {
-  const envUrl = import.meta.env.VITE_API_URL;
-  if (!envUrl || envUrl === '') return '/api';
-  try {
-    const u = new URL(envUrl, window.location.origin);
-    if ((u.hostname === 'localhost' || u.hostname === '127.0.0.1') && u.protocol === 'https:') {
-      u.protocol = 'http:';
-      return u.pathname.endsWith('/api') ? u.toString().replace(/\/$/, '') : u.toString().replace(/\/$/, '') + '/api';
-    }
-    return envUrl.replace(/\/$/, '');
-  } catch {
+  // In development, ALWAYS use relative path to route through Vite Proxy (avoid Mixed Content)
+  if (import.meta.env.DEV) {
     return '/api';
   }
+
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl || envUrl === '') return '/api';
+  return envUrl.replace(/\/$/, '');
 }
 
 export const API_BASE_URL = resolveApiBase();
@@ -39,7 +34,7 @@ api.interceptors.request.use(
   (config) => {
     // Try to get token from multiple sources
     let token = null;
-    
+
     // 1. Try postventa_auth
     const authData = localStorage.getItem('postventa_auth');
     if (authData) {
@@ -52,17 +47,17 @@ api.interceptors.request.use(
         localStorage.removeItem('postventa_auth');
       }
     }
-    
+
     // 2. Fallback to access_token for backward compatibility
     if (!token) {
       token = localStorage.getItem('access_token');
     }
-    
+
     // 3. Try sessionStorage as last resort
     if (!token) {
       token = sessionStorage.getItem('access_token');
     }
-    
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     } else {
@@ -73,7 +68,7 @@ api.interceptors.request.use(
         console.warn('No token available for request to:', config.url);
       }
     }
-    
+
     // Log request details
     // Optional debug logs can be enabled via VITE_DEBUG_HTTP
     const debug = import.meta.env.VITE_DEBUG_HTTP === 'true';
@@ -81,7 +76,13 @@ api.interceptors.request.use(
       // Keep minimal, non-sensitive logs
       console.debug('[HTTP]', config.method?.toUpperCase(), config.url, token ? '🔑' : '❌');
     }
-    
+
+    // IMPORTANTE: Si se está enviando FormData (para archivos), eliminar Content-Type
+    // para que axios lo establezca automáticamente como multipart/form-data con boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     return config;
   },
   (error) => {
@@ -104,7 +105,7 @@ api.interceptors.response.use(
     if (debug) {
       console.debug('[HTTP ERR]', error.response?.status, error.config?.url);
     }
-    
+
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -114,17 +115,15 @@ api.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem('refresh_token');
         if (refreshToken) {
-          console.log('🔄 Refrescando token...');
           const response = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
             refresh: refreshToken,
           });
 
           const { access } = response.data;
-          console.log('✅ Token refrescado exitosamente');
-          
+
           // Update both storage methods
           localStorage.setItem('access_token', access);
-          
+
           // Update the auth storage as well
           const authData = localStorage.getItem('postventa_auth');
           if (authData) {
@@ -136,7 +135,7 @@ api.interceptors.response.use(
               console.warn('Error updating auth data:', error);
             }
           }
-          
+
           api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
           originalRequest.headers['Authorization'] = `Bearer ${access}`;
 
@@ -147,18 +146,15 @@ api.interceptors.response.use(
         }
       } catch (refreshError) {
         console.error('❌ Token refresh failed:', refreshError);
-        // Clear all auth data and redirect to login
+        // Clear all auth data
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('postventa_auth');
         sessionStorage.removeItem('app_initialized');
         delete api.defaults.headers.common['Authorization'];
-        
-        console.log('🔄 Limpiando datos y recargando página...');
-        // Force page reload to reset React state
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+
+        // Dispatch logout event instead of reloading
+        window.dispatchEvent(new Event('auth:logout'));
       }
     }
 
@@ -179,7 +175,7 @@ export const incidentsAPI = {
   list: (params) => api.get('/incidents/', { params }),
   create: (data) => api.post('/incidents/', data),
   get: (id) => api.get(`/incidents/${id}/`),
-  update: (id, data) => api.put(`/incidents/${id}/`, data),
+  update: (id, data) => api.patch(`/incidents/${id}/`, data),
   delete: (id) => api.delete(`/incidents/${id}/`),
   debug: () => api.get('/incidents/'), // Use regular endpoint for debug
   uploadImage: (incidentId, image) => {
@@ -193,8 +189,11 @@ export const incidentsAPI = {
   updateStatus: (incidentId, data) => api.post(`/incidents/${incidentId}/status/`, data),
   close: (incidentId, data) => api.post(`/incidents/${incidentId}/close/`, data),
   reopen: (incidentId) => api.post(`/incidents/${incidentId}/reopen/`),
-  createLabReport: (incidentId, data) => api.post(`/incidents/${incidentId}/lab-reports/`, data),
   dashboard: () => api.get('/incidents/dashboard/'),
+  uploadAttachment: (incidentId, formData) => api.post(`/documents/incident-attachments/${incidentId}/upload/`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  fixEscalation: (incidentId) => api.post(`/incidents/${incidentId}/fix-escalation/`),
 };
 
 export const documentsAPI = {
@@ -232,20 +231,53 @@ export const aiAPI = {
   },
   generateReport: (data) => api.post('/ai/generate-report/', data),
   generateText: (data) => api.post('/ai/generate-text/', data),
+  analyzeCause: (data) => api.post('/ai/generate-text/', {
+    ...data,
+    prompt_type: 'quality_analysis' // Indicador para el backend si es necesario
+  }),
   providerStatus: () => api.get('/ai/providers/status/'),
   resetQuotas: () => api.post('/ai/providers/reset-quotas/'),
+  analyzeClosure: (data) => api.post('/ai/writing/analyze-closure/', data),
   analysisHistory: () => api.get('/ai/analyses/'),
+};
+
+// NEW: AI Agents API - Advanced multi-step reasoning agents
+export const aiAgentsAPI = {
+  // Main agent query endpoint - sends query and gets intelligent response
+  query: (queryData) => api.post('/ai-agents/query/', queryData),
+
+  // Analyze image with agent (multi-step reasoning with context)
+  analyzeImage: (image, query = 'Analiza esta imagen técnicamente') => {
+    const formData = new FormData();
+    formData.append('image', image);
+    formData.append('query', query);
+    return api.post('/ai-agents/analyze-image/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  // Get agent system status
+  status: () => api.get('/ai-agents/status/'),
 };
 
 export const usersAPI = {
   list: (params) => api.get('/users/', { params }),
   create: (data) => api.post('/users/', data),
   get: (id) => api.get(`/users/${id}/`),
-  update: (id, data) => api.put(`/users/${id}/`, data),
+  update: (id, data) => {
+    // Check if data is FormData (for file uploads like digital_signature)
+    if (data instanceof FormData) {
+      return api.put(`/users/${id}/`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
+    return api.put(`/users/${id}/`, data);
+  },
   delete: (id) => api.delete(`/users/${id}/`),
   stats: () => api.get('/users/stats/'),
   toggleStatus: (id) => api.post(`/users/${id}/toggle-status/`),
   resetPassword: (id, data) => api.post(`/users/${id}/reset-password/`, data),
+  changePassword: (id, data) => api.post(`/users/${id}/reset-password/`, data), // Alias for compatibility
   changeOwnPassword: (data) => api.post('/users/change-password/', data),
   getPermissions: () => api.get('/users/permissions/'),
 };
@@ -269,6 +301,7 @@ export const workflowsAPI = {
 export const auditAPI = {
   logs: (params) => api.get('/audit/logs/', { params }),
   actionChoices: () => api.get('/audit/action-choices/'),
+  export: (data) => api.post('/audit/logs/export/', data, { responseType: 'blob' }),
 };
 
 // Document Traceability APIs
@@ -276,18 +309,11 @@ export const visitReportsAPI = {
   list: (params) => api.get('/documents/visit-reports/', { params }),
   create: (data) => api.post('/documents/visit-reports/', data),
   get: (id) => api.get(`/documents/visit-reports/${id}/`),
-  update: (id, data) => api.put(`/documents/visit-reports/${id}/`, data),
+  update: (id, data) => api.patch(`/documents/visit-reports/${id}/`, data),  // Changed to PATCH for partial updates
   delete: (id) => api.delete(`/documents/visit-reports/${id}/`),
   generateOrderNumber: () => api.get('/documents/generate-order-number/'),
 };
 
-export const labReportsAPI = {
-  list: (params) => api.get('/documents/lab-reports/', { params }),
-  create: (data) => api.post('/documents/lab-reports/', data),
-  get: (id) => api.get(`/documents/lab-reports/${id}/`),
-  update: (id, data) => api.put(`/documents/lab-reports/${id}/`, data),
-  delete: (id) => api.delete(`/documents/lab-reports/${id}/`),
-};
 
 export const supplierReportsAPI = {
   list: (params) => api.get('/documents/supplier-reports/', { params }),
@@ -297,9 +323,17 @@ export const supplierReportsAPI = {
   delete: (id) => api.delete(`/documents/supplier-reports/${id}/`),
 };
 
+export const qualityReportsAPI = {
+  list: (params) => api.get('/documents/quality-reports/', { params }),
+  create: (data) => api.post('/documents/quality-reports/', data),
+  get: (id) => api.get(`/documents/quality-reports/${id}/`),
+  update: (id, data) => api.put(`/documents/quality-reports/${id}/`, data),
+  delete: (id) => api.delete(`/documents/quality-reports/${id}/`),
+  generatePDF: (id) => api.post(`/documents/quality-reports/${id}/generate/`),
+};
+
 // Extended documents API with new methods
 documentsAPI.createVisitReport = (data) => api.post('/documents/visit-reports/', data);
-documentsAPI.createLabReport = (data) => api.post('/documents/lab-reports/', data);
 documentsAPI.createSupplierReport = (data) => api.post('/documents/supplier-reports/', data);
 
 // Dashboard API
@@ -307,4 +341,15 @@ export const dashboardAPI = {
   getMetrics: () => api.get('/dashboard/metrics/'),
 };
 
+// Notifications API (HTTP fallback when WebSocket is disabled)
+export const notificationsAPI = {
+  list: (params) => api.get('/notifications/notifications/', { params }),
+  recent: () => api.get('/notifications/notifications/recent/'),
+  unreadCount: () => api.get('/notifications/notifications/unread_count/'),
+  markAsRead: (id) => api.post(`/notifications/notifications/${id}/mark_read/`),
+  markAllAsRead: () => api.post('/notifications/notifications/mark_all_read/'),
+  important: () => api.get('/notifications/notifications/important/'),
+};
+
 export default api;
+

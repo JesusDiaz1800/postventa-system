@@ -1,19 +1,16 @@
 """
-Vistas para gestión de adjuntos de reportes
-Permite subir, listar, descargar y eliminar archivos adjuntos de reportes
+Vistas para gestión de adjuntos de reportes de visita
+Permite subir, listar, descargar y ver archivos adjuntos
 """
 import os
-import json
-from django.http import JsonResponse, FileResponse, Http404
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from django.utils.decorators import method_decorator
+import mimetypes
+from django.http import FileResponse
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from apps.documents.models import Document
+from apps.documents.models import DocumentAttachment
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,32 +22,35 @@ def list_report_attachments(request, report_id, report_type):
     Lista todos los adjuntos de un reporte
     """
     try:
-        # Obtener adjuntos del reporte
-        attachments = Document.objects.filter(
-            incident_id=report_id,  # Usar report_id como incident_id para la lógica existente
-            document_type=report_type
-        ).order_by('-created_at')
+        # Map report_type to document_type
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
+        
+        attachments = DocumentAttachment.objects.filter(
+            document_id=report_id,
+            document_type=doc_type
+        ).order_by('-uploaded_at')
         
         attachments_data = []
-        for attachment in attachments:
+        for att in attachments:
             attachments_data.append({
-                'id': attachment.id,
-                'filename': attachment.filename,
-                'title': attachment.title,
-                'description': attachment.description,
-                'size': attachment.size,
-                'created_at': attachment.created_at,
-                'created_by': attachment.created_by.username if attachment.created_by else 'Sistema',
-                'is_public': getattr(attachment, 'is_public', False),
-                'document_type': attachment.document_type,
+                'id': att.id,
+                'filename': att.filename,
+                'file_type': att.file_type,
+                'file_size': att.file_size,
+                'description': att.description,
+                'uploaded_at': att.uploaded_at,
+                'uploaded_by': att.uploaded_by.username if att.uploaded_by else 'Sistema',
+                'content_type': mimetypes.guess_type(att.filename)[0] or 'application/octet-stream',
+                # Build URL for viewing
+                'view_url': f'/documents/report-attachments/{report_id}/{report_type}/{att.id}/view/',
             })
         
-        return Response({
-            'report_id': report_id,
-            'report_type': report_type,
-            'attachments': attachments_data,
-            'total': len(attachments_data)
-        })
+        return Response(attachments_data)
         
     except Exception as e:
         logger.error(f"Error listing report attachments: {str(e)}")
@@ -63,58 +63,142 @@ def list_report_attachments(request, report_id, report_type):
 @permission_classes([IsAuthenticated])
 def upload_report_attachment(request, report_id, report_type):
     """
-    Sube un archivo adjunto a un reporte
+    Sube archivos adjuntos a un reporte
     """
     try:
-        if 'file' not in request.FILES:
+        if 'file' not in request.FILES and 'files' not in request.FILES:
             return Response(
                 {'error': 'No se proporcionó ningún archivo'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        file = request.FILES['file']
-        title = request.data.get('title', file.name)
-        description = request.data.get('description', '')
-        is_public = request.data.get('is_public', 'false').lower() == 'true'
+        # Map report_type
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
         
-        # Crear directorio si no existe
-        report_dir = os.path.join(settings.SHARED_DOCUMENTS_PATH, f'{report_type}s', f'report_{report_id}')
-        os.makedirs(report_dir, exist_ok=True)
+        # Handle single or multiple files
+        files = request.FILES.getlist('files') or [request.FILES.get('file')]
         
-        # Guardar archivo
-        file_path = os.path.join(report_dir, file.name)
-        with open(file_path, 'wb') as destination:
-            for chunk in file.chunks():
-                destination.write(chunk)
-        
-        # Crear registro en base de datos
-        document = Document.objects.create(
-            incident_id=report_id,  # Usar report_id como incident_id
-            title=title,
-            filename=file.name,
-            description=description,
-            document_type=report_type,
-            file_path=file_path,
-            size=file.size,
-            created_by=request.user,
-            is_public=is_public
-        )
+        uploaded = []
+        for file in files:
+            if not file:
+                continue
+                
+            # Determine file type
+            file_type = mimetypes.guess_type(file.name)[0] or 'application/octet-stream'
+            
+            # Create the attachment record
+            attachment = DocumentAttachment.objects.create(
+                document_type=doc_type,
+                document_id=report_id,
+                file=file,
+                filename=file.name,
+                file_type=file_type,
+                file_size=file.size,
+                description=request.data.get('description', ''),
+                uploaded_by=request.user
+            )
+            
+            uploaded.append({
+                'id': attachment.id,
+                'filename': attachment.filename,
+                'file_size': attachment.file_size,
+                'file_type': attachment.file_type,
+            })
+            
+        # If this is a visit report, regenerate the PDF to include the images
+        if doc_type == 'visit_report' and uploaded:
+            try:
+                from apps.documents.models import VisitReport
+                from apps.documents.services.professional_pdf_generator import ProfessionalPDFGenerator
+                from django.conf import settings
+                
+                report = VisitReport.objects.get(id=report_id)
+                
+                # Fetch all images
+                images = []
+                attachments = DocumentAttachment.objects.filter(
+                    document_id=report.id,
+                    document_type='visit_report'
+                ).exclude(file='').order_by('uploaded_at')
+                
+                for att in attachments:
+                    if att.file and os.path.exists(att.file.path):
+                        ext = os.path.splitext(att.filename)[1].lower()
+                        if ext in ['.jpg', '.jpeg', '.png', '.bmp']:
+                            images.append({
+                                'path': att.file.path,
+                                'description': att.description or att.filename
+                            })
+                
+                # Prepare data for PDF
+                pdf_data = {
+                    'order_number': report.order_number,
+                    'client_name': report.client_name,
+                    'client_rut': report.client_rut,
+                    'project_name': report.project_name,
+                    'project_id': report.project_id,
+                    'address': report.address,
+                    'commune': getattr(report, 'commune', ''),
+                    'city': getattr(report, 'city', ''),
+                    'visit_date': report.visit_date.strftime('%d/%m/%Y') if report.visit_date else '',
+                    'salesperson': report.salesperson,
+                    'technician': report.technician,
+                    'construction_company': report.construction_company,
+                    'installer': report.installer,
+                    'installer_phone': report.installer_phone,
+                    'product_category': getattr(report, 'product_category', ''),
+                    'product_subcategory': getattr(report, 'product_subcategory', ''),
+                    'visit_reason': report.visit_reason,
+                    'general_observations': report.general_observations,
+                    'wall_observations': report.wall_observations,
+                    'matrix_observations': report.matrix_observations,
+                    'slab_observations': report.slab_observations,
+                    'storage_observations': report.storage_observations,
+                    'pre_assembled_observations': report.pre_assembled_observations,
+                    'exterior_observations': report.exterior_observations,
+                    'machine_data': report.machine_data,
+                    'status': report.get_status_display(),
+                    'images': images
+                }
+                
+                # Generate PDF
+                pdf_generator = ProfessionalPDFGenerator()
+                
+                # Determine path
+                shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
+                if shared_path:
+                    incident_folder = os.path.join(shared_path, 'visit_reports', f'incident_{report.related_incident.id}')
+                    os.makedirs(incident_folder, exist_ok=True)
+                    pdf_path = os.path.join(incident_folder, f"{report.order_number}.pdf")
+                else:
+                    media_folder = os.path.join(getattr(settings, 'MEDIA_ROOT', ''), 'visit_reports', f'incident_{report.related_incident.id}')
+                    os.makedirs(media_folder, exist_ok=True)
+                    pdf_path = os.path.join(media_folder, f"{report.order_number}.pdf")
+                
+                pdf_content = pdf_generator.generate_visit_report_pdf(pdf_data, pdf_path)
+                
+                if pdf_content:
+                    report.pdf_path = pdf_path
+                    report.save(update_fields=['pdf_path'])
+                    logger.info(f"PDF regenerado automáticamente con imágenes: {pdf_path}")
+                    
+            except Exception as e:
+                logger.error(f"Error regenerando PDF tras subida de imagen: {e}")
         
         return Response({
-            'id': document.id,
-            'filename': document.filename,
-            'title': document.title,
-            'description': document.description,
-            'size': document.size,
-            'created_at': document.created_at,
-            'is_public': document.is_public,
-            'message': 'Archivo adjunto subido exitosamente'
+            'message': f'{len(uploaded)} archivo(s) subido(s) exitosamente',
+            'attachments': uploaded
         }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         logger.error(f"Error uploading report attachment: {str(e)}")
         return Response(
-            {'error': 'Error interno del servidor'}, 
+            {'error': f'Error al subir archivo: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -122,35 +206,42 @@ def upload_report_attachment(request, report_id, report_type):
 @permission_classes([IsAuthenticated])
 def download_report_attachment(request, report_id, report_type, attachment_id):
     """
-    Descarga un archivo adjunto de un reporte
+    Descarga un archivo adjunto
     """
     try:
-        document = Document.objects.get(
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
+        
+        attachment = DocumentAttachment.objects.get(
             id=attachment_id,
-            incident_id=report_id,
-            document_type=report_type
+            document_id=report_id,
+            document_type=doc_type
         )
         
-        if not os.path.exists(document.file_path):
+        if not attachment.file or not os.path.exists(attachment.file.path):
             return Response(
                 {'error': 'Archivo no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
         response = FileResponse(
-            open(document.file_path, 'rb'),
+            open(attachment.file.path, 'rb'),
             as_attachment=True,
-            filename=document.filename
+            filename=attachment.filename
         )
         return response
         
-    except Document.DoesNotExist:
+    except DocumentAttachment.DoesNotExist:
         return Response(
             {'error': 'Adjunto no encontrado'}, 
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
-        logger.error(f"Error downloading report attachment: {str(e)}")
+        logger.error(f"Error downloading attachment: {str(e)}")
         return Response(
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -160,48 +251,46 @@ def download_report_attachment(request, report_id, report_type, attachment_id):
 @permission_classes([IsAuthenticated])
 def view_report_attachment(request, report_id, report_type, attachment_id):
     """
-    Visualiza un archivo adjunto de un reporte en el navegador
+    Visualiza un archivo adjunto en el navegador (para imágenes y PDFs)
     """
     try:
-        document = Document.objects.get(
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
+        
+        attachment = DocumentAttachment.objects.get(
             id=attachment_id,
-            incident_id=report_id,
-            document_type=report_type
+            document_id=report_id,
+            document_type=doc_type
         )
         
-        if not os.path.exists(document.file_path):
+        if not attachment.file or not os.path.exists(attachment.file.path):
             return Response(
                 {'error': 'Archivo no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Determinar el tipo de contenido
-        content_type = 'application/octet-stream'
-        if document.filename.lower().endswith('.pdf'):
-            content_type = 'application/pdf'
-        elif document.filename.lower().endswith(('.jpg', '.jpeg')):
-            content_type = 'image/jpeg'
-        elif document.filename.lower().endswith('.png'):
-            content_type = 'image/png'
-        elif document.filename.lower().endswith(('.doc', '.docx')):
-            content_type = 'application/msword'
-        elif document.filename.lower().endswith(('.xls', '.xlsx')):
-            content_type = 'application/vnd.ms-excel'
+        # Determine content type
+        content_type = attachment.file_type or mimetypes.guess_type(attachment.filename)[0] or 'application/octet-stream'
         
         response = FileResponse(
-            open(document.file_path, 'rb'),
-            content_type=content_type,
-            filename=document.filename
+            open(attachment.file.path, 'rb'),
+            content_type=content_type
         )
+        # Add header for inline display (not download)
+        response['Content-Disposition'] = f'inline; filename="{attachment.filename}"'
         return response
         
-    except Document.DoesNotExist:
+    except DocumentAttachment.DoesNotExist:
         return Response(
             {'error': 'Adjunto no encontrado'}, 
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
-        logger.error(f"Error viewing report attachment: {str(e)}")
+        logger.error(f"Error viewing attachment: {str(e)}")
         return Response(
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -211,33 +300,37 @@ def view_report_attachment(request, report_id, report_type, attachment_id):
 @permission_classes([IsAuthenticated])
 def delete_report_attachment(request, report_id, report_type, attachment_id):
     """
-    Elimina un archivo adjunto de un reporte
+    Elimina un archivo adjunto
     """
     try:
-        document = Document.objects.get(
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
+        
+        attachment = DocumentAttachment.objects.get(
             id=attachment_id,
-            incident_id=report_id,
-            document_type=report_type
+            document_id=report_id,
+            document_type=doc_type
         )
         
-        # Eliminar archivo físico si existe
-        if os.path.exists(document.file_path):
-            os.remove(document.file_path)
+        # Delete physical file
+        if attachment.file and os.path.exists(attachment.file.path):
+            os.remove(attachment.file.path)
         
-        # Eliminar registro de base de datos
-        document.delete()
+        attachment.delete()
         
-        return Response({
-            'message': 'Adjunto eliminado exitosamente'
-        })
+        return Response({'message': 'Adjunto eliminado exitosamente'})
         
-    except Document.DoesNotExist:
+    except DocumentAttachment.DoesNotExist:
         return Response(
             {'error': 'Adjunto no encontrado'}, 
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
-        logger.error(f"Error deleting report attachment: {str(e)}")
+        logger.error(f"Error deleting attachment: {str(e)}")
         return Response(
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -247,37 +340,41 @@ def delete_report_attachment(request, report_id, report_type, attachment_id):
 @permission_classes([IsAuthenticated])
 def get_report_attachment_info(request, report_id, report_type, attachment_id):
     """
-    Obtiene información detallada de un adjunto de reporte
+    Obtiene información detallada de un adjunto
     """
     try:
-        document = Document.objects.get(
+        doc_type_map = {
+            'visit': 'visit_report',
+            'lab': 'lab_report',
+            'supplier': 'supplier_report'
+        }
+        doc_type = doc_type_map.get(report_type, 'visit_report')
+        
+        attachment = DocumentAttachment.objects.get(
             id=attachment_id,
-            incident_id=report_id,
-            document_type=report_type
+            document_id=report_id,
+            document_type=doc_type
         )
         
         return Response({
-            'id': document.id,
-            'filename': document.filename,
-            'title': document.title,
-            'description': document.description,
-            'size': document.size,
-            'created_at': document.created_at,
-            'created_by': document.created_by.username if document.created_by else 'Sistema',
-            'is_public': getattr(document, 'is_public', False),
-            'document_type': document.document_type,
-            'file_exists': os.path.exists(document.file_path) if document.file_path else False
+            'id': attachment.id,
+            'filename': attachment.filename,
+            'file_type': attachment.file_type,
+            'file_size': attachment.file_size,
+            'description': attachment.description,
+            'uploaded_at': attachment.uploaded_at,
+            'uploaded_by': attachment.uploaded_by.username if attachment.uploaded_by else 'Sistema',
+            'file_exists': bool(attachment.file) and os.path.exists(attachment.file.path) if attachment.file else False
         })
         
-    except Document.DoesNotExist:
+    except DocumentAttachment.DoesNotExist:
         return Response(
             {'error': 'Adjunto no encontrado'}, 
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
-        logger.error(f"Error getting report attachment info: {str(e)}")
+        logger.error(f"Error getting attachment info: {str(e)}")
         return Response(
             {'error': 'Error interno del servidor'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-

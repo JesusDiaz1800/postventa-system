@@ -12,7 +12,7 @@ export const useReportsManager = () => {
 
   // Obtener reportes por tipo
   const getReportsByType = useCallback((reportType, incidentId = null) => {
-    const endpoint = incidentId 
+    const endpoint = incidentId
       ? `/documents/${reportType}/?incident_id=${incidentId}`
       : `/documents/${reportType}/`;
     return api.get(endpoint);
@@ -22,21 +22,30 @@ export const useReportsManager = () => {
   const createInternalQualityReport = useMutation({
     mutationFn: async ({ incidentId, reportData, attachments = [] }) => {
       const formData = new FormData();
-      formData.append('incident_id', incidentId);
-      formData.append('report_data', JSON.stringify(reportData));
-      
+      formData.append('related_incident_id', incidentId);
+      formData.append('report_type', 'interno');
+
+      // Mapeo automático de campos
+      Object.keys(reportData).forEach(key => {
+        if (reportData[key] !== undefined && reportData[key] !== null) {
+          formData.append(key, reportData[key]);
+        }
+      });
+
       attachments.forEach((file, index) => {
         formData.append(`attachment_${index}`, file);
       });
 
-      const response = await api.post('/documents/quality-reports/internal/', formData, {
+      const response = await api.post('/documents/quality-reports/', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['quality-reports']);
+      queryClient.invalidateQueries(['internal-quality-reports']);
       queryClient.invalidateQueries(['incidents']);
+      queryClient.invalidateQueries(['incidents-for-reports']);
     },
   });
 
@@ -46,11 +55,11 @@ export const useReportsManager = () => {
       const formData = new FormData();
       formData.append('incident_id', incidentId);
       formData.append('report_data', JSON.stringify(reportData));
-      
+
       if (supplierResponse) {
         formData.append('supplier_response', JSON.stringify(supplierResponse));
       }
-      
+
       attachments.forEach((file, index) => {
         formData.append(`attachment_${index}`, file);
       });
@@ -77,12 +86,36 @@ export const useReportsManager = () => {
     },
   });
 
+  // Escalar reporte a proveedor (NUEVO)
+  const escalateToSupplier = useMutation({
+    mutationFn: async ({ reportId, escalationData }) => {
+      const response = await api.post(`/documents/quality-reports/${reportId}/escalate-supplier/`, escalationData);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['quality-reports']);
+      queryClient.invalidateQueries(['internal-quality-reports']); // Actualizar también internos
+    },
+  });
+
+  // Eliminar reporte de calidad (NUEVO)
+  const deleteQualityReport = useMutation({
+    mutationFn: async (reportId) => {
+      await api.delete(`/documents/quality-reports/${reportId}/`);
+      return reportId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['quality-reports']);
+      queryClient.invalidateQueries(['internal-quality-reports']);
+    },
+  });
+
   // Adjuntar respuesta del proveedor
   const attachSupplierResponse = useMutation({
     mutationFn: async ({ reportId, responseData, attachments = [] }) => {
       const formData = new FormData();
       formData.append('response_data', JSON.stringify(responseData));
-      
+
       attachments.forEach((file, index) => {
         formData.append(`attachment_${index}`, file);
       });
@@ -103,7 +136,7 @@ export const useReportsManager = () => {
       const formData = new FormData();
       formData.append('resolution_data', JSON.stringify(resolutionData));
       formData.append('final_actions', JSON.stringify(finalActions));
-      
+
       attachments.forEach((file, index) => {
         formData.append(`attachment_${index}`, file);
       });
@@ -142,14 +175,16 @@ export const useReportsManager = () => {
   return {
     // Estados
     isGenerating,
-    
+
     // Mutaciones
     createInternalQualityReport,
     createSupplierReport,
     escalateInternalReport,
+    escalateToSupplier, // Exportar nueva mutación
+    deleteQualityReport, // Exportar nueva mutación
     attachSupplierResponse,
     closeIncident,
-    
+
     // Funciones
     getReportsByType,
     generateReport,

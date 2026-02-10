@@ -22,12 +22,18 @@ class IsAdminOrSupervisor(permissions.BasePermission):
     Custom permission to only allow admins and supervisors to manage users
     """
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        try:
+            if not request.user or not request.user.is_authenticated:
+                return False
+            
+            # Verificar si el usuario tiene permisos para gestionar usuarios
+            from .permissions import has_permission
+            return has_permission(request.user, 'can_manage_users')
+        except Exception as e:
+            logger.error(f"Error checking permissions: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
-        
-        # Verificar si el usuario tiene permisos para gestionar usuarios
-        from .permissions import has_permission
-        return has_permission(request.user, 'can_manage_users')
 
 class UserListCreateView(generics.ListCreateAPIView):
     """
@@ -131,6 +137,21 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             return UserUpdateSerializer
         return UserSerializer
     
+    def retrieve(self, request, *args, **kwargs):
+        """Get user details with error handling"""
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error retrieving user: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return Response(
+                {'error': f'Error al obtener usuario: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     def update(self, request, *args, **kwargs):
         logger.info(f"UserRetrieveUpdateDestroyView.update called by user: {request.user.username}")
         logger.info(f"Request data: {request.data}")
@@ -145,11 +166,6 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         
         if serializer.is_valid():
             logger.info("Serializer is valid")
-            # Hash password if provided
-            password = serializer.validated_data.get('password')
-            if password:
-                serializer.validated_data['password'] = make_password(password)
-                logger.info("Password hashed")
             
             user = serializer.save()
             logger.info(f"User updated successfully: {user.username}")
@@ -190,9 +206,18 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
                 )
         
         logger.info(f"Deleting user: {instance.username}")
-        self.perform_destroy(instance)
-        logger.info(f"User {instance.username} deleted successfully")
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            self.perform_destroy(instance)
+            logger.info(f"User {instance.username} deleted successfully")
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            logger.error(f"Error deleting user {instance.username}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return Response(
+                {'error': f'Error al eliminar usuario: {str(e)}. El usuario puede tener registros asociados.'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdminOrSupervisor])
@@ -321,32 +346,82 @@ def reset_user_password(request, user_id):
 @permission_classes([AllowAny])
 def login_view(request):
     """
-    User login endpoint
+    User login endpoint (Instrumented for Debugging)
     """
+    logger.info("--- LOGIN ATTEMPT STARTED ---")
     try:
+        # Log basic request info (sanitize password)
+        data_safe = request.data.copy()
+        if 'password' in data_safe:
+            data_safe['password'] = '******'
+            
+        logger.info(f"Login request received from IP: {request.META.get('REMOTE_ADDR')}")
+        logger.info(f"Login payload: {data_safe}")
+        
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
+            logger.info("Serializer validation passed. Proceeding to authentication.")
+            
             username = serializer.validated_data['username']
             password = serializer.validated_data['password']
             
             # Intentar autenticación con username primero
+            logger.debug(f"Authenticating with username: {username}")
             user = authenticate(request, username=username, password=password)
             
             # Si no funciona, intentar con email
             if user is None:
+                logger.debug("Username auth failed. Trying email lookup.")
                 try:
                     user_obj = User.objects.get(email=username)
+                    logger.debug(f"Found user by email: {user_obj.username}")
                     user = authenticate(request, username=user_obj.username, password=password)
                 except User.DoesNotExist:
+                    logger.debug("Email lookup failed or user does not exist.")
                     pass
             
             if user is not None:
+                logger.info(f"Authentication successful for user: {user.username} (ID: {user.id})")
+                
                 if user.is_active:
+                    # Update last_login explicitly
+                    try:
+                        from django.utils import timezone
+                        logger.info("Updating last_login...")
+                        user.last_login = timezone.now()
+                        user.save(update_fields=['last_login'])
+                        logger.info("last_login updated successfully.")
+                    except Exception as eSave:
+                        logger.error(f"Error updating last_login (non-fatal): {eSave}", exc_info=True)
+
                     # Generate JWT tokens
-                    refresh = RefreshToken.for_user(user)
-                    access_token = str(refresh.access_token)
-                    refresh_token = str(refresh)
-                    
+                    try:
+                        logger.info("Generating JWT tokens...")
+                        refresh = RefreshToken.for_user(user)
+                        access_token = str(refresh.access_token)
+                        refresh_token = str(refresh)
+                        logger.info("Tokens generated successfully.")
+                    except Exception as eToken:
+                        logger.error(f"Error generating tokens: {eToken}", exc_info=True)
+                        raise eToken
+
+                    # Audit login
+                    try:
+                        from apps.audit.models import AuditLogManager
+                        logger.info(f"Attempting to audit login for {user.username}")
+                        AuditLogManager.log_action(
+                            user=user,
+                            action='user_login',
+                            description=f'Usuario {user.username} inició sesión',
+                            ip_address=request.META.get('REMOTE_ADDR'),
+                            details={'user_agent': request.META.get('HTTP_USER_AGENT', '')}
+                        )
+                        logger.info("Audit login successful")
+                    except Exception as eAudit:
+                        logger.error(f"Failed to audit login (external): {eAudit}", exc_info=True)
+                        # No lanzamos excepción aquí para no bloquear el login si falla el log
+
+                    logger.info("Login flow completed successfully. Returning response.")
                     return Response({
                         'success': True,
                         'message': 'Inicio de sesión exitoso',
@@ -363,26 +438,34 @@ def login_view(request):
                         }
                     }, status=status.HTTP_200_OK)
                 else:
+                    logger.warning(f"User {user.username} found but is inactive.")
                     return Response({
                         'success': False,
                         'error': 'Usuario inactivo'
                     }, status=status.HTTP_400_BAD_REQUEST)
             else:
+                logger.warning(f"Authentication failed for: {username}")
                 return Response({
                     'success': False,
                     'error': 'Credenciales inválidas'
                 }, status=status.HTTP_401_UNAUTHORIZED)
         else:
+            logger.warning(f"Serializer validation failed: {serializer.errors}")
             return Response({
                 'success': False,
                 'error': 'Datos inválidos',
                 'details': serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
+            
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        logger.critical(f"FATAL LOGIN ERROR: {str(e)}", exc_info=True)
+        # Check for IntegrityError specifically in the exception tree
+        if 'IntegrityError' in str(type(e)) or 'IntegrityError' in str(e):
+             logger.critical("INTEGRITY ERROR CONFIRMED DURING LOGIN EXECUTION")
+        
         return Response({
             'success': False,
-            'error': 'Error interno del servidor'
+            'error': 'Error interno del servidor (Check logs)'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -408,7 +491,7 @@ def logout_view(request):
         from apps.audit.models import AuditLogManager
         AuditLogManager.log_action(
             user=request.user,
-            action='logout',
+            action='user_logout',  # Matched with signals
             description=f'Usuario {request.user.username} cerró sesión',
             ip_address=request.META.get('REMOTE_ADDR'),
             details={
@@ -431,29 +514,65 @@ def logout_view(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def user_profile(request):
     """
-    Get current user profile
+    Get or update current user profile
     """
+    if request.method == 'PATCH':
+        try:
+            user = request.user
+            # Use serializer to validate and save
+            serializer = UserUpdateSerializer(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                
+                # Return updated profile structure matches GET
+                return Response({
+                    'success': True,
+                    'message': 'Perfil actualizado correctamente',
+                    'user': {
+                        'id': user.id,
+                        'username': user.username,
+                        'email': user.email,
+                        'first_name': user.first_name,
+                        'last_name': user.last_name,
+                        'role': user.role,
+                        'is_active': user.is_active,
+                        'phone': user.phone,
+                        'department': user.department,
+                        'digital_signature': request.build_absolute_uri(user.digital_signature.url) if user.digital_signature else None,
+                        'last_login': user.last_login,
+                        'created_at': user.created_at
+                    }
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Datos inválidos',
+                    'details': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error updating profile: {e}")
+            return Response({
+                'success': False,
+                'error': 'Error al actualizar perfil'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # GET request
     try:
         user = request.user
+        signature_url = None
+        if user.digital_signature:
+            try:
+                signature_url = request.build_absolute_uri(user.digital_signature.url)
+            except:
+                pass
+
         return Response({
             'success': True,
-            'user': {
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': user.role,
-                'is_active': user.is_active,
-                'phone': user.phone,
-                'department': user.department,
-                'last_login': user.last_login,
-                'created_at': user.created_at
-            }
+            'user': UserSerializer(user).data
         }, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Profile error: {e}")

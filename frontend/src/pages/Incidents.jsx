@@ -1,1031 +1,575 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { incidentsAPI } from '../services/api';
+import { normalizeText } from '../utils/stringUtils';
 import { useNotifications } from '../hooks/useNotifications';
+import { useDebounce } from '../hooks/useDebounce';
+import { exportIncidents } from '../utils/exportUtils';
 import IncidentAttachments from '../components/IncidentAttachments';
 import IncidentImages from '../components/IncidentImages';
+import IncidentClosureForm from '../components/IncidentClosureForm';
+import { useAuth } from '../hooks/useAuth';
 import {
   PlusIcon,
   ExclamationTriangleIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
   EyeIcon,
-  PencilIcon,
   TrashIcon,
   PaperClipIcon,
   XMarkIcon,
   ArrowPathIcon,
+  CheckCircleIcon,
+  ArrowDownTrayIcon,
+  PhotoIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 
 const Incidents = () => {
-  // console.log('=== INCIDENTS COMPONENT LOADED ===');
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useNotifications();
-  
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm, 500);
+
   const [filters, setFilters] = useState({
     search: '',
     estado: '',
-    prioridad: '',
+    categoria: '',
+    page: 1,
+    page_size: 20,
   });
-  
+
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    setFilters(prev => ({ ...prev, search: normalizeText(debouncedSearch) }));
+  }, [debouncedSearch]);
+
   const [selectedIncident, setSelectedIncident] = useState(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
-  const [showImagesModal, setShowImagesModal] = useState(false);
+  const [activeModal, setActiveModal] = useState(null);
+
+  const { data: dashboardData } = useQuery({
+    queryKey: ['incidents-dashboard'],
+    queryFn: () => incidentsAPI.dashboard(),
+  });
+
+  const kpis = dashboardData?.data?.kpis || {
+    total_incidents: 0,
+    open_incidents: 0,
+    closed_incidents: 0
+  };
+
+  const statusDist = dashboardData?.data?.status_distribution || [];
+  const getStatusCount = (statusName) => {
+    const item = statusDist.find(d => d.estado === statusName);
+    return item ? item.count : 0;
+  };
+
+  const labCount = getStatusCount('laboratorio') + getStatusCount('calidad') + getStatusCount('reporte_visita');
+  const providerCount = getStatusCount('proveedor');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['incidents', filters],
     queryFn: () => incidentsAPI.list(filters),
+    keepPreviousData: true,
+    staleTime: 30000,
   });
 
-  // Debug logging
-  // console.log('=== INCIDENTS DEBUG ===');
-  // console.log('Data:', data);
-  // console.log('IsLoading:', isLoading);
-  // console.log('Error:', error);
-
-  // Handle different response formats
-  let incidents = [];
-  let totalCount = 0;
-  
-  if (data) {
-    // console.log('Processing data structure:', data);
-    if (Array.isArray(data)) {
-      // Direct array response
-      // console.log('Using direct array response');
-      incidents = data;
-      totalCount = data.length;
-    } else if (data.results && Array.isArray(data.results)) {
-      // Paginated response
-      // console.log('Using paginated response');
-      incidents = data.results;
-      totalCount = data.count || data.results.length;
-    } else if (data.data && Array.isArray(data.data)) {
-      // Alternative data wrapper
-      // console.log('Using data.data array');
-      incidents = data.data;
-      totalCount = data.data.length;
-    } else if (data.data && data.data.results && Array.isArray(data.data.results)) {
-      // Nested data.results structure
-      // console.log('Using nested data.data.results');
-      incidents = data.data.results;
-      totalCount = data.data.count || data.data.results.length;
-    } else if (data.data && typeof data.data === 'object') {
-      // Check if data.data has incidents array
-      // console.log('Checking data.data structure:', data.data);
-      if (data.data.incidents && Array.isArray(data.data.incidents)) {
-        // console.log('Using data.data.incidents');
-        incidents = data.data.incidents;
-        totalCount = data.data.count || data.data.incidents.length;
-      } else if (Array.isArray(data.data)) {
-        // console.log('Using data.data as array');
-        incidents = data.data;
-        totalCount = data.data.length;
+  const { incidents, totalCount } = useMemo(() => {
+    let incidentsList = [];
+    let count = 0;
+    if (data) {
+      if (Array.isArray(data)) {
+        incidentsList = data; count = data.length;
+      } else if (data.results) {
+        incidentsList = data.results; count = data.count || data.results.length;
+      } else if (data.data?.results) {
+        incidentsList = data.data.results; count = data.data.count || data.data.results.length;
+      } else if (data.data?.incidents) {
+        incidentsList = data.data.incidents; count = data.data.count || data.data.incidents.length;
       }
     }
-    
-    // console.log('Final incidents array:', incidents);
-    // console.log('Final incidents count:', incidents.length);
-  }
-  
+    return { incidents: incidentsList, totalCount: count };
+  }, [data]);
+
+  const totalPages = Math.ceil(totalCount / filters.page_size);
+  const startIndex = (filters.page - 1) * filters.page_size + 1;
+  const endIndex = Math.min(filters.page * filters.page_size, totalCount);
 
   const handleFilterChange = (key, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [key]: value,
-    }));
+    if (key === 'search') setSearchTerm(value);
+    else setFilters(prev => ({ ...prev, [key]: value, page: 1 }));
   };
 
-  // Action handlers
-  const handleViewDetails = (incident) => {
-    setSelectedIncident(incident);
-    setShowDetailModal(true);
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setFilters(prev => ({ ...prev, page: newPage }));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
-  const handleEdit = (incident) => {
-    setSelectedIncident(incident);
-    setShowEditModal(true);
+  const handleViewDetails = async (incident) => {
+    try {
+      const response = await incidentsAPI.get(incident.id);
+      setSelectedIncident(response.data || response);
+      setActiveModal('detail');
+    } catch (err) {
+      setSelectedIncident(incident);
+      setActiveModal('detail');
+    }
+  };
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries(['incidents']);
+    showSuccess('Datos actualizados');
   };
 
   const handleDelete = (incident) => {
     setSelectedIncident(incident);
-    setShowDeleteModal(true);
+    setActiveModal('delete');
   };
 
   const handleViewAttachments = (incident) => {
     setSelectedIncident(incident);
-    setShowAttachmentsModal(true);
+    setActiveModal('attachments');
   };
 
   const handleViewImages = (incident) => {
     setSelectedIncident(incident);
-    setShowImagesModal(true);
+    setActiveModal('images');
   };
 
   const handleReopen = async (incident) => {
     try {
       await incidentsAPI.reopen(incident.id);
       queryClient.invalidateQueries(['incidents']);
-      showSuccess('Incidencia reabierta exitosamente');
-    } catch (error) {
-      console.error('Error reopening incident:', error);
-      showError('Error al reabrir la incidencia: ' + (error.response?.data?.error || error.message));
+      showSuccess('Incidencia reabierta');
+    } catch (err) {
+      showError('Error al reabrir: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleClose = (incident) => {
+    setSelectedIncident(incident);
+    setActiveModal('close');
+  };
+
+  const handleClosureSubmit = async (formData) => {
+    setIsClosing(true);
+    try {
+      let attachmentPath = '';
+      if (formData.closure_attachment) {
+        const fileData = new FormData();
+        fileData.append('file', formData.closure_attachment);
+        fileData.append('title', `Cierre: ${formData.closure_attachment.name}`);
+        const uploadResponse = await incidentsAPI.uploadAttachment(selectedIncident.id, fileData);
+        attachmentPath = uploadResponse.data?.file_path || uploadResponse.data?.filename || formData.closure_attachment.name;
+      }
+
+      await incidentsAPI.close(selectedIncident.id, {
+        stage: formData.stage,
+        closure_summary: formData.closure_summary,
+        closure_attachment: attachmentPath,
+        closure_date: formData.closure_date
+      });
+
+      queryClient.invalidateQueries(['incidents']);
+      showSuccess('Incidencia cerrada correctamente');
+      setActiveModal(null);
+      setSelectedIncident(null);
+    } catch (err) {
+      showError('Error al cerrar: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setIsClosing(false);
     }
   };
 
   const handleDeleteConfirm = async () => {
     if (!selectedIncident) return;
-    
     try {
       await incidentsAPI.delete(selectedIncident.id);
-      // Refresh the incidents list using React Query instead of page reload
       queryClient.invalidateQueries(['incidents']);
-      showSuccess('Incidencia eliminada exitosamente');
-    } catch (error) {
-      console.error('Error deleting incident:', error);
-      showError('Error al eliminar la incidencia: ' + (error.response?.data?.error || error.message));
+      showSuccess('Registro eliminado');
+    } catch (err) {
+      showError('Error al eliminar: ' + (err.response?.data?.error || err.message));
     } finally {
-      setShowDeleteModal(false);
-      setSelectedIncident(null);
-    }
-  };
-
-  const handleEditSave = async (updatedData) => {
-    if (!selectedIncident) return;
-    
-    try {
-      await incidentsAPI.update(selectedIncident.id, updatedData);
-      // Refresh the incidents list using React Query
-      queryClient.invalidateQueries(['incidents']);
-      showSuccess('Incidencia actualizada exitosamente');
-    } catch (error) {
-      console.error('Error updating incident:', error);
-      showError('Error al actualizar la incidencia: ' + (error.response?.data?.error || error.message));
-    } finally {
-      setShowEditModal(false);
+      setActiveModal(null);
       setSelectedIncident(null);
     }
   };
 
   const getStatusBadge = (incident) => {
-    // Determinar el estado simplificado basado en el estado actual y escalaciones
-    let displayStatus = '';
-    let statusClass = '';
-    
+    let label = 'Abierto';
+    let color = 'bg-blue-100 text-blue-800';
     if (incident.estado === 'cerrado') {
-      displayStatus = 'Cerrado';
-      statusClass = 'bg-green-100 text-green-800 border-green-200';
-    } else if (incident.escalated_to_supplier) {
-      displayStatus = 'Proveedor';
-      statusClass = 'bg-orange-100 text-orange-800 border-orange-200';
-    } else if (incident.escalated_to_quality || incident.estado === 'laboratorio') {
-      displayStatus = 'Laboratorio';
-      statusClass = 'bg-purple-100 text-purple-800 border-purple-200';
-    } else {
-      displayStatus = 'Abierto';
-      statusClass = 'bg-blue-100 text-blue-800 border-blue-200';
+      label = 'Cerrado'; color = 'bg-green-100 text-green-800';
+    } else if (incident.estado === 'proveedor' || incident.escalated_to_supplier) {
+      label = 'Proveedor'; color = 'bg-orange-100 text-orange-800';
+    } else if (incident.estado === 'calidad' || incident.escalated_to_quality || incident.estado === 'laboratorio') {
+      label = 'Laboratorio'; color = 'bg-purple-100 text-purple-800';
+    } else if (incident.estado === 'reporte_visita') {
+      label = 'Auditoría'; color = 'bg-indigo-100 text-indigo-800';
     }
-    
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border ${statusClass}`}>
-        {displayStatus}
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${color}`}>
+        {label}
       </span>
     );
   };
 
   const getPriorityBadge = (prioridad) => {
-    const priorityClasses = {
-      baja: 'bg-gray-100 text-gray-800 border-gray-200',
-      media: 'bg-blue-100 text-blue-800 border-blue-200',
-      alta: 'bg-orange-100 text-orange-800 border-orange-200',
-      critica: 'bg-red-100 text-red-800 border-red-200',
+    const map = {
+      baja: 'bg-gray-100 text-gray-800',
+      media: 'bg-blue-100 text-blue-800',
+      alta: 'bg-orange-100 text-orange-800',
+      critica: 'bg-red-100 text-red-800'
     };
-    
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold border ${priorityClasses[prioridad] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${map[prioridad] || 'bg-gray-100 text-gray-800'}`}>
         {prioridad}
       </span>
     );
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-600">Error al cargar las incidencias</p>
-      </div>
-    );
-  }
+  if (isLoading) return (
+    <div className="flex flex-col items-center justify-center p-20 space-y-4">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="text-gray-500 font-medium">Cargando incidencias...</div>
+    </div>
+  );
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="mb-8">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
         <div>
-              <h1 className="text-3xl font-bold text-gray-900">Incidencias</h1>
-              <p className="mt-2 text-lg text-gray-600">
-            {totalCount} incidencias encontradas
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Listado de Incidencias</h1>
+          <p className="text-gray-500">Gestión y seguimiento de protocolos de postventa.</p>
         </div>
-        <Link
-          to="/incidents/new"
-              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-105"
-        >
-              <PlusIcon className="h-5 w-5 mr-2" />
-          Nueva Incidencia
-        </Link>
+
+        <div className="flex flex-wrap gap-3">
+          <button onClick={() => exportIncidents(incidents, 'incidencias')} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            Exportar
+          </button>
+          <button onClick={handleRefresh} className="p-2 text-gray-500 hover:text-blue-600 bg-gray-50 rounded-lg">
+            <ArrowPathIcon className="w-5 h-5" />
+          </button>
+          <Link to="/incidents/new" className="flex items-center gap-2 px-6 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition-all">
+            <PlusIcon className="w-5 h-5" />
+            Nueva Incidencia
+          </Link>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {[
+          { label: 'Total', val: kpis.total_incidents, color: 'text-gray-900', bg: 'bg-gray-50' },
+          { label: 'Abiertas', val: kpis.open_incidents, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Laboratorio', val: labCount, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { label: 'Proveedor', val: providerCount, color: 'text-orange-600', bg: 'bg-orange-50' },
+          { label: 'Cerradas', val: kpis.closed_incidents, color: 'text-green-600', bg: 'bg-green-50' }
+        ].map((k, i) => (
+          <div key={i} className={`p-4 rounded-xl border border-gray-100 ${k.bg} shadow-sm`}>
+            <p className="text-xs font-semibold text-gray-500 uppercase mb-1 tracking-wider">{k.label}</p>
+            <span className={`text-2xl font-bold ${k.color}`}>{k.val}</span>
           </div>
+        ))}
       </div>
 
       {/* Filters */}
-        <div className="bg-white shadow-lg rounded-xl border border-gray-100 p-6 mb-6">
-          <div className="flex items-center mb-4">
-            <FunnelIcon className="h-5 w-5 text-gray-500 mr-2" />
-            <h3 className="text-lg font-semibold text-gray-900">Filtros</h3>
-          </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Buscar</label>
-            <div className="relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                placeholder="Código, cliente, proveedor..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
-            <select
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              value={filters.estado}
-              onChange={(e) => handleFilterChange('estado', e.target.value)}
-            >
-              <option value="">Todos los estados</option>
-              <option value="abierto">Abierto</option>
-              <option value="triage">Triage</option>
-              <option value="inspeccion">Inspección</option>
-              <option value="laboratorio">Laboratorio</option>
-              <option value="propuesta">Propuesta</option>
-              <option value="en_progreso">En Progreso</option>
-              <option value="cerrado">Cerrado</option>
-            </select>
-          </div>
-          <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Prioridad</label>
-            <select
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              value={filters.prioridad}
-              onChange={(e) => handleFilterChange('prioridad', e.target.value)}
-            >
-              <option value="">Todas las prioridades</option>
-              <option value="baja">Baja</option>
-              <option value="media">Media</option>
-              <option value="alta">Alta</option>
-              <option value="critica">Crítica</option>
-            </select>
-          </div>
+      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-4">
+        <div className="flex-1 relative">
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Buscar por cliente, código o descripción..."
+            value={searchTerm}
+            onChange={(e) => handleFilterChange('search', e.target.value)}
+            className="w-full bg-gray-50 border-gray-200 rounded-lg pl-10 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+        <div className="flex gap-4">
+          <select
+            value={filters.estado}
+            onChange={(e) => handleFilterChange('estado', e.target.value)}
+            className="bg-white border-gray-200 rounded-lg text-sm text-gray-600 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Todos los estados</option>
+            <option value="abierto">Abierto</option>
+            <option value="calidad">Laboratorio</option>
+            <option value="proveedor">Proveedor</option>
+            <option value="cerrado">Cerrado</option>
+          </select>
+          <select
+            value={filters.categoria}
+            onChange={(e) => handleFilterChange('categoria', e.target.value)}
+            className="bg-white border-gray-200 rounded-lg text-sm text-gray-600 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Todas las categorías</option>
+            <option value="tuberia_beta">Tubería BETA</option>
+            <option value="tuberia_ppr">Tubería PPR</option>
+            <option value="tuberia_hdpe">Tubería HDPE</option>
+            <option value="fitting_beta">Fitting BETA</option>
+            <option value="fitting_ppr">Fitting PPR</option>
+            <option value="fitting_hdpe">Fitting HDPE</option>
+          </select>
         </div>
       </div>
 
-      {/* Incidents Table */}
-        <div className="bg-white shadow-xl rounded-xl border border-gray-100 overflow-hidden">
-        {incidents.length === 0 ? (
-            <div className="text-center py-16">
-              <ExclamationTriangleIcon className="mx-auto h-16 w-16 text-gray-400" />
-              <h3 className="mt-4 text-lg font-medium text-gray-900">No hay incidencias</h3>
-              <p className="mt-2 text-sm text-gray-500">
-              Comience creando una nueva incidencia.
-            </p>
-              <div className="mt-8">
-                <Link 
-                  to="/incidents/new" 
-                  className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-105"
-                >
-                  <PlusIcon className="h-5 w-5 mr-2" />
-                Nueva Incidencia
-              </Link>
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Código</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Categoría</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Prioridad</th>
+                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Fecha</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {incidents.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-20 text-center text-gray-400 font-medium">No se encontraron incidencias.</td>
+                </tr>
+              ) : incidents.map(inc => (
+                <tr key={inc.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4">
+                    <span className="font-bold text-gray-900">{inc.code}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-medium text-gray-900 truncate max-w-[200px]">{inc.cliente}</div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-600">
+                    {inc.categoria?.replace(/_/g, ' ')}
+                  </td>
+                  <td className="px-6 py-4">{getStatusBadge(inc)}</td>
+                  <td className="px-6 py-4">{getPriorityBadge(inc.prioridad)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500 tabular-nums">
+                    {new Date(inc.fecha_deteccion || inc.fecha_reporte).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => handleViewDetails(inc)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white border border-gray-200 rounded-md hover:border-blue-200 transition-all">
+                        <EyeIcon className="w-5 h-5" />
+                      </button>
+                      <button onClick={() => navigate(`/incidents/${inc.id}/edit`)} className="p-1.5 text-gray-400 hover:text-blue-600 bg-white border border-gray-200 rounded-md hover:border-blue-200 transition-all">
+                        <ArrowPathIcon className="w-5 h-5" />
+                      </button>
+                      {inc.estado !== 'cerrado' ? (
+                        <button onClick={() => handleClose(inc)} className="p-1.5 text-gray-400 hover:text-green-600 bg-white border border-gray-200 rounded-md hover:border-green-200 transition-all">
+                          <CheckCircleIcon className="w-5 h-5" />
+                        </button>
+                      ) : (
+                        <button onClick={() => handleReopen(inc)} className="p-1.5 text-gray-400 hover:text-orange-600 bg-white border border-gray-200 rounded-md hover:border-orange-200 transition-all">
+                          <ArrowPathIcon className="w-5 h-5" />
+                        </button>
+                      )}
+                      {user?.role === 'admin' && (
+                        <button onClick={() => handleDelete(inc)} className="p-1.5 text-gray-400 hover:text-red-600 bg-white border border-gray-200 rounded-md hover:border-red-200 transition-all">
+                          <TrashIcon className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="text-sm text-gray-600">
+            Mostrando <span className="font-semibold text-gray-900">{startIndex}-{endIndex}</span> de <span className="font-semibold text-gray-900">{totalCount}</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <select
+              value={filters.page_size}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              className="text-sm bg-white border-gray-200 rounded-lg text-gray-600 py-1"
+            >
+              {[10, 20, 50, 100].map(v => <option key={v} value={v}>{v} por página</option>)}
+            </select>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handlePageChange(filters.page - 1)}
+                disabled={filters.page === 1}
+                className="p-1.5 text-gray-500 hover:bg-white border border-transparent hover:border-gray-200 rounded-md disabled:opacity-30"
+              >
+                <ChevronLeftIcon className="w-5 h-5" />
+              </button>
+              <span className="text-sm font-medium text-gray-700">Página {filters.page} de {totalPages}</span>
+              <button
+                onClick={() => handlePageChange(filters.page + 1)}
+                disabled={filters.page === totalPages}
+                className="p-1.5 text-gray-500 hover:bg-white border border-transparent hover:border-gray-200 rounded-md disabled:opacity-30"
+              >
+                <ChevronRightIcon className="w-5 h-5" />
+              </button>
             </div>
           </div>
-        ) : (
-        <div className="table-container overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[120px]">
-                    Código
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[150px]">
-                    Cliente
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[150px]">
-                    Proveedor
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[180px]">
-                    Categoría
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[120px]">
-                    Estado
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[100px]">
-                    Prioridad
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[120px]">
-                    Fecha
-                  </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider min-w-[200px]">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {incidents.map((incident) => {
-                  // Determinar el estilo de la fila basado en el estado
-                  let rowClassName = "hover:bg-gray-50 transition-colors duration-200";
-                  
-                  if (incident.estado === 'cerrado') {
-                    rowClassName += " bg-green-50 border-l-4 border-green-400";
-                  } else if (incident.escalated_to_quality) {
-                    rowClassName += " bg-purple-50 border-l-4 border-purple-400";
-                  } else if (incident.escalated_to_supplier) {
-                    rowClassName += " bg-orange-50 border-l-4 border-orange-400";
-                  }
-                  
-                  return (
-                    <tr key={incident.id} className={rowClassName}>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      <Link
-                        to={`/incidents/${incident.id}`}
-                          className="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-                      >
-                        {incident.code}
-                      </Link>
-                    </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        <div className="max-w-[140px] truncate" title={incident.cliente}>
-                          {incident.cliente}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        <div className="max-w-[140px] truncate" title={incident.provider}>
-                          {incident.provider}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                      <div className="flex flex-col max-w-[160px]">
-                        <span className="font-medium truncate" title={incident.categoria}>{incident.categoria}</span>
-                        {incident.subcategoria && (
-                          <span className="text-xs text-gray-500 truncate" title={incident.subcategoria}>{incident.subcategoria}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {getStatusBadge(incident)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {getPriorityBadge(incident.prioridad)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                        {new Date(incident.fecha_reporte).toLocaleDateString('es-ES', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      <div className="flex items-center space-x-1 flex-wrap">
-                        <button
-                          onClick={() => handleViewDetails(incident)}
-                          className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Ver detalles"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(incident)}
-                          className="p-1.5 text-gray-400 hover:text-yellow-600 transition-colors"
-                          title="Editar"
-                        >
-                          <PencilIcon className="h-4 w-4" />
-                        </button>
-                        {incident.images_count > 0 && (
-                          <button
-                            onClick={() => handleViewImages(incident)}
-                            className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
-                            title="Ver Imágenes"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleViewAttachments(incident)}
-                          className="p-1.5 text-gray-400 hover:text-purple-600 transition-colors"
-                          title="Ver Adjuntos"
-                        >
-                          <PaperClipIcon className="h-4 w-4" />
-                        </button>
-                        {incident.estado === 'cerrado' && (
-                          <button
-                            onClick={() => handleReopen(incident)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"
-                            title="Reabrir Incidencia"
-                          >
-                            <ArrowPathIcon className="h-4 w-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(incident)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
-                          title="Eliminar"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        </div>
         </div>
       </div>
 
       {/* Detail Modal */}
-      {showDetailModal && selectedIncident && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Detalles de la Incidencia
-                </h3>
-                <button
-                  onClick={() => setShowDetailModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
+      {activeModal === 'detail' && selectedIncident && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-600/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col rounded-2xl shadow-2xl animate-scale-in">
+            <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Detalle de Incidencia</h3>
+                <p className="text-sm text-gray-500 uppercase tracking-wider font-semibold">Código: {selectedIncident.code}</p>
               </div>
-              
-              <div className="space-y-6">
-                {/* Información Básica */}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Información Básica</h4>
+              <button onClick={() => setActiveModal(null)} className="p-2 text-gray-400 hover:text-gray-600"><XMarkIcon className="w-6 h-6" /></button>
+            </div>
+
+            <div className="p-8 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-6">
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Descripción de la incidencia</h4>
+                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {selectedIncident.description || 'Sin descripción detallada.'}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Código</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.code}</p>
+                    <div className="p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Categoría</p>
+                      <p className="font-semibold text-gray-900">{selectedIncident.categoria?.replace(/_/g, ' ')}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Estado</label>
-                      <div className="mt-1">
-                        {getStatusBadge(selectedIncident)}
-                      </div>
+                    <div className="p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs font-bold text-gray-400 uppercase mb-1">Subcategoría</p>
+                      <p className="font-semibold text-gray-900">{selectedIncident.subcategoria || 'N/A'}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Prioridad</label>
-                      <div className="mt-1">
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 space-y-4">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-200 pb-2">Estado del Proceso</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Prioridad Actual</p>
                         {getPriorityBadge(selectedIncident.prioridad)}
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Responsable</label>
-                      <p className="mt-1 text-sm text-gray-900">
-                        {selectedIncident.responsable === 'patricio_morales' ? 'Patricio Morales' : 'Marco Montenegro'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Información del Cliente y Proveedor */}
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Cliente y Proveedor</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Cliente</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.cliente}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Proveedor</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.provider}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Obra</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.obra}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Creado por</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.created_by?.full_name || 'N/A'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Información del Producto */}
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Información del Producto</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">SKU</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.sku || 'No especificado'}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Lote</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.lote || 'No especificado'}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Categoría</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.categoria}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Subcategoría</label>
-                      <p className="mt-1 text-sm text-gray-900">{selectedIncident.subcategoria || 'No especificada'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Detalles de la Incidencia */}
-                <div className="bg-yellow-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Detalles de la Incidencia</h4>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Descripción</label>
-                      <p className="mt-1 text-sm text-gray-900 bg-white p-3 rounded border">{selectedIncident.descripcion}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Fecha de Detección</label>
-                        <p className="mt-1 text-sm text-gray-900">{selectedIncident.fecha_deteccion}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Estado Operativo</p>
+                        {getStatusBadge(selectedIncident)}
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Hora de Detección</label>
-                        <p className="mt-1 text-sm text-gray-900">{selectedIncident.hora_deteccion}</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Fecha de Reporte</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedIncident.fecha_reporte).toLocaleDateString('es-CL')}
-                        </p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Fecha de Registro</p>
+                        <p className="text-sm font-semibold text-gray-900">{new Date(selectedIncident.fecha_deteccion).toLocaleString()}</p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Creado</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedIncident.created_at).toLocaleDateString('es-CL')}
-                        </p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Responsable</p>
+                        <p className="text-sm font-semibold text-blue-600">{selectedIncident.responsable?.replace(/_/g, ' ')}</p>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Estado de Escalación */}
-                <div className="bg-purple-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Estado de Escalación</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Escalado a Calidad</label>
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          selectedIncident.escalated_to_quality 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {selectedIncident.escalated_to_quality ? 'Sí' : 'No'}
-                        </span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Escalado a Proveedor</label>
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          selectedIncident.escalated_to_supplier 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {selectedIncident.escalated_to_supplier ? 'Sí' : 'No'}
-                        </span>
-                      </div>
-                    </div>
-                    {selectedIncident.escalation_date && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Fecha de Escalación</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {new Date(selectedIncident.escalation_date).toLocaleDateString('es-CL')}
-                        </p>
-                      </div>
-                    )}
-                    {selectedIncident.escalation_reason && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Razón de Escalación</label>
-                        <p className="mt-1 text-sm text-gray-900">{selectedIncident.escalation_reason}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Imágenes Adjuntas */}
-                {selectedIncident.images_count > 0 && (
-                  <div className="bg-indigo-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Imágenes Adjuntas</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                      {Array.from({ length: selectedIncident.images_count }).map((_, index) => (
-                        <div key={index} className="bg-white p-2 rounded border">
-                          <div className="w-full h-32 bg-gray-200 rounded flex items-center justify-center">
-                            <span className="text-gray-500 text-sm">Imagen {index + 1}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-sm text-gray-600">
-                      {selectedIncident.images_count} imagen(es) adjunta(s)
-                    </p>
-                  </div>
-                )}
-
-                {/* Documentos Adjuntos */}
-                {selectedIncident.documents_count > 0 && (
-                  <div className="bg-orange-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Documentos Adjuntos</h4>
-                    <p className="text-sm text-gray-600">
-                      {selectedIncident.documents_count} documento(s) adjunto(s)
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Imágenes Adjuntas */}
-              {selectedIncident.images_count > 0 && (
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-4">Imágenes Adjuntas</h4>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-600">
-                      {selectedIncident.images_count} imagen{selectedIncident.images_count !== 1 ? 'es' : ''} adjunta{selectedIncident.images_count !== 1 ? 's' : ''}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setShowDetailModal(false);
-                        handleViewImages(selectedIncident);
-                      }}
-                      className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                      <EyeIcon className="h-4 w-4 mr-1" />
-                      Ver Imágenes
+                  <div className="flex flex-col gap-3">
+                    <button onClick={() => handleViewAttachments(selectedIncident)} className="flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition-colors">
+                      <PaperClipIcon className="w-4 h-4" /> Adjuntos
+                    </button>
+                    <button onClick={() => handleViewImages(selectedIncident)} className="flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition-colors">
+                      <PhotoIcon className="w-4 h-4" /> Fotos
                     </button>
                   </div>
                 </div>
-              )}
-
-              {/* Sin Documentos Adjuntos */}
-              {selectedIncident.images_count === 0 && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="text-lg font-semibold text-gray-900 mb-2">Documentos Adjuntos</h4>
-                  <p className="text-sm text-gray-600">Sin documentos adjuntos</p>
-                </div>
-              )}
-              
-              <div className="mt-6 flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowDetailModal(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                >
-                  Cerrar
-                </button>
-                <button
-                  onClick={() => {
-                    setShowDetailModal(false);
-                    handleEdit(selectedIncident);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Editar
-                </button>
               </div>
+            </div>
+
+            <div className="px-8 py-5 bg-gray-50 border-t border-gray-100 flex gap-4">
+              <button onClick={() => navigate(`/incidents/${selectedIncident.id}/edit`)} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all">Editar Información</button>
+              <button onClick={() => setActiveModal(null)} className="px-6 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg font-bold hover:bg-gray-50 transition-all ml-auto">Cerrar Vista</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Modal */}
-      {showEditModal && selectedIncident && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Editar Incidencia
-                </h3>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ✕
-                </button>
-              </div>
-              
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.target);
-                const updatedData = {
-                  cliente: formData.get('cliente'),
-                  provider: formData.get('provider'),
-                  obra: formData.get('obra'),
-                  sku: formData.get('sku'),
-                  lote: formData.get('lote'),
-                  descripcion: formData.get('descripcion'),
-                  estado: formData.get('estado'),
-                  prioridad: formData.get('prioridad'),
-                  categoria: formData.get('categoria'),
-                  subcategoria: formData.get('subcategoria'),
-                  responsable: formData.get('responsable'),
-                  fecha_deteccion: formData.get('fecha_deteccion'),
-                  hora_deteccion: formData.get('hora_deteccion'),
-                };
-                handleEditSave(updatedData);
-              }}>
-                <div className="space-y-6">
-                  {/* Información Básica */}
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Información Básica</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Estado</label>
-                        <select
-                          name="estado"
-                          defaultValue={selectedIncident.estado}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="abierto">Abierto</option>
-                          <option value="cerrado">Cerrado</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Prioridad</label>
-                        <select
-                          name="prioridad"
-                          defaultValue={selectedIncident.prioridad}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="baja">Baja</option>
-                          <option value="media">Media</option>
-                          <option value="alta">Alta</option>
-                          <option value="critica">Crítica</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Responsable</label>
-                        <select
-                          name="responsable"
-                          defaultValue={selectedIncident.responsable}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="patricio_morales">Patricio Morales</option>
-                          <option value="marco_montenegro">Marco Montenegro</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cliente y Proveedor */}
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Cliente y Proveedor</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Cliente</label>
-                        <input
-                          type="text"
-                          name="cliente"
-                          defaultValue={selectedIncident.cliente}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Proveedor</label>
-                        <input
-                          type="text"
-                          name="provider"
-                          defaultValue={selectedIncident.provider}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">Obra</label>
-                        <input
-                          type="text"
-                          name="obra"
-                          defaultValue={selectedIncident.obra}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Información del Producto */}
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Información del Producto</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">SKU</label>
-                        <input
-                          type="text"
-                          name="sku"
-                          defaultValue={selectedIncident.sku || ''}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Lote</label>
-                        <input
-                          type="text"
-                          name="lote"
-                          defaultValue={selectedIncident.lote || ''}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Categoría</label>
-                        <select
-                          name="categoria"
-                          defaultValue={selectedIncident.categoria}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <optgroup label="Tubería">
-                            <option value="tuberia_beta">Tubería BETA</option>
-                            <option value="tuberia_ppr">Tubería PPR</option>
-                            <option value="tuberia_hdpe">Tubería HDPE</option>
-                          </optgroup>
-                          <optgroup label="Fitting">
-                            <option value="fitting_inserto_metalico">Fitting con inserto metálico</option>
-                            <option value="fitting_ppr">Fitting PPR</option>
-                            <option value="fitting_hdpe_electrofusion">Fitting HDPE Electrofusión</option>
-                            <option value="fitting_hdpe_fusion_tope">Fitting HDPE Fusión Tope</option>
-                          </optgroup>
-                          <optgroup label="Otros">
-                            <option value="llave">LLave</option>
-                            <option value="flange">Flange</option>
-                            <option value="inserto_metalico">Inserto metálico</option>
-                            <option value="otro">Otro</option>
-                          </optgroup>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Subcategoría</label>
-                        <input
-                          type="text"
-                          name="subcategoria"
-                          defaultValue={selectedIncident.subcategoria || ''}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Detalles de la Incidencia */}
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Detalles de la Incidencia</h4>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Descripción</label>
-                        <textarea
-                          name="descripcion"
-                          rows={4}
-                          defaultValue={selectedIncident.descripcion}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Fecha de Detección</label>
-                          <input
-                            type="date"
-                            name="fecha_deteccion"
-                            defaultValue={selectedIncident.fecha_deteccion}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">Hora de Detección</label>
-                          <input
-                            type="time"
-                            name="hora_deteccion"
-                            defaultValue={selectedIncident.hora_deteccion}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="mt-6 flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowEditModal(false)}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                  >
-                    Guardar Cambios
-                  </button>
-                </div>
-              </form>
+      {/* Delete Confirmation */}
+      {activeModal === 'delete' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-600/50 backdrop-blur-sm">
+          <div className="bg-white max-w-md w-full p-8 rounded-2xl shadow-2xl text-center space-y-6">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+              <ExclamationTriangleIcon className="w-8 h-8 text-red-600" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Eliminar Registro</h3>
+              <p className="text-gray-500 text-sm">¿Estás seguro de que deseas eliminar permanentemente la incidencia <span className="font-bold text-gray-900">{selectedIncident.code}</span>? Esta acción es irreversible.</p>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={() => setActiveModal(null)} className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50">Cancelar</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-sm">Confirmar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && selectedIncident && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
-                <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
-              </div>
-              <div className="mt-2 text-center">
-                <h3 className="text-lg font-medium text-gray-900">Eliminar Incidencia</h3>
-                <div className="mt-2">
-                  <p className="text-sm text-gray-500">
-                    ¿Estás seguro de que quieres eliminar la incidencia <strong>{selectedIncident.code}</strong>?
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Esta acción no se puede deshacer.
-                  </p>
+      {/* Attachments / Images (Lazy usage) */}
+      {activeModal === 'attachments' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-600/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-4xl max-h-[80vh] flex flex-col rounded-2xl shadow-2xl p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Documentos Adjuntos</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 text-gray-400 hover:text-gray-600"><XMarkIcon className="w-6 h-6" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <IncidentAttachments incidentId={selectedIncident.id} incidentCode={selectedIncident.code} onUpdate={() => queryClient.invalidateQueries(['incidents'])} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'images' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-600/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-5xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Galería de Imágenes</h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 text-gray-400 hover:text-gray-600"><XMarkIcon className="w-6 h-6" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <IncidentImages incidentId={selectedIncident.id} onClose={() => setActiveModal(null)} incident={selectedIncident} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Final Closure Modal */}
+      {activeModal === 'close' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-600/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-green-50">
+            <div className="p-8">
+              <div className="flex justify-between items-start mb-8">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Cierre de Incidencia</h3>
+                  <p className="text-sm text-gray-500 mt-1">Finalización formal del proceso de garantía.</p>
                 </div>
+                <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-6 h-6" /></button>
               </div>
-              <div className="mt-6 flex justify-center space-x-3">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleDeleteConfirm}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                >
-                  Eliminar
-                </button>
-              </div>
+              <IncidentClosureForm onSubmit={handleClosureSubmit} onCancel={() => setActiveModal(null)} isDisabled={isClosing} />
             </div>
           </div>
         </div>
-      )}
-
-      {/* Attachments Modal */}
-      {showAttachmentsModal && selectedIncident && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900">
-                Adjuntos - {selectedIncident.code}
-              </h3>
-              <button
-                onClick={() => setShowAttachmentsModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <XMarkIcon className="h-6 w-6" />
-              </button>
-            </div>
-            <IncidentAttachments 
-              incidentId={selectedIncident.id} 
-              incidentCode={selectedIncident.code} 
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Images Modal */}
-      {showImagesModal && selectedIncident && (
-        <IncidentImages
-          incident={selectedIncident}
-          onClose={() => {
-            setShowImagesModal(false);
-            setSelectedIncident(null);
-          }}
-        />
       )}
     </div>
   );

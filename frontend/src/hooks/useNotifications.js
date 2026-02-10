@@ -1,283 +1,141 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../services/api';
+import { toast } from 'react-hot-toast';
+import { notificationsAPI } from '../services/api';
 import notificationService from '../services/notificationService';
 
-// Hook principal para notificaciones con WebSocket
+/**
+ * Hook principal para notificaciones en tiempo real
+ * Integra WebSocket (via NotificationService) y API REST
+ */
 export const useNotifications = () => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(notificationService.isConnected);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    // Solo conectar si no hay conexión activa
-    if (!notificationService.isConnected && !notificationService.isConnecting) {
-      console.log('🔌 Conectando WebSocket para notificaciones en tiempo real...');
-      notificationService.connect();
-    }
+  // Funciones helper para mostrar notificaciones (toast) - Mantener compatibilidad
+  const showSuccess = useCallback((message) => toast.success(message), []);
+  const showError = useCallback((message) => toast.error(message), []);
+  const showInfo = useCallback((message) => toast(message, { icon: 'ℹ️' }), []);
+  const showWarning = useCallback((message) => toast(message, { icon: '⚠️' }), []);
 
-    // Suscribirse a eventos del servicio
+  // Cargar notificaciones iniciales via HTTP
+  const loadNotifications = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [recentRes, unreadRes] = await Promise.all([
+        notificationsAPI.recent(),
+        notificationsAPI.unreadCount()
+      ]);
+      setNotifications(recentRes.data || []);
+      setUnreadCount(unreadRes.data.unread_count || 0);
+    } catch (error) {
+      console.error('Error cargando notificaciones:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Suscribirse a eventos WebSocket
+  useEffect(() => {
+    // Carga inicial
+    loadNotifications();
+
+    // Asegurar conexión WS
+    notificationService.connect();
+
+    // Handlers de eventos
+    const handleNewNotification = (notification) => {
+      setNotifications(prev => [notification, ...prev]);
+      setUnreadCount(prev => prev + 1);
+
+      // Notificación visual flotante
+      toast(notification.title, {
+        icon: '🔔',
+        duration: 4000,
+        position: 'top-right'
+      });
+    };
+
+    const handleUnreadUpdate = (data) => {
+      if (data.count !== undefined) {
+        setUnreadCount(data.count);
+      }
+    };
+
     const handleConnected = () => setIsConnected(true);
     const handleDisconnected = () => setIsConnected(false);
-    const handleNotificationAdded = (notification) => {
-      setNotifications(prev => [notification, ...prev]);
-      if (!notification.is_read) {
-        setUnreadCount(prev => prev + 1);
-      }
-    };
-    const handleNotificationUpdated = (notification) => {
-      setNotifications(prev => 
-        prev.map(n => n.id === notification.id ? notification : n)
-      );
-    };
-    const handleNotificationRemoved = (notification) => {
-      setNotifications(prev => prev.filter(n => n.id !== notification.id));
-      if (!notification.is_read) {
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
-    };
-    const handleUnreadCountUpdate = (data) => {
-      setUnreadCount(data.count);
-    };
-    const handleNotificationsList = (data) => {
-      setNotifications(data.notifications);
-      setIsLoading(false);
-    };
 
+    // Registrar listeners
+    notificationService.on('notification_added', handleNewNotification);
+    notificationService.on('unread_count_update', handleUnreadUpdate);
     notificationService.on('connected', handleConnected);
     notificationService.on('disconnected', handleDisconnected);
-    notificationService.on('notification_added', handleNotificationAdded);
-    notificationService.on('notification_updated', handleNotificationUpdated);
-    notificationService.on('notification_removed', handleNotificationRemoved);
-    notificationService.on('unread_count_update', handleUnreadCountUpdate);
-    notificationService.on('notifications_list', handleNotificationsList);
-
-    // Cargar notificaciones iniciales solo si no hay conexión activa
-    if (!notificationService.isConnected) {
-      loadNotifications();
-    }
 
     return () => {
+      notificationService.off('notification_added', handleNewNotification);
+      notificationService.off('unread_count_update', handleUnreadUpdate);
       notificationService.off('connected', handleConnected);
       notificationService.off('disconnected', handleDisconnected);
-      notificationService.off('notification_added', handleNotificationAdded);
-      notificationService.off('notification_updated', handleNotificationUpdated);
-      notificationService.off('notification_removed', handleNotificationRemoved);
-      notificationService.off('unread_count_update', handleUnreadCountUpdate);
-      notificationService.off('notifications_list', handleNotificationsList);
     };
-  }, []);
+  }, [loadNotifications]);
 
-  const loadNotifications = useCallback((limit = 20, page = 1, filterType = 'all') => {
-    setIsLoading(true);
-    
-    // Esperar a que el WebSocket esté conectado antes de enviar mensaje
-    if (notificationService.isConnected) {
-      notificationService.getNotifications(limit, page, filterType);
-    } else {
-      // Si no está conectado, esperar un momento y reintentar
-      const checkConnection = () => {
-        if (notificationService.isConnected) {
-          notificationService.getNotifications(limit, page, filterType);
-        } else {
-          setTimeout(checkConnection, 100);
-        }
-      };
-      setTimeout(checkConnection, 100);
+  // Acciones
+  const markAsRead = async (id) => {
+    try {
+      // Optimistic update
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+
+      await notificationsAPI.markAsRead(id);
+    } catch (error) {
+      console.error('Error marcando como leída:', error);
+      // Revertir si falla (opcional, por simplicidad omitimos revert complejo)
+      loadNotifications();
     }
-  }, []);
+  };
 
-  const markAsRead = useCallback((notificationId) => {
-    notificationService.markAsRead(notificationId);
-    setNotifications(prev =>
-      prev.map(n =>
-        n.id === notificationId ? { ...n, is_read: true } : n
-      )
-    );
-    setUnreadCount(prev => Math.max(0, prev - 1));
-  }, []);
+  const markAllAsRead = async () => {
+    try {
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
 
-  const markAllAsRead = useCallback(() => {
-    notificationService.markAllAsRead();
-    setNotifications(prev =>
-      prev.map(n => ({ ...n, is_read: true }))
-    );
-    setUnreadCount(0);
-  }, []);
-
-  const markAsImportant = useCallback((notificationId, important = true) => {
-    notificationService.markAsImportant(notificationId, important);
-    setNotifications(prev =>
-      prev.map(n =>
-        n.id === notificationId ? { ...n, is_important: important } : n
-      )
-    );
-  }, []);
-
-  const connect = useCallback(() => {
-    notificationService.connect();
-  }, []);
-
-  const disconnect = useCallback(() => {
-    notificationService.disconnect();
-  }, []);
-
-  const reconnectAfterLogin = useCallback(() => {
-    notificationService.disconnect();
-    setTimeout(() => {
-      notificationService.connect();
-    }, 1000);
-  }, []);
-
-  const sendMessage = useCallback((message) => {
-    notificationService.send(message);
-  }, []);
+      await notificationsAPI.markAllAsRead();
+    } catch (error) {
+      console.error('Error marcando todas leídas:', error);
+      loadNotifications();
+    }
+  };
 
   return {
+    // Estado
     notifications,
     unreadCount,
     isConnected,
     isLoading,
+
+    // Acciones Datos
     loadNotifications,
     markAsRead,
     markAllAsRead,
-    markAsImportant,
-    connect,
-    disconnect,
-    reconnectAfterLogin,
-    sendMessage,
-    // Mantener compatibilidad con la API anterior
-    connectWebSocket: connect,
-    disconnectWebSocket: disconnect,
-    sendWebSocketMessage: sendMessage
+
+    // Toasts helpers
+    showSuccess,
+    showError,
+    showInfo,
+    showWarning,
+
+    // Control WS (wrappers)
+    connect: () => notificationService.connect(),
+    disconnect: () => notificationService.disconnect(),
+    connectWebSocket: () => notificationService.connect(), // Alias legacy
   };
 };
 
-// Hook para gestión de notificaciones con API REST
-export const useNotificationAPI = () => {
-  const queryClient = useQueryClient();
+// Exports de compatibilidad para evitar romper imports existentes
+export { useNotifications as useNotificationAPI };
+export { useNotifications as useNotificationPreferences };
+export { useNotifications as useCreateNotification };
+export { useNotifications as useNotificationStats };
 
-  // Obtener notificaciones
-  const { data: notifications, isLoading, error } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => api.get('/notifications/notifications/').then(res => res.data),
-    staleTime: 30000, // 30 segundos
-  });
-
-  // Obtener conteo de no leídas
-  const { data: unreadCount } = useQuery({
-    queryKey: ['notifications', 'unread-count'],
-    queryFn: () => api.get('/notifications/notifications/unread_count/').then(res => res.data),
-    staleTime: 10000, // 10 segundos
-    refetchInterval: 30000, // Refrescar cada 30 segundos
-  });
-
-  // Marcar como leída
-  const markAsReadMutation = useMutation({
-    mutationFn: (notificationId) => 
-      api.post(`/notifications/notifications/${notificationId}/mark_read/`),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['notifications']);
-      queryClient.invalidateQueries(['notifications', 'unread-count']);
-    },
-  });
-
-  // Marcar todas como leídas
-  const markAllAsReadMutation = useMutation({
-    mutationFn: () => 
-      api.post('/notifications/notifications/mark_all_read/'),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['notifications']);
-      queryClient.invalidateQueries(['notifications', 'unread-count']);
-    },
-  });
-
-  // Obtener notificaciones recientes
-  const { data: recentNotifications } = useQuery({
-    queryKey: ['notifications', 'recent'],
-    queryFn: () => api.get('/notifications/notifications/recent/').then(res => res.data),
-    staleTime: 60000, // 1 minuto
-  });
-
-  // Obtener notificaciones importantes
-  const { data: importantNotifications } = useQuery({
-    queryKey: ['notifications', 'important'],
-    queryFn: () => api.get('/notifications/notifications/important/').then(res => res.data),
-    staleTime: 60000, // 1 minuto
-  });
-
-  return {
-    notifications,
-    unreadCount: unreadCount?.unread_count || 0,
-    recentNotifications,
-    importantNotifications,
-    isLoading,
-    error,
-    markAsRead: markAsReadMutation.mutate,
-    markAllAsRead: markAllAsReadMutation.mutate,
-    isMarkingAsRead: markAsReadMutation.isLoading,
-    isMarkingAllAsRead: markAllAsReadMutation.isLoading,
-  };
-};
-
-// Hook para preferencias de notificación
-export const useNotificationPreferences = () => {
-  const queryClient = useQueryClient();
-
-  // Obtener preferencias
-  const { data: preferences, isLoading } = useQuery({
-    queryKey: ['notification-preferences'],
-    queryFn: () => api.get('/notifications/preferences/my_preferences/').then(res => res.data),
-  });
-
-  // Actualizar preferencias
-  const updatePreferencesMutation = useMutation({
-    mutationFn: (data) => 
-      api.put('/notifications/preferences/my_preferences/', data),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['notification-preferences']);
-    },
-  });
-
-  return {
-    preferences,
-    isLoading,
-    updatePreferences: updatePreferencesMutation.mutate,
-    isUpdating: updatePreferencesMutation.isLoading,
-  };
-};
-
-// Hook para crear notificaciones
-export const useCreateNotification = () => {
-  const queryClient = useQueryClient();
-
-  const createNotificationMutation = useMutation({
-    mutationFn: (notificationData) => 
-      api.post('/notifications/notifications/', notificationData),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['notifications']);
-      queryClient.invalidateQueries(['notifications', 'unread-count']);
-    },
-  });
-
-  return {
-    createNotification: createNotificationMutation.mutate,
-    isCreating: createNotificationMutation.isLoading,
-    error: createNotificationMutation.error,
-  };
-};
-
-// Hook para estadísticas de notificaciones
-export const useNotificationStats = () => {
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ['notifications', 'stats'],
-    queryFn: () => api.get('/notifications/notifications/stats/').then(res => res.data),
-    staleTime: 300000, // 5 minutos
-  });
-
-  return {
-    stats,
-    isLoading,
-  };
-};
+export default useNotifications;

@@ -55,11 +55,14 @@ class Document(models.Model):
         ('plantilla', 'Plantilla'),
         ('oficial', 'Documento Oficial'),
         ('borrador', 'Borrador'),
+        ('incident_attachment', 'Adjunto de Incidencia'),
     ]
     
     title = models.CharField(max_length=200, help_text='Título del documento')
+    filename = models.CharField(max_length=255, blank=True, help_text='Nombre del archivo')
+    description = models.TextField(blank=True, help_text='Descripción del documento')
     document_type = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=DOCUMENT_TYPE_CHOICES,
         default='oficial',
         help_text='Tipo de documento'
@@ -67,10 +70,13 @@ class Document(models.Model):
     version = models.IntegerField(default=1, help_text='Versión del documento')
     docx_path = models.CharField(blank=True, max_length=500, help_text='Ruta del archivo .docx')
     pdf_path = models.CharField(blank=True, max_length=500, help_text='Ruta del archivo .pdf')
+    file_path = models.CharField(blank=True, max_length=500, help_text='Ruta del archivo adjunto')
+    size = models.BigIntegerField(default=0, help_text='Tamaño del archivo en bytes')
     content_html = models.TextField(blank=True, help_text='Contenido HTML del documento (para edición)')
     placeholders_data = models.JSONField(default=dict, help_text='Datos utilizados para reemplazar placeholders')
     notes = models.TextField(blank=True, help_text='Notas sobre el documento')
     is_final = models.BooleanField(default=False, help_text='Indica si es la versión final del documento')
+    is_public = models.BooleanField(default=False, help_text='Indica si el documento es público')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -186,6 +192,7 @@ class DocumentStatus(models.TextChoices):
     PENDING_REVIEW = 'pending_review', 'Pendiente de Revisión'
     APPROVED = 'approved', 'Aprobado'
     SENT = 'sent', 'Enviado'
+    WAITING_RESPONSE = 'waiting_response', 'Esperando Respuesta'
     CLOSED = 'closed', 'Cerrado'
 
 class VisitReport(models.Model):
@@ -206,28 +213,41 @@ class VisitReport(models.Model):
     )
     
     # Información del proyecto/cliente
-    project_name = models.CharField(max_length=200, verbose_name="Nombre del Proyecto")
-    project_id = models.CharField(max_length=50, blank=True, verbose_name="ID del Proyecto")
-    client_name = models.CharField(max_length=200, verbose_name="Nombre del Cliente")
-    client_rut = models.CharField(max_length=20, blank=True, verbose_name="RUT del Cliente")
-    address = models.TextField(verbose_name="Dirección")
+    project_name = models.CharField(max_length=200, blank=True, null=True, verbose_name="Nombre del Proyecto")
+    project_id = models.CharField(max_length=50, blank=True, null=True, verbose_name="ID del Proyecto")
+    client_name = models.CharField(max_length=200, blank=True, null=True, verbose_name="Nombre del Cliente")
+    client_rut = models.CharField(max_length=20, blank=True, null=True, verbose_name="Código Cliente")
+    address = models.TextField(blank=True, null=True, verbose_name="Dirección")
     construction_company = models.CharField(max_length=200, blank=True, verbose_name="Empresa Constructora")
     
     # Personal involucrado
-    salesperson = models.CharField(max_length=100, verbose_name="Vendedor")
-    technician = models.CharField(max_length=100, verbose_name="Técnico")
+    salesperson = models.CharField(max_length=100, blank=True, null=True, verbose_name="Vendedor")
+    technician = models.CharField(max_length=100, blank=True, null=True, verbose_name="Técnico")
     installer = models.CharField(max_length=100, blank=True, verbose_name="Instalador")
     installer_phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Instalador")
     
+    # Personal adicional (campos SAP)
+    professional_name = models.CharField(max_length=100, blank=True, verbose_name="Profesional de Obra")
+    technical_inspector = models.CharField(max_length=100, blank=True, verbose_name="Inspector Técnico de Obra")
+    quality_manager = models.CharField(max_length=100, blank=True, verbose_name="Encargado de Calidad")
+    management_manager = models.CharField(max_length=100, blank=True, verbose_name="Encargado de Gestión")
+    
+    # Datos de contacto adicionales
+    fax = models.CharField(max_length=20, blank=True, verbose_name="Fax")
+    contact_observations = models.TextField(blank=True, verbose_name="Observaciones de Contacto")
+    
     # Ubicación
-    commune = models.CharField(max_length=100, verbose_name="Comuna")
-    city = models.CharField(max_length=100, verbose_name="Ciudad")
+    commune = models.CharField(max_length=100, blank=True, null=True, verbose_name="Comuna")
+    city = models.CharField(max_length=100, blank=True, null=True, verbose_name="Ciudad")
     
     # Motivo de la visita
-    visit_reason = models.CharField(max_length=100, verbose_name="Motivo de la Visita")
+    visit_reason = models.CharField(max_length=100, blank=True, null=True, verbose_name="Motivo de la Visita")
     
     # Datos de máquinas
     machine_data = models.JSONField(default=dict, blank=True, verbose_name="Datos de Máquinas")
+    
+    # Tabla de materiales (Material, Cantidad, Marca, Lote)
+    materials_data = models.JSONField(default=list, blank=True, verbose_name="Tabla de Materiales")
     
     # Observaciones por sección
     wall_observations = models.TextField(blank=True, verbose_name="Observaciones Muro/Tabique")
@@ -243,7 +263,8 @@ class VisitReport(models.Model):
         max_length=20, 
         choices=DocumentStatus.choices, 
         default=DocumentStatus.DRAFT,
-        verbose_name="Estado"
+        verbose_name="Estado",
+        db_index=True
     )
     
     # Metadatos
@@ -255,8 +276,17 @@ class VisitReport(models.Model):
         related_name='created_visit_reports',
         verbose_name="Creado por"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación", db_index=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Fecha de Actualización")
+
+    
+    # Archivo PDF generado
+    pdf_file = models.FileField(
+        upload_to='visit_reports/pdfs/%Y/%m/', 
+        null=True, 
+        blank=True,
+        verbose_name="PDF del Reporte"
+    )
     
     # Firmas
     technician_signature = models.BooleanField(default=False, verbose_name="Firma del Técnico")
@@ -265,48 +295,70 @@ class VisitReport(models.Model):
     # Campos de almacenamiento
     docx_path = models.CharField(max_length=500, blank=True, null=True, verbose_name="Ruta del documento DOCX")
     pdf_path = models.CharField(max_length=500, blank=True, null=True, verbose_name="Ruta del documento PDF")
+
+    
+    # Integración SAP
+    sap_call_id = models.IntegerField(null=True, blank=True, verbose_name="ID Llamada SAP", db_index=True)
+    sync_status = models.CharField(max_length=20, default='pending', verbose_name="Estado Sincronización") # pending, synced, error
+    last_synced_at = models.DateTimeField(null=True, blank=True, verbose_name="Última Sincronización")
+    sync_error_message = models.TextField(blank=True, null=True, verbose_name="Error Sincronización")
     
     class Meta:
         verbose_name = "Reporte de Visita"
         verbose_name_plural = "Reportes de Visita"
-        ordering = ['-visit_date']
+        ordering = ['-created_at']
     
     def __str__(self):
         return f"Reporte {self.report_number} - {self.project_name}"
     
     def save(self, *args, **kwargs):
-        if not self.report_number:
-            # Generar número de reporte automáticamente
-            try:
-                last_report = VisitReport.objects.exclude(id=self.id).order_by('-id').first()
-                if last_report:
-                    last_number = int(last_report.report_number.split('-')[-1]) if '-' in last_report.report_number else 0
-                    self.report_number = f"RV-{timezone.now().year}-{last_number + 1:04d}"
-                else:
-                    self.report_number = f"RV-{timezone.now().year}-0001"
-            except Exception as e:
-                # Fallback si hay algún error
-                self.report_number = f"RV-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🟡 MODEL SAVE CALLED: self.report_number = '{self.report_number}'")
         
-        if not self.order_number:
-            # Generar número de orden automáticamente
+        # Solo generar report_number si no fue pre-asignado
+        if not self.report_number:
+            # Generar número SECUENCIAL PURO
             try:
                 year = timezone.now().year
-                month = timezone.now().month
-                day = timezone.now().day
                 
-                # Contar reportes del día para generar secuencia
-                today_reports = VisitReport.objects.filter(
-                    created_at__date=timezone.now().date()
-                ).count()
+                last_report = VisitReport.objects.filter(
+                    report_number__startswith=f"RV-{year}"
+                ).exclude(id=self.id).order_by('-report_number').first()
                 
-                sequence = today_reports + 1
-                self.order_number = f"OV-{year}{month:02d}{day:02d}-{sequence:03d}"
+                if last_report:
+                    try:
+                        last_number = int(last_report.report_number.split('-')[-1])
+                        new_number = last_number + 1
+                    except (ValueError, IndexError):
+                        new_number = 1
+                else:
+                    new_number = 1
+                
+                self.report_number = f"RV-{year}-{new_number:03d}"
             except Exception as e:
                 # Fallback si hay algún error
-                self.order_number = f"OV-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+                import datetime
+                self.report_number = f"RV-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
+        
+        # Solo generar order_number si no existe
+        if not self.order_number:
+            # Usar el mismo formato que report_number para orden
+            self.order_number = self.report_number
         
         super().save(*args, **kwargs)
+
+    @property
+    def attachments(self):
+        """Devuelve los adjuntos relacionados a este reporte"""
+        # Se usa globals() o import tardío porque DocumentAttachment se define más abajo
+        try:
+            # Intento seguro de obtener el modelo
+            from django.apps import apps
+            DocumentAttachment = apps.get_model('documents', 'DocumentAttachment')
+            return DocumentAttachment.objects.filter(document_type='visit_report', document_id=self.id)
+        except LookupError:
+            return []
 
 class LabReport(models.Model):
     """
@@ -358,7 +410,8 @@ class LabReport(models.Model):
         max_length=20,
         choices=DocumentStatus.choices, 
         default=DocumentStatus.DRAFT,
-        verbose_name="Estado"
+        verbose_name="Estado",
+        db_index=True
     )
     
     # Metadatos
@@ -370,7 +423,7 @@ class LabReport(models.Model):
         related_name='created_lab_reports',
         verbose_name="Creado por"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación", db_index=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Fecha de Actualización")
     
     # Firma del experto técnico
@@ -391,17 +444,40 @@ class LabReport(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.report_number:
-            # Generar número de informe automáticamente
+            # Generar número basado en el código de la incidencia: RP-YYYY-XXX
+            # Ejemplo: INC-2025-0006 → RP-2025-006
             try:
-                last_report = LabReport.objects.exclude(id=self.id).order_by('-id').first()
-                if last_report:
-                    last_number = int(last_report.report_number.split('-')[-1]) if '-' in last_report.report_number else 0
-                    self.report_number = f"IL-{timezone.now().year}-{last_number + 1:04d}"
+                year = timezone.now().year
+                
+                # Extraer número secuencial de la incidencia relacionada
+                if self.related_incident and self.related_incident.code:
+                    incident_code = self.related_incident.code
+                    parts = incident_code.split('-')
+                    if len(parts) >= 3:
+                        incident_seq = parts[-1].lstrip('0') or '1'
+                        incident_number = int(incident_seq)
+                    else:
+                        incident_number = self.related_incident.id
+                    
+                    self.report_number = f"RP-{year}-{incident_number:03d}"
                 else:
-                    self.report_number = f"IL-{timezone.now().year}-0001"
+                    # Fallback si no hay incidencia relacionada
+                    last_report = LabReport.objects.filter(
+                        report_number__startswith=f"RP-{year}"
+                    ).exclude(id=self.id).order_by('-report_number').first()
+                    
+                    if last_report:
+                        try:
+                            last_number = int(last_report.report_number.split('-')[-1])
+                            new_number = last_number + 1
+                        except (ValueError, IndexError):
+                            new_number = 1
+                    else:
+                        new_number = 1
+                    
+                    self.report_number = f"RP-{year}-{new_number:03d}"
             except Exception as e:
-                # Fallback si hay algún error
-                self.report_number = f"IL-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
+                self.report_number = f"RP-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
         super().save(*args, **kwargs)
 
 class SupplierReport(models.Model):
@@ -446,7 +522,8 @@ class SupplierReport(models.Model):
         max_length=20, 
         choices=DocumentStatus.choices, 
         default=DocumentStatus.DRAFT,
-        verbose_name="Estado"
+        verbose_name="Estado",
+        db_index=True
     )
     sent_date = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de Envío")
     
@@ -469,24 +546,47 @@ class SupplierReport(models.Model):
     class Meta:
         verbose_name = "Informe para Proveedor"
         verbose_name_plural = "Informes para Proveedores"
-        ordering = ['-report_date']
+        ordering = ['-created_at']
     
     def __str__(self):
         return f"Informe Proveedor {self.report_number} - {self.supplier_name}"
     
     def save(self, *args, **kwargs):
         if not self.report_number:
-            # Generar número de informe automáticamente
+            # Generar número basado en el código de la incidencia: RCP-YYYY-XXX
+            # Ejemplo: INC-2025-0006 → RCP-2025-006
             try:
-                last_report = SupplierReport.objects.exclude(id=self.id).order_by('-id').first()
-                if last_report:
-                    last_number = int(last_report.report_number.split('-')[-1]) if '-' in last_report.report_number else 0
-                    self.report_number = f"IP-{timezone.now().year}-{last_number + 1:04d}"
+                year = timezone.now().year
+                
+                # Extraer número secuencial de la incidencia relacionada
+                if self.related_incident and self.related_incident.code:
+                    incident_code = self.related_incident.code
+                    parts = incident_code.split('-')
+                    if len(parts) >= 3:
+                        incident_seq = parts[-1].lstrip('0') or '1'
+                        incident_number = int(incident_seq)
+                    else:
+                        incident_number = self.related_incident.id
+                    
+                    self.report_number = f"RCP-{year}-{incident_number:03d}"
                 else:
-                    self.report_number = f"IP-{timezone.now().year}-0001"
+                    # Fallback si no hay incidencia relacionada
+                    last_report = SupplierReport.objects.filter(
+                        report_number__startswith=f"RCP-{year}"
+                    ).exclude(id=self.id).order_by('-report_number').first()
+                    
+                    if last_report:
+                        try:
+                            last_number = int(last_report.report_number.split('-')[-1])
+                            new_number = last_number + 1
+                        except (ValueError, IndexError):
+                            new_number = 1
+                    else:
+                        new_number = 1
+                    
+                    self.report_number = f"RCP-{year}-{new_number:03d}"
             except Exception as e:
-                # Fallback si hay algún error
-                self.report_number = f"IP-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
+                self.report_number = f"RCP-{timezone.now().year}-{timezone.now().strftime('%m%d%H%M')}"
         super().save(*args, **kwargs)
 
 class DocumentAttachment(models.Model):
@@ -497,6 +597,9 @@ class DocumentAttachment(models.Model):
         ('visit_report', 'Reporte de Visita'),
         ('lab_report', 'Informe de Laboratorio'),
         ('supplier_report', 'Informe para Proveedor'),
+        ('supplier_response', 'Respuesta del Proveedor'),
+        ('incident_attachment', 'Adjunto de Incidencia'),
+        ('quality_report', 'Reporte de Calidad'),
     ]
     
     document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES, verbose_name="Tipo de Documento")
@@ -507,6 +610,7 @@ class DocumentAttachment(models.Model):
     file_type = models.CharField(max_length=50, verbose_name="Tipo de Archivo")
     file_size = models.PositiveIntegerField(verbose_name="Tamaño del Archivo")
     
+    section = models.CharField(max_length=100, blank=True, null=True, verbose_name="Sección del Documento")
     description = models.CharField(max_length=300, blank=True, verbose_name="Descripción")
     
     uploaded_by = models.ForeignKey(
@@ -589,10 +693,12 @@ class QualityReport(models.Model):
             ('review', 'En Revisión'),
             ('approved', 'Aprobado'),
             ('sent', 'Enviado'),
+            ('escalated', 'Escalado'),
             ('closed', 'Cerrado')
         ],
         default='draft',
-        help_text='Estado del reporte'
+        help_text='Estado del reporte',
+        db_index=True
     )
     
     # Archivos generados
@@ -608,7 +714,7 @@ class QualityReport(models.Model):
     )
     
     # Metadatos
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -620,24 +726,41 @@ class QualityReport(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.report_number:
-            # Generar número de reporte automáticamente
+            # Generar número basado en el código de la incidencia:
+            # RCC-YYYY-XXX para cliente (Reporte Calidad Cliente)
+            # RCI-YYYY-XXX para interno (Reporte Calidad Interno)
+            # Ejemplo: INC-2025-0006 → RCC-2025-006 o RCI-2025-006
             from datetime import datetime
             year = datetime.now().year
-            prefix = 'QC' if self.report_type == 'cliente' else 'QI'
-            last_report = QualityReport.objects.filter(
-                report_number__startswith=f"{prefix}-{year}"
-            ).order_by('-report_number').first()
+            prefix = 'RCC' if self.report_type == 'cliente' else 'RCI'
             
-            if last_report:
-                try:
-                    last_number = int(last_report.report_number.split('-')[-1])
-                    new_number = last_number + 1
-                except (ValueError, IndexError):
-                    new_number = 1
+            # Extraer número secuencial de la incidencia relacionada
+            if self.related_incident and self.related_incident.code:
+                incident_code = self.related_incident.code
+                parts = incident_code.split('-')
+                if len(parts) >= 3:
+                    incident_seq = parts[-1].lstrip('0') or '1'
+                    incident_number = int(incident_seq)
+                else:
+                    incident_number = self.related_incident.id
+                
+                self.report_number = f"{prefix}-{year}-{incident_number:03d}"
             else:
-                new_number = 1
-            
-            self.report_number = f"{prefix}-{year}-{new_number:04d}"
+                # Fallback si no hay incidencia relacionada
+                last_report = QualityReport.objects.filter(
+                    report_number__startswith=f"{prefix}-{year}"
+                ).order_by('-report_number').first()
+                
+                if last_report:
+                    try:
+                        last_number = int(last_report.report_number.split('-')[-1])
+                        new_number = last_number + 1
+                    except (ValueError, IndexError):
+                        new_number = 1
+                else:
+                    new_number = 1
+                
+                self.report_number = f"{prefix}-{year}-{new_number:03d}"
         
         super().save(*args, **kwargs)
     

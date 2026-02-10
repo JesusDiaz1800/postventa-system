@@ -12,6 +12,10 @@ from rest_framework import status
 import logging
 from datetime import datetime
 
+import logging
+from datetime import datetime
+from apps.ai.rag_service import RAGService
+
 logger = logging.getLogger(__name__)
 
 def sync_to_shared_folder(local_path, document_type, incident_id, filename, report_type=None):
@@ -181,6 +185,13 @@ def upload_visit_report(request):
         # Registrar en logs
         logger.info(f"Reporte de visita subido: {filename} para incidencia {incident_id}")
         
+        # Indexar en RAG
+        try:
+            if 'visit_report' in locals() and visit_report:
+                RAGService.index_report(visit_report, 'visit_report')
+        except Exception as e:
+            logger.warning(f"Error indexando RAG (no bloqueante): {e}")
+        
         return Response({
             'success': True,
             'message': 'Reporte de visita subido exitosamente',
@@ -295,6 +306,13 @@ def upload_supplier_report(request):
         
         # Registrar en logs
         logger.info(f"Reporte de proveedor subido: {filename} para incidencia {incident_id}")
+
+        # Indexar en RAG
+        try:
+            if 'supplier_report' in locals() and supplier_report:
+                RAGService.index_report(supplier_report, 'supplier_report')
+        except Exception as e:
+            logger.warning(f"Error indexando RAG (no bloqueante): {e}")
         
         return Response({
             'success': True,
@@ -407,6 +425,13 @@ def upload_lab_report(request):
         
         # Registrar en logs
         logger.info(f"Reporte de laboratorio subido: {filename} para incidencia {incident_id}")
+        
+        # Indexar en RAG
+        try:
+            if 'lab_report' in locals() and lab_report:
+                RAGService.index_report(lab_report, 'lab_report')
+        except Exception as e:
+            logger.warning(f"Error indexando RAG (no bloqueante): {e}")
         
         return Response({
             'success': True,
@@ -532,6 +557,13 @@ def upload_quality_report(request):
         
         # Registrar en logs
         logger.info(f"Reporte de calidad subido: {filename} para incidencia {incident_id}")
+        
+        # Indexar en RAG
+        try:
+            if 'quality_report' in locals() and quality_report:
+                RAGService.index_report(quality_report, 'quality_report')
+        except Exception as e:
+            logger.warning(f"Error indexando RAG (no bloqueante): {e}")
         
         return Response({
             'success': True,

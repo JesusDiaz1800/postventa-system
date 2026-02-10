@@ -9,12 +9,12 @@ class CanViewIncidents(permissions.BasePermission):
     def has_permission(self, request, view):
         user = request.user
         
-        # All authenticated users can view incidents
         if not user.is_authenticated:
             return False
         
         # Check role-based permissions
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'management', 'provider', 'technical_service', 'servicio_tecnico', 'tecnico']:            return True
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'management', 'provider', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality']:
+            return True
         
         return False
 
@@ -31,7 +31,8 @@ class CanManageIncidents(permissions.BasePermission):
             return False
         
         # Only certain roles can manage incidents
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'technical_service', 'servicio_tecnico', 'tecnico']:            return True
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'customer_service', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality']:
+            return True
         
         return False
     
@@ -69,7 +70,7 @@ class CanViewLabReports(permissions.BasePermission):
             return False
         
         # Most roles can view lab reports
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'management']:
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'management', 'quality']:
             return True
         
         return False
@@ -87,7 +88,7 @@ class CanCreateLabReports(permissions.BasePermission):
             return False
         
         # Only analysts and above can create lab reports
-        if user.role in ['admin', 'administrador', 'supervisor', 'analyst']:
+        if user.role in ['admin', 'administrador', 'supervisor', 'analyst', 'quality']:
             return True
         
         return False

@@ -8,4 +8,4 @@ class AuditConfig(AppConfig):
     
     def ready(self):
         """Configurar señales cuando la app está lista"""
-        # import apps.audit.signals  # Commented out to avoid circular imports
+        import apps.audit.signals  # Importar para activar signals

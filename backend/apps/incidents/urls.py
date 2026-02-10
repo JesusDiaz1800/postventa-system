@@ -9,6 +9,8 @@ urlpatterns = [
     # Status and actions
     path('<int:incident_id>/status/', views.update_incident_status, name='incident-update-status'),
     path('<int:incident_id>/close/', views.close_incident, name='incident-close'),
+    path('<int:incident_id>/reopen/', views.reopen_incident, name='incident-reopen'),
+
 
     # Image handling
     path('<int:incident_id>/images/', views.upload_incident_image, name='incident-upload-image'),
@@ -30,7 +32,9 @@ urlpatterns = [
     path('<int:incident_id>/attachments/<int:attachment_id>/download/', attachment_views.download_incident_attachment, name='download-attachment'),
 
     # Escalation views from views_escalation.py
-    # path('<int:incident_id>/escalate/', views_escalation.escalate_incident, name='escalate-incident'),
-    path('escalated/', views.escalated_incidents, name='escalated-incidents'),
+    path('<int:incident_id>/escalate/quality/', views_escalation.escalate_to_quality, name='escalate-to-quality'),
+    path('escalated/', views_escalation.escalated_incidents, name='escalated-incidents'),
     path('<int:incident_id>/escalate/supplier/', views.escalate_to_supplier, name='escalate-to-supplier'),
+    path('<int:incident_id>/fix-escalation/', views.fix_escalation, name='fix-escalation'),
+    
 ]

@@ -1,60 +1,150 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
-import { 
+import {
   ArrowLeftIcon,
-  DocumentArrowDownIcon,
+  DocumentTextIcon,
+  BuildingOfficeIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon,
   PhotoIcon,
   XMarkIcon,
-  CheckCircleIcon
+  PaperAirplaneIcon,
+  ChevronDownIcon,
+  BeakerIcon,
+  WrenchScrewdriverIcon,
+  ClipboardIcon,
+  CalendarDaysIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
+
+// Componente de sección premium/wow (Reutilizado para consistencia)
+const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color = 'teal' }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  const colorClasses = {
+    blue: 'from-blue-600 to-indigo-700',
+    teal: 'from-teal-600 to-emerald-700',
+    amber: 'from-amber-600 to-orange-700',
+    purple: 'from-purple-600 to-violet-700',
+    rose: 'from-rose-600 to-pink-700'
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300 mb-6">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full px-6 py-4 flex items-center justify-between bg-gradient-to-r ${colorClasses[color] || colorClasses.teal} text-white transition-all`}
+      >
+        <div className="flex items-center gap-3">
+          <Icon className="h-5 w-5 text-white/90" />
+          <span className="text-lg font-bold tracking-tight">{title}</span>
+        </div>
+        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
+          <ChevronDownIcon className="h-4 w-4" />
+        </div>
+      </button>
+      <div className={`transition-all duration-500 ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+        <div className="p-6 space-y-6">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Input con diseño ultra-moderno
+const GlassInput = ({ label, icon: Icon, required, ...props }) => (
+  <div className="space-y-1.5 group">
+    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+      {label}
+      {required && <span className="text-red-500">*</span>}
+    </label>
+    <div className="relative">
+      {Icon && (
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-teal-500 transition-colors">
+          <Icon className="h-4 w-4" />
+        </div>
+      )}
+      <input
+        {...props}
+        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm`}
+      />
+    </div>
+  </div>
+);
+
+// Textarea con diseño ultra-moderno
+const GlassTextarea = ({ label, icon: Icon, required, rows = 3, ...props }) => (
+  <div className="space-y-1.5 group">
+    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+      {label}
+      {required && <span className="text-red-500">*</span>}
+    </label>
+    <div className="relative">
+      {Icon && (
+        <div className="absolute left-3.5 top-3.5 text-gray-400 group-focus-within:text-teal-500 transition-colors">
+          <Icon className="h-4 w-4" />
+        </div>
+      )}
+      <textarea
+        {...props}
+        rows={rows}
+        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-3 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm resize-none`}
+      />
+    </div>
+  </div>
+);
 
 const SupplierReportForm = () => {
-  const { incidentId } = useParams();
+  const { incidentId: paramIncidentId } = useParams();
+  const [searchParams] = useSearchParams();
+  const incidentId = paramIncidentId || searchParams.get('incident_id');
   const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
-    incident_id: incidentId,
+    // Datos Generales Proveedor
     supplier_name: '',
-    contact_person: '',
+    supplier_email: '',
+    supplier_contact: '',
     contact_phone: '',
-    contact_email: '',
-    report_type: 'cliente', // cliente o interno
-    visit_date: '',
-    visit_time: '',
-    visit_duration: '',
-    participants: '',
-    objectives: '',
-    findings: '',
-    recommendations: '',
-    next_steps: '',
-    supplier_response: '',
-    compliance_status: 'pendiente', // pendiente, cumplido, no_cumplido
-    follow_up_date: '',
-    follow_up_responsible: '',
+
+    // Descripción del Problema
+    subject: '',
+    problem_description: '',
+    recommendations: '', // Acción Esperada
+    deadline_days: '5',
     additional_notes: '',
-    
-    // Información del producto (precargada desde incidencia)
-    product_category: '',
-    product_subcategory: '',
-    product_sku: '',
+
+    // Datos Técnicos (Para JSON technical_details)
+    // Producto
+    product_diameter: '',
+    product_pn: '',
+    product_sdr: '',
+    product_material: 'PP-R',
     product_lot: '',
-    product_provider: '',
-    
-    // Información de la incidencia (precargada)
-    incident_description: '',
-    incident_priority: '',
-    incident_responsible: '',
-    incident_detection_date: '',
-    incident_detection_time: ''
+
+    // Condiciones
+    joining_method: 'Termofusión',
+    ambient_temperature: '',
+    machine_id: '',
+
+    // Ensayos y Pruebas
+    visual_inspection: 'No Conforme',
+    melt_index: '',
+    density: '',
+    test_result_summary: ''
   });
-  
+
   const [images, setImages] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   // Obtener datos de la incidencia
-  const { data: incident, isLoading: incidentLoading } = useQuery({
+  const { data: incident, isLoading } = useQuery({
     queryKey: ['incident', incidentId],
     queryFn: async () => {
       const response = await api.get(`/incidents/${incidentId}/`);
@@ -63,35 +153,22 @@ const SupplierReportForm = () => {
     enabled: !!incidentId
   });
 
-  // Cargar datos de la incidencia al formulario
+  // Pre-cargar datos
   useEffect(() => {
     if (incident) {
       setFormData(prev => ({
         ...prev,
-        // Información del producto (importante para reportes)
-        product_category: incident.categoria || '',
-        product_subcategory: incident.subcategoria || '',
-        product_sku: incident.sku || '',
-        product_lot: incident.lote || '',
-        product_provider: incident.provider || '',
-        
-        // Información de la incidencia
-        incident_description: incident.descripcion || '',
-        incident_priority: incident.prioridad || '',
-        incident_responsible: incident.responsable || '',
-        incident_detection_date: incident.fecha_deteccion || '',
-        incident_detection_time: incident.hora_deteccion || ''
+        supplier_name: incident.provider || '',
+        subject: `Reclamo de Calidad - ${incident.code} - ${incident.sku || ''}`,
+        problem_description: incident.descripcion || '',
+        product_lot: incident.lote || ''
       }));
     }
   }, [incident]);
 
-
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleImageUpload = (e) => {
@@ -106,613 +183,351 @@ const SupplierReportForm = () => {
 
   const removeImage = (imageId) => {
     setImages(prev => {
-      const imageToRemove = prev.find(img => img.id === imageId);
-      if (imageToRemove) {
-        URL.revokeObjectURL(imageToRemove.preview);
-      }
-      return prev.filter(img => img.id !== imageId);
+      const img = prev.find(i => i.id === imageId);
+      if (img) URL.revokeObjectURL(img.preview);
+      return prev.filter(i => i.id !== imageId);
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!formData.supplier_name || !formData.problem_description) {
+      toast.error('Por favor completa los campos requeridos');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const formDataToSend = new FormData();
-      
-      // Agregar datos del formulario
-      Object.keys(formData).forEach(key => {
-        if (formData[key] !== null && formData[key] !== undefined) {
-          formDataToSend.append(key, formData[key]);
-        }
-      });
-
-      // Agregar imágenes
-      images.forEach((image, index) => {
-        formDataToSend.append(`images`, image.file);
-      });
-
-      // Enviar formulario
-      const response = await api.post('/documents/supplier-reports/', formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
+      // 1. Construir objeto technical_details con la estructura esperada por backend
+      const technical_details = {
+        product: {
+          diameter: formData.product_diameter,
+          pn: formData.product_pn,
+          sdr: formData.product_sdr,
+          material: formData.product_material,
+          lot: formData.product_lot
         },
+        site_conditions: {
+          method: formData.joining_method,
+          temperature: formData.ambient_temperature,
+          machine_id: formData.machine_id
+        },
+        lab_tests: {
+          melt_index: formData.melt_index,
+          density: formData.density,
+          visual_inspection: formData.visual_inspection
+        },
+        deadline_days: formData.deadline_days,
+        additional_notes: formData.additional_notes
+      };
+
+      const submitData = new FormData();
+      submitData.append('related_incident_id', parseInt(incidentId));
+      submitData.append('supplier_name', formData.supplier_name);
+      submitData.append('supplier_email', formData.supplier_email);
+      submitData.append('supplier_contact', formData.supplier_contact);
+      submitData.append('subject', formData.subject);
+      submitData.append('problem_description', formData.problem_description);
+      submitData.append('recommendations', formData.recommendations); // Acción esperada
+      submitData.append('technical_details', JSON.stringify(technical_details));
+
+      // Adjuntar imágenes
+      images.forEach(img => {
+        submitData.append('images', img.file);
       });
 
-      if (response.data.success) {
-        setSubmitSuccess(true);
-        setTimeout(() => {
-          navigate('/supplier-reports');
-        }, 2000);
+      // 2. Enviar reporte
+      const response = await api.post('/documents/supplier-reports/', submitData);
+      const newReportId = response.data.id;
+
+      // 3. Generar PDF
+      setIsGeneratingPDF(true);
+      try {
+        await api.post(`/documents/supplier-reports/${newReportId}/generate/`);
+        toast.success('Reporte y PDF generados exitosamente');
+      } catch (pdfError) {
+        console.error("Error generando PDF:", pdfError);
+        toast.error('Reporte guardado, pero falló la generación del PDF');
       }
+
+      setTimeout(() => {
+        navigate('/supplier-reports');
+      }, 1500);
+
     } catch (error) {
-      console.error('Error al enviar formulario:', error);
-      alert('Error al enviar el formulario. Por favor, inténtalo de nuevo.');
+      console.error('Error:', error);
+      toast.error('Error al crear el reporte');
     } finally {
       setIsSubmitting(false);
+      setIsGeneratingPDF(false);
     }
   };
 
-  if (incidentLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando datos de la incidencia...</p>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-gray-500 font-medium animate-pulse">Cargando datos...</p>
         </div>
       </div>
     );
   }
 
-  if (submitSuccess) {
+  if (!incidentId) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <CheckCircleIcon className="h-16 w-16 text-green-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Reporte Enviado!</h2>
-          <p className="text-gray-600">El reporte de proveedor se ha generado exitosamente.</p>
+        <div className="text-center max-w-md">
+          <ExclamationTriangleIcon className="h-16 w-16 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Incidencia no especificada</h2>
+          <button onClick={() => navigate('/supplier-reports')} className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg">Volver</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => navigate('/supplier-reports')}
-                className="mr-4 p-2 text-gray-400 hover:text-gray-600"
-              >
-                <ArrowLeftIcon className="h-5 w-5" />
-              </button>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">
-                  Nuevo Reporte de Proveedor
-                </h1>
-                <p className="text-sm text-gray-500">
-                  Incidencia: {incident?.code} - {incident?.provider}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {incident?.prioridad?.toUpperCase()}
-              </span>
-            </div>
+    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8">
+      <div className="max-w-5xl mx-auto">
+        {/* Header Superior */}
+        <div className="flex items-center gap-6 mb-8">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-3 bg-white shadow-md rounded-xl text-gray-400 hover:text-teal-600 hover:scale-105 transition-all"
+          >
+            <ArrowLeftIcon className="h-6 w-6" />
+          </button>
+          <div>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Reporte a Proveedor</h1>
+            <p className="text-gray-500 font-medium flex items-center gap-2 mt-1">
+              <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></span>
+              Incidencia: {incident?.code}
+            </p>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Información de la Incidencia */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información de la Incidencia
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Código de Incidencia</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.code}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Proveedor</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.provider}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Cliente</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.cliente}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Obra</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.obra}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">SKU</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.sku}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Lote</label>
-                <p className="mt-1 text-sm text-gray-900">{incident?.lote || 'N/A'}</p>
-              </div>
+        <form onSubmit={handleSubmit}>
+          {/* SECCIÓN 1: DATOS DEL PROVEEDOR */}
+          <PremiumSection title="Información del Proveedor" icon={BuildingOfficeIcon} color="teal">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <GlassInput
+                label="Nombre del Proveedor"
+                value={formData.supplier_name}
+                onChange={handleChange}
+                name="supplier_name"
+                required
+                icon={BuildingOfficeIcon}
+              />
+              <GlassInput
+                label="Email Corporativo"
+                value={formData.supplier_email}
+                onChange={handleChange}
+                name="supplier_email"
+                type="email"
+              />
+              <GlassInput
+                label="Persona de Contacto"
+                value={formData.supplier_contact}
+                onChange={handleChange}
+                name="supplier_contact"
+              />
+              <GlassInput
+                label="Teléfono"
+                value={formData.contact_phone}
+                onChange={handleChange}
+                name="contact_phone"
+              />
             </div>
-          </div>
+          </PremiumSection>
 
-          {/* Información del Producto */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información del Producto
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Categoría del Producto</label>
-                <input
-                  type="text"
-                  name="product_category"
-                  value={formData.product_category}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Subcategoría del Producto</label>
-                <input
-                  type="text"
-                  name="product_subcategory"
-                  value={formData.product_subcategory}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">SKU del Producto</label>
-                <input
-                  type="text"
-                  name="product_sku"
-                  value={formData.product_sku}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Lote del Producto</label>
-                <input
-                  type="text"
-                  name="product_lot"
-                  value={formData.product_lot}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Proveedor</label>
-                <input
-                  type="text"
-                  name="product_provider"
-                  value={formData.product_provider}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Información de la Incidencia */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información de la Incidencia
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Descripción del Problema</label>
-                <textarea
-                  name="incident_description"
-                  value={formData.incident_description}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Prioridad</label>
-                <input
-                  type="text"
-                  name="incident_priority"
-                  value={formData.incident_priority}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Responsable Técnico</label>
-                <input
-                  type="text"
-                  name="incident_responsible"
-                  value={formData.incident_responsible}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Fecha de Detección</label>
-                <input
-                  type="date"
-                  name="incident_detection_date"
-                  value={formData.incident_detection_date}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Hora de Detección</label>
-                <input
-                  type="time"
-                  name="incident_detection_time"
-                  value={formData.incident_detection_time}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  readOnly
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Información del Proveedor */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información del Proveedor
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Nombre del Proveedor</label>
-                <input
-                  type="text"
-                  name="supplier_name"
-                  value={formData.supplier_name}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Persona de Contacto</label>
-                <input
-                  type="text"
-                  name="contact_person"
-                  value={formData.contact_person}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Teléfono de Contacto</label>
-                <input
-                  type="tel"
-                  name="contact_phone"
-                  value={formData.contact_phone}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Email de Contacto</label>
-                <input
-                  type="email"
-                  name="contact_email"
-                  value={formData.contact_email}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Tipo de Reporte */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Tipo de Reporte
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Tipo de Reporte</label>
+          {/* SECCIÓN 2: DETALLES TÉCNICOS DEL PRODUCTO */}
+          <PremiumSection title="Especificaciones Técnicas del Producto" icon={ClipboardIcon} color="blue">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <GlassInput
+                label="Diámetro (mm)"
+                placeholder="Ej: 32"
+                value={formData.product_diameter}
+                onChange={handleChange}
+                name="product_diameter"
+              />
+              <GlassInput
+                label="PN (Presión)"
+                placeholder="Ej: 16"
+                value={formData.product_pn}
+                onChange={handleChange}
+                name="product_pn"
+              />
+              <GlassInput
+                label="SDR"
+                placeholder="Ej: 7.4"
+                value={formData.product_sdr}
+                onChange={handleChange}
+                name="product_sdr"
+              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">Material</label>
                 <select
-                  name="report_type"
-                  value={formData.report_type}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  name="product_material"
+                  value={formData.product_material}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
                 >
-                  <option value="cliente">Para Cliente</option>
-                  <option value="interno">Interno</option>
+                  <option value="PP-R">PP-R</option>
+                  <option value="PP-RCT">PP-RCT</option>
+                  <option value="PE-AD">PE-AD</option>
+                  <option value="PEX">PEX</option>
+                  <option value="PVC">PVC</option>
                 </select>
               </div>
             </div>
-          </div>
-
-          {/* Información de la Visita */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Información de la Visita
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Fecha de Visita</label>
-                <input
-                  type="date"
-                  name="visit_date"
-                  value={formData.visit_date}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Hora de Visita</label>
-                <input
-                  type="time"
-                  name="visit_time"
-                  value={formData.visit_time}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Duración (minutos)</label>
-                <input
-                  type="number"
-                  name="visit_duration"
-                  value={formData.visit_duration}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  min="1"
-                />
-              </div>
-            </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700">Participantes</label>
-              <textarea
-                name="participants"
-                value={formData.participants}
-                onChange={handleInputChange}
-                rows={3}
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Lista de participantes en la visita"
+              <GlassInput
+                label="Lote de Fabricación / Trazabilidad"
+                value={formData.product_lot}
+                onChange={handleChange}
+                name="product_lot"
+                placeholder="Lote impreso en el tubo o accesorio"
               />
             </div>
-          </div>
+          </PremiumSection>
 
-          {/* Objetivos y Hallazgos */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Objetivos y Hallazgos
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Objetivos de la Visita</label>
-                <textarea
-                  name="objectives"
-                  value={formData.objectives}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Hallazgos</label>
-                <textarea
-                  name="findings"
-                  value={formData.findings}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Recomendaciones y Próximos Pasos */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Recomendaciones y Próximos Pasos
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Recomendaciones</label>
-                <textarea
-                  name="recommendations"
+          {/* SECCIÓN 3: ANÁLISIS DEL PROBLEMA */}
+          <PremiumSection title="Detalle del Reclamo y Evidencia" icon={ExclamationTriangleIcon} color="amber">
+            <GlassInput
+              label="Asunto del Reclamo"
+              value={formData.subject}
+              onChange={handleChange}
+              name="subject"
+              required
+              className="mb-4"
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <GlassTextarea
+                label="Descripción Detallada de la No Conformidad"
+                value={formData.problem_description}
+                onChange={handleChange}
+                name="problem_description"
+                rows={6}
+                required
+                icon={DocumentTextIcon}
+              />
+              <div className="space-y-4">
+                <GlassTextarea
+                  label="Acción Correctiva Esperada"
                   value={formData.recommendations}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  onChange={handleChange}
+                  name="recommendations"
+                  rows={3}
+                  placeholder="¿Qué solución solicita al proveedor?"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Próximos Pasos</label>
-                <textarea
-                  name="next_steps"
-                  value={formData.next_steps}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Respuesta del Proveedor */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Respuesta del Proveedor
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Respuesta del Proveedor</label>
-                <textarea
-                  name="supplier_response"
-                  value={formData.supplier_response}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Respuesta del proveedor a los hallazgos"
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Estado de Cumplimiento</label>
-                  <select
-                    name="compliance_status"
-                    value={formData.compliance_status}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  >
-                    <option value="pendiente">Pendiente</option>
-                    <option value="cumplido">Cumplido</option>
-                    <option value="no_cumplido">No Cumplido</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Fecha de Seguimiento</label>
-                  <input
-                    type="date"
-                    name="follow_up_date"
-                    value={formData.follow_up_date}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">Plazo Respuesta</label>
+                    <select
+                      name="deadline_days"
+                      value={formData.deadline_days}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl"
+                    >
+                      <option value="3">3 días hábiles</option>
+                      <option value="5">5 días hábiles</option>
+                      <option value="7">7 días hábiles</option>
+                      <option value="15">15 días hábiles</option>
+                    </select>
+                  </div>
+                  <GlassInput
+                    label="Normativa Ref."
+                    value={formData.additional_notes}
+                    onChange={handleChange}
+                    name="additional_notes"
+                    placeholder="Ej: ISO 15874"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Responsable del Seguimiento</label>
-                <input
-                  type="text"
-                  name="follow_up_responsible"
-                  value={formData.follow_up_responsible}
-                  onChange={handleInputChange}
-                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                />
+            </div>
+
+            {/* Subida de Imágenes */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+              <div className="flex items-center gap-2 mb-3">
+                <PhotoIcon className="h-5 w-5 text-gray-400" />
+                <span className="text-sm font-bold text-gray-600">Evidencia Fotográfica</span>
               </div>
-            </div>
-          </div>
 
-          {/* Notas Adicionales */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Notas Adicionales
-            </h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Notas Adicionales</label>
-              <textarea
-                name="additional_notes"
-                value={formData.additional_notes}
-                onChange={handleInputChange}
-                rows={4}
-                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Cualquier información adicional relevante"
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                {/* Botón Upload */}
+                <label className="aspect-square flex flex-col items-center justify-center bg-white border-2 border-dashed border-teal-200 rounded-xl cursor-pointer hover:bg-teal-50 transition-colors">
+                  <PhotoIcon className="h-8 w-8 text-teal-400 mb-1" />
+                  <span className="text-xs font-bold text-teal-600">Agregar</span>
+                  <input type="file" multiple accept="image/*" onChange={handleImageUpload} className="hidden" />
+                </label>
 
-          {/* Subida de Imágenes */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Imágenes del Reporte
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Subir Imágenes</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                  <div className="space-y-1 text-center">
-                    <PhotoIcon className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="flex text-sm text-gray-600">
-                      <label htmlFor="image-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                        <span>Subir imágenes</span>
-                        <input
-                          id="image-upload"
-                          name="image-upload"
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="sr-only"
-                        />
-                      </label>
-                      <p className="pl-1">o arrastra y suelta</p>
-                    </div>
-                    <p className="text-xs text-gray-500">PNG, JPG, GIF hasta 10MB cada una</p>
+                {/* Lista Imágenes */}
+                {images.map(img => (
+                  <div key={img.id} className="relative group aspect-square rounded-xl overflow-hidden shadow-sm">
+                    <img src={img.preview} alt="preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(img.id)}
+                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <XMarkIcon className="h-3 w-3" />
+                    </button>
                   </div>
-                </div>
+                ))}
               </div>
-
-              {/* Vista previa de imágenes */}
-              {images.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {images.map((image) => (
-                    <div key={image.id} className="relative">
-                      <img
-                        src={image.preview}
-                        alt="Preview"
-                        className="w-full h-32 object-cover rounded-lg"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(image.id)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                      >
-                        <XMarkIcon className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
-          </div>
+          </PremiumSection>
 
-          {/* Botones de Acción */}
-          <div className="flex justify-end space-x-4">
+          {/* DATOS DE LABORATORIO (OPCIONAL) */}
+          <PremiumSection title="Datos Adicionales de Laboratorio (Opcional)" icon={BeakerIcon} color="purple" defaultOpen={false}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <GlassInput
+                label="Melt Index"
+                value={formData.melt_index}
+                onChange={handleChange}
+                name="melt_index"
+              />
+              <GlassInput
+                label="Densidad"
+                value={formData.density}
+                onChange={handleChange}
+                name="density"
+              />
+              <div className="space-y-1.5 col-span-2">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">Inspección Visual</label>
+                <select
+                  name="visual_inspection"
+                  value={formData.visual_inspection}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl"
+                >
+                  <option value="Conforme">Conforme</option>
+                  <option value="No Conforme">No Conforme (Defectos visibles)</option>
+                  <option value="Dudoso">Requiere Análisis Profundo</option>
+                </select>
+              </div>
+            </div>
+          </PremiumSection>
+
+
+          {/* Botones Finales */}
+          <div className="flex justify-end gap-4 mt-8 pb-12">
             <button
               type="button"
               onClick={() => navigate('/supplier-reports')}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="px-6 py-3 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold hover:bg-gray-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              disabled={isSubmitting || isGeneratingPDF}
+              className="px-8 py-3 bg-teal-600 text-white rounded-xl font-bold shadow-lg shadow-teal-200/50 hover:bg-teal-700 hover:scale-105 transition-all flex items-center gap-2"
             >
-              {isSubmitting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Generando PDF...
-                </>
-              ) : (
-                <>
-                  <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
-                  Generar Reporte PDF
-                </>
-              )}
+              {(isSubmitting || isGeneratingPDF) && <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />}
+              {isGeneratingPDF ? 'Generando PDF...' : 'Crear Reporte Oficial'}
             </button>
           </div>
         </form>

@@ -25,8 +25,8 @@ class ReportsDashboardView:
 @permission_classes([permissions.IsAuthenticated])
 def reports_dashboard(request):
     """Get comprehensive reports data"""
-    # Todos los usuarios autenticados pueden ver reportes
-    # Los roles con acceso limitado ya están manejados por IsAuthenticated
+    if not request.user.can_view_reports():
+        return Response({'error': 'No tiene permisos para ver reportes'}, status=status.HTTP_403_FORBIDDEN)
     
     logger.info(f"=== REPORTS DASHBOARD REQUEST ===")
     logger.info(f"User: {request.user}")
@@ -223,8 +223,9 @@ def reports_dashboard(request):
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
+        logger.error(f"Error generating reports: {str(e)}", exc_info=True)
         return Response({
-            'error': f'Error generating reports: {str(e)}'
+            'error': 'Error al generar el dashboard de reportes. Por favor contacte al administrador.'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

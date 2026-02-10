@@ -11,6 +11,8 @@ import {
   TruckIcon,
   ExclamationTriangleIcon,
   MagnifyingGlassIcon,
+  PaperClipIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 
 const TraceabilityOverview = () => {
@@ -64,12 +66,51 @@ const TraceabilityOverview = () => {
     }
   });
 
+  // Query para obtener archivos adjuntos (DocumentAttachment)
+  const { data: documentAttachments, isLoading: attachmentsLoading } = useQuery({
+    queryKey: ['documentAttachments'],
+    queryFn: async () => {
+      try {
+        // Obtener todos los incidents para mapear attachments
+        const incidentsList = incidents?.results || [];
+        const allAttachments = [];
+
+        // Por cada incidencia, obtener sus attachments
+        for (const incident of incidentsList) {
+          try {
+            const response = await api.get(`/documents/attachments/incident/${incident.id}/`);
+            if (response.data?.attachments) {
+              response.data.attachments.forEach(attachment => {
+                allAttachments.push({
+                  ...attachment,
+                  incident: incident,
+                  incident_code: incident.code
+                });
+              });
+            }
+          } catch (err) {
+            console.warn(`No se pudieron obtener attachments para incidencia ${incident.id}`);
+          }
+        }
+
+        return allAttachments;
+      } catch (error) {
+        console.error('Error fetching document attachments:', error);
+        return [];
+      }
+    },
+    enabled: !!incidents?.results,
+    onError: (error) => {
+      console.error('Error in documentAttachments query:', error);
+    }
+  });
+
   // Combinar todos los documentos
   const allDocumentsList = useMemo(() => {
     if (!allDocuments) return [];
-    
+
     const documents = [];
-    
+
     // Agregar reportes de visita
     allDocuments.visitReports.forEach(report => {
       documents.push({
@@ -85,7 +126,7 @@ const TraceabilityOverview = () => {
         description: report.related_incident?.descripcion,
       });
     });
-    
+
     // Agregar reportes de laboratorio
     allDocuments.labReports.forEach(report => {
       documents.push({
@@ -101,7 +142,7 @@ const TraceabilityOverview = () => {
         description: report.related_incident?.descripcion,
       });
     });
-    
+
     // Agregar reportes de proveedores
     allDocuments.supplierReports.forEach(report => {
       documents.push({
@@ -117,16 +158,41 @@ const TraceabilityOverview = () => {
         description: report.related_incident?.descripcion,
       });
     });
-    
+
+    // Agregar archivos adjuntos (DocumentAttachment)
+    if (documentAttachments && Array.isArray(documentAttachments)) {
+      documentAttachments.forEach(attachment => {
+        documents.push({
+          id: attachment.id,
+          type: 'attachment',
+          typeName: attachment.document_type_display || 'Archivo Adjunto',
+          typeIcon: PaperClipIcon,
+          typeColor: 'orange',
+          report_number: `ATT-${attachment.id}`,
+          filename: attachment.filename,
+          file_type: attachment.file_type,
+          file_size: attachment.file_size,
+          file_url: attachment.file_url,
+          description: attachment.description,
+          incidentCode: attachment.incident_code,
+          clientName: attachment.incident?.cliente,
+          provider: attachment.incident?.provider,
+          product: attachment.incident?.sku,
+          created_at: attachment.uploaded_at,
+          uploaded_by: attachment.uploaded_by,
+        });
+      });
+    }
+
     return documents;
-  }, [allDocuments]);
+  }, [allDocuments, documentAttachments]);
 
   // Filtrar documentos por búsqueda
   const filteredDocuments = useMemo(() => {
     if (!searchTerm) return allDocumentsList;
-    
+
     const term = searchTerm.toLowerCase();
-    return allDocumentsList.filter(doc => 
+    return allDocumentsList.filter(doc =>
       doc.report_number?.toLowerCase().includes(term) ||
       doc.incidentCode?.toLowerCase().includes(term) ||
       doc.clientName?.toLowerCase().includes(term) ||
@@ -156,28 +222,22 @@ const TraceabilityOverview = () => {
   }, [filteredDocuments]);
 
   const handleOpenDocument = async (document) => {
-    console.log('=== OPENING DOCUMENT FROM TRACEABILITY ===');
-    console.log('Document:', document);
-    
     const incidentId = document.related_incident?.id || document.related_incident;
-    
+
     // Intentar abrir archivo específico si está disponible
     if (document.pdf_path || document.document_path) {
       const specificFile = document.pdf_path || document.document_path;
       const fileUrl = `file:///${specificFile.replace(/\\/g, '/')}`;
-      console.log('Trying specific file URL:', fileUrl);
       window.open(fileUrl, '_blank');
       return;
     }
-    
+
     // Usar la URL de descarga del documento si está disponible
     if (document.download_url) {
       const { API_ORIGIN } = await import('../services/api');
       const apiUrl = `${API_ORIGIN}${document.download_url}`;
-      console.log('Using API URL:', apiUrl);
       window.open(apiUrl, '_blank');
     } else {
-      console.log('No download URL available for document');
       alert('No hay documento disponible para este reporte');
     }
   };
@@ -196,7 +256,7 @@ const TraceabilityOverview = () => {
 
   const handleDeleteDocument = (document) => {
     if (confirm(`¿Estás seguro de que quieres eliminar ${document.typeName} ${document.report_number}?`)) {
-      console.log('Eliminar documento:', document.id);
+      // Delete document API call would go here
     }
   };
 
@@ -225,7 +285,7 @@ const TraceabilityOverview = () => {
             {filteredDocuments.length} documentos encontrados
           </div>
         </div>
-        
+
         {/* Búsqueda */}
         <div className="relative">
           <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -253,7 +313,7 @@ const TraceabilityOverview = () => {
                       {incidentCode}
                     </h3>
                     <div className="text-sm text-gray-600">
-                      Cliente: {incidentData.clientName || 'N/A'} • 
+                      Cliente: {incidentData.clientName || 'N/A'} •
                       Proveedor: {incidentData.provider || 'N/A'}
                     </div>
                   </div>
@@ -281,8 +341,9 @@ const TraceabilityOverview = () => {
                     blue: 'bg-blue-50 text-blue-700 border-blue-200',
                     purple: 'bg-purple-50 text-purple-700 border-purple-200',
                     green: 'bg-green-50 text-green-700 border-green-200',
+                    orange: 'bg-orange-50 text-orange-700 border-orange-200',
                   };
-                  
+
                   return (
                     <div key={`${document.type}-${document.id}`} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                       <div className="flex items-start justify-between mb-3">
@@ -296,13 +357,13 @@ const TraceabilityOverview = () => {
                           {document.typeName}
                         </span>
                       </div>
-                      
+
                       <div className="text-sm text-gray-600 mb-3">
                         <div>Cliente: {document.clientName || 'N/A'}</div>
                         <div>Producto: {document.product || 'N/A'}</div>
                         <div>Fecha: {new Date(document.created_at || document.visit_date || document.request_date || document.report_date).toLocaleDateString()}</div>
                       </div>
-                      
+
                       {/* Botones de acción */}
                       <div className="flex space-x-2">
                         <button
@@ -313,21 +374,25 @@ const TraceabilityOverview = () => {
                           <EyeIcon className="h-4 w-4 mr-2" />
                           Ver
                         </button>
-                        <button
-                          onClick={() => handleEditDocument(document)}
-                          className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                          title="Editar documento"
-                        >
-                          <PencilIcon className="h-4 w-4 mr-2" />
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => handleDeleteDocument(document)}
-                          className="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                          title="Eliminar documento"
-                        >
-                          <TrashIcon className="h-4 w-4" />
-                        </button>
+                        {document.type !== 'attachment' && (
+                          <>
+                            <button
+                              onClick={() => handleEditDocument(document)}
+                              className="flex-1 inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                              title="Editar documento"
+                            >
+                              <PencilIcon className="h-4 w-4 mr-2" />
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDocument(document)}
+                              className="inline-flex items-center justify-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                              title="Eliminar documento"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   );

@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 // import { Logo } from './Logo'; // Removed to avoid repetitive logo
 import { cn } from '@/lib/utils';
-import { 
-  Bell, 
-  User, 
-  Settings, 
-  LogOut, 
+import {
+  Bell,
+  User,
+  Settings,
+  LogOut,
   Menu,
   X
 } from 'lucide-react';
@@ -29,10 +29,12 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
   // Cerrar dropdowns al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (isUserMenuOpen) {
+      if (isUserMenuOpen && userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setIsUserMenuOpen(false);
       }
     };
@@ -95,7 +97,7 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                 <Menu className="h-5 w-5" />
               )}
             </button>
-            
+
             <div className="flex-1 min-w-0 overflow-hidden">
               <h1 className="text-base font-semibold text-gray-800 truncate" title={currentPage ? getPageTitle(currentPage) : 'Sistema de Gestión de Incidencias'}>
                 {currentPage ? getPageTitle(currentPage) : 'Sistema de Gestión de Incidencias'}
@@ -109,7 +111,7 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
             <NotificationCenter />
 
             {/* Menú de usuario */}
-            <div className="relative">
+            <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                 className="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-50 transition-colors duration-200"
@@ -131,7 +133,7 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                     <p className="text-xs text-gray-500">{user?.email}</p>
                     <p className="text-xs text-blue-600">{getRoleDisplay(user?.role || '')}</p>
                   </div>
-                  
+
                   <a
                     href="/profile"
                     className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -140,7 +142,7 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                     <User className="w-4 h-4 mr-3" />
                     Mi Perfil
                   </a>
-                  
+
                   <a
                     href="/settings"
                     className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -149,14 +151,13 @@ export function Header({ user, onLogout, currentPage, onMenuToggle, isSidebarOpe
                     <Settings className="w-4 h-4 mr-3" />
                     Configuración
                   </a>
-                  
+
                   <div className="border-t border-gray-100"></div>
-                  
+
                   <button
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      console.log('🎯 Botón de logout clickeado desde Header');
                       onLogout?.();
                       setIsUserMenuOpen(false);
                     }}

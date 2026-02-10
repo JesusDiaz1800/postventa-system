@@ -72,7 +72,8 @@ def get_document_info(request, document_type, incident_id, document_id):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-@require_http_methods(["GET"])
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def open_document_direct(request, document_type, incident_id, filename):
     """
     Abre un documento directamente desde la carpeta compartida
@@ -80,12 +81,23 @@ def open_document_direct(request, document_type, incident_id, filename):
     try:
         shared_base = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
         if not shared_base:
-            raise Http404("Carpeta compartida no configurada")
+            shared_base = settings.MEDIA_ROOT
         
         folder_name = document_type.replace('-', '_')
-        file_path = os.path.join(shared_base, folder_name, f'incident_{incident_id}', filename)
+        base_target_folder = os.path.join(shared_base, folder_name, f'incident_{incident_id}')
+        file_path = os.path.join(base_target_folder, filename)
         
-        if not os.path.exists(file_path):
+        # --- Protección contra Path Traversal ---
+        # Normalizar rutas para evitar '..'
+        file_path = os.path.abspath(file_path)
+        base_target_folder = os.path.abspath(base_target_folder)
+        
+        # Verificar que el archivo esté realmente dentro de la carpeta destinada
+        if not file_path.startswith(base_target_folder):
+            logger.warning(f"Intento de Path Traversal detectado: {file_path}")
+            raise Http404("Acceso denegado")
+            
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
             raise Http404("Archivo no encontrado")
         
         return FileResponse(open(file_path, 'rb'), as_attachment=False)
@@ -97,8 +109,12 @@ def open_document_direct(request, document_type, incident_id, filename):
         logger.error(f"Error al abrir documento: {str(e)}", exc_info=True)
         raise Http404("Error interno del servidor al abrir el documento")
 
+from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@cache_page(60)
 def list_incident_documents(request, incident_id):
     """
     Lista todos los documentos de una incidencia
@@ -110,14 +126,14 @@ def list_incident_documents(request, incident_id):
         shared_base = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
         if not shared_base:
             # Fallback a MEDIA_ROOT si no hay carpeta compartida configurada
-            shared_base = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
+            shared_base = settings.MEDIA_ROOT
             if not os.path.exists(shared_base):
                 os.makedirs(shared_base, exist_ok=True)
         
         logger.info(f"Base path para documentos: {shared_base}")
         logger.info(f"Base path existe: {os.path.exists(shared_base)}")
         
-        document_types = ['visit_report', 'lab_report', 'supplier_report', 'quality_report']
+        document_types = ['visit_report', 'lab_report', 'supplier_report', 'quality_report', 'quality_reports_cliente', 'quality_reports_interno']
         all_documents = []
         
         for doc_type in document_types:

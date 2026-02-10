@@ -17,12 +17,14 @@ urlpatterns = [
     path('api/documents/', include('apps.documents.urls')),
     path('api/ai/', include('apps.ai.urls')),
     path('api/ai-orchestrator/', include('apps.ai_orchestrator.urls')),
-    path('api/workflows/', include('apps.workflows.urls')),
+    path('api/ai-agents/', include('apps.ai_agents.urls')),  # NEW: LangGraph Agents
+    # path('api/workflows/', include('apps.workflows.urls')),  # Removed - feature deprecated
     path('api/audit/', include('apps.audit.urls')),
     path('api/reports/', include('apps.reports.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
         path('api/notifications/', include('apps.notifications.urls')),
     path('api/integrations/', include('apps.integrations.urls')),
+    path('api/sap/', include('apps.sap_integration.urls')),
     # path('api/advanced-reports/', include('apps.advanced_reports.urls')),
     # path('api/backup/', include('apps.backup.urls')),
     # path('api/monitoring/', include('apps.monitoring.urls')),

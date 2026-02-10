@@ -1,277 +1,112 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import AuditLog, AuditRule, AuditReport, AuditDashboard, AuditAlert
+from .models import AuditLog, DeletedItem
+from django.utils import timezone
 
 
-class UserSerializer(serializers.ModelSerializer):
-    """Serializer para información básica de usuario"""
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+class UserSerializer(serializers.Serializer):
+    """Serializer para información básica de usuario (Manual para evitar crash de introspección)"""
+    id = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    first_name = serializers.CharField(read_only=True)
+    last_name = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
     """Serializer para registros de auditoría"""
     user = UserSerializer(read_only=True)
-    action_display = serializers.SerializerMethodField()
-    result_display = serializers.SerializerMethodField()
-    severity_display = serializers.SerializerMethodField()
-    category_display = serializers.SerializerMethodField()
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
     formatted_timestamp = serializers.ReadOnlyField()
-    formatted_duration = serializers.ReadOnlyField()
-    is_successful = serializers.ReadOnlyField()
-    is_failure = serializers.ReadOnlyField()
-    is_high_severity = serializers.ReadOnlyField()
-    changes_summary = serializers.SerializerMethodField()
+    action_icon = serializers.ReadOnlyField()
+    action_color = serializers.ReadOnlyField()
     
     class Meta:
         model = AuditLog
         fields = [
-            'id', 'action', 'action_display', 'result', 'result_display',
-            'description', 'user', 'session_key', 'ip_address', 'user_agent',
-            'content_type', 'object_id', 'content_object', 'old_values',
-            'new_values', 'metadata', 'timestamp', 'formatted_timestamp',
-            'duration', 'formatted_duration', 'module', 'function',
-            'line_number', 'severity', 'severity_display', 'category',
-            'category_display', 'request_id', 'correlation_id',
-            'is_successful', 'is_failure', 'is_high_severity',
-            'changes_summary'
+            'id', 'action', 'action_display', 'description', 
+            'user', 'ip_address', 'details', 
+            'timestamp', # Use default ISO format for machine readability
+            'formatted_timestamp', # Keep for legacy/display if needed, but frontend should use timestamp
+            'action_icon', 'action_color'
         ]
         read_only_fields = ['id', 'timestamp']
-    
-    def get_action_display(self, obj):
-        """Obtener display de la acción"""
-        return dict(AuditLog.ACTION_TYPES).get(obj.action, obj.action)
-    
-    def get_result_display(self, obj):
-        """Obtener display del resultado"""
-        return dict(AuditLog.RESULT_TYPES).get(obj.result, obj.result)
-    
-    def get_severity_display(self, obj):
-        """Obtener display de la severidad"""
-        return dict(AuditLog._meta.get_field('severity').choices).get(obj.severity, obj.severity)
-    
-    def get_category_display(self, obj):
-        """Obtener display de la categoría"""
-        return dict(AuditLog._meta.get_field('category').choices).get(obj.category, obj.category)
-    
-    def get_changes_summary(self, obj):
-        """Obtener resumen de cambios"""
-        return obj.get_changes_summary()
 
 
-class AuditLogCreateSerializer(serializers.ModelSerializer):
-    """Serializer para crear registros de auditoría"""
+class DeletedItemSerializer(serializers.ModelSerializer):
+    """Serializer para elementos eliminados"""
+    deleted_by_username = serializers.CharField(source='deleted_by.username', read_only=True)
+    days_remaining = serializers.SerializerMethodField()
+    
     class Meta:
-        model = AuditLog
+        model = DeletedItem
         fields = [
-            'action', 'result', 'description', 'session_key', 'ip_address',
-            'user_agent', 'content_type', 'object_id', 'old_values',
-            'new_values', 'metadata', 'duration', 'module', 'function',
-            'line_number', 'severity', 'category', 'request_id', 'correlation_id'
+            'id', 'original_id', 'model_name', 'app_label', 
+            'object_repr', 'deleted_at', 'deleted_by', 'deleted_by_username',
+            'restore_deadline', 'days_remaining'
         ]
-    
-    def create(self, validated_data):
-        """Crear registro de auditoría"""
-        # Obtener usuario del contexto
-        request = self.context.get('request')
-        if request and hasattr(request, 'user'):
-            validated_data['user'] = request.user
+        read_only_fields = fields
         
-        return super().create(validated_data)
+    def get_days_remaining(self, obj):
+        now = timezone.now()
+        if obj.restore_deadline > now:
+            delta = obj.restore_deadline - now
+            return delta.days
+        return 0
 
-
-class AuditRuleSerializer(serializers.ModelSerializer):
-    """Serializer para reglas de auditoría"""
-    created_by = UserSerializer(read_only=True)
-    rule_type_display = serializers.SerializerMethodField()
+class DeletedItemRestoreSerializer(serializers.Serializer):
+    """Serializer para la acción de restaurar"""
+    restore_relations = serializers.BooleanField(default=False, help_text="Intentar restaurar relaciones anidadas (experimental)")
     
-    class Meta:
-        model = AuditRule
-        fields = [
-            'id', 'name', 'description', 'rule_type', 'rule_type_display',
-            'action_filter', 'user_filter', 'ip_filter', 'module_filter',
-            'severity_filter', 'category_filter', 'is_active', 'priority',
-            'alert_email', 'alert_webhook', 'block_action', 'created_by',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def get_rule_type_display(self, obj):
-        """Obtener display del tipo de regla"""
-        return dict(AuditRule.RULE_TYPES).get(obj.rule_type, obj.rule_type)
-
-
-class AuditReportSerializer(serializers.ModelSerializer):
-    """Serializer para reportes de auditoría"""
-    created_by = UserSerializer(read_only=True)
-    report_type_display = serializers.SerializerMethodField()
-    status_display = serializers.SerializerMethodField()
-    is_completed = serializers.ReadOnlyField()
-    is_generating = serializers.ReadOnlyField()
-    formatted_file_size = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = AuditReport
-        fields = [
-            'id', 'name', 'description', 'report_type', 'report_type_display',
-            'status', 'status_display', 'date_from', 'date_to', 'user_filter',
-            'action_filter', 'severity_filter', 'category_filter',
-            'include_details', 'include_changes', 'include_metadata',
-            'group_by', 'total_records', 'file_path', 'file_size',
-            'formatted_file_size', 'created_by', 'created_at',
-            'completed_at', 'is_completed', 'is_generating'
-        ]
-        read_only_fields = ['id', 'created_at', 'completed_at']
-    
-    def get_report_type_display(self, obj):
-        """Obtener display del tipo de reporte"""
-        return dict(AuditReport.REPORT_TYPES).get(obj.report_type, obj.report_type)
-    
-    def get_status_display(self, obj):
-        """Obtener display del estado"""
-        return dict(AuditReport.STATUS_CHOICES).get(obj.status, obj.status)
-
-
-class AuditReportCreateSerializer(serializers.ModelSerializer):
-    """Serializer para crear reportes de auditoría"""
-    class Meta:
-        model = AuditReport
-        fields = [
-            'name', 'description', 'report_type', 'date_from', 'date_to',
-            'user_filter', 'action_filter', 'severity_filter', 'category_filter',
-            'include_details', 'include_changes', 'include_metadata', 'group_by'
-        ]
-    
-    def create(self, validated_data):
-        """Crear reporte de auditoría"""
-        validated_data['created_by'] = self.context['request'].user
-        return super().create(validated_data)
-
-
-class AuditDashboardSerializer(serializers.ModelSerializer):
-    """Serializer para dashboards de auditoría"""
-    created_by = UserSerializer(read_only=True)
-    
-    class Meta:
-        model = AuditDashboard
-        fields = [
-            'id', 'name', 'description', 'widgets_config', 'default_filters',
-            'auto_refresh', 'refresh_interval', 'created_by', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class AuditAlertSerializer(serializers.ModelSerializer):
-    """Serializer para alertas de auditoría"""
-    audit_log = AuditLogSerializer(read_only=True)
-    resolved_by = UserSerializer(read_only=True)
-    severity_display = serializers.SerializerMethodField()
-    status_display = serializers.SerializerMethodField()
-    is_active = serializers.ReadOnlyField()
-    is_resolved = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = AuditAlert
-        fields = [
-            'id', 'title', 'description', 'severity', 'severity_display',
-            'status', 'status_display', 'audit_log', 'resolved_by',
-            'resolved_at', 'resolution_notes', 'created_at', 'updated_at',
-            'is_active', 'is_resolved'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def get_severity_display(self, obj):
-        """Obtener display de la severidad"""
-        return dict(AuditAlert.SEVERITY_LEVELS).get(obj.severity, obj.severity)
-    
-    def get_status_display(self, obj):
-        """Obtener display del estado"""
-        return dict(AuditAlert.STATUS_CHOICES).get(obj.status, obj.status)
-
-
-class AuditAlertActionSerializer(serializers.Serializer):
-    """Serializer para acciones de alertas"""
-    ACTION_CHOICES = [
-        ('resolve', 'Resolver'),
-        ('acknowledge', 'Reconocer'),
-        ('dismiss', 'Descartar'),
-    ]
-    
-    action = serializers.ChoiceField(choices=ACTION_CHOICES)
-    notes = serializers.CharField(required=False, allow_blank=True)
-
-
-class AuditStatsSerializer(serializers.Serializer):
-    """Serializer para estadísticas de auditoría"""
-    total_logs = serializers.IntegerField()
-    logs_today = serializers.IntegerField()
-    logs_this_week = serializers.IntegerField()
-    logs_this_month = serializers.IntegerField()
-    successful_actions = serializers.IntegerField()
-    failed_actions = serializers.IntegerField()
-    high_severity_logs = serializers.IntegerField()
-    critical_logs = serializers.IntegerField()
-    logs_by_action = serializers.DictField()
-    logs_by_category = serializers.DictField()
-    logs_by_severity = serializers.DictField()
-    logs_by_user = serializers.DictField()
-    top_ips = serializers.DictField()
-    average_response_time = serializers.DurationField()
-    error_rate = serializers.FloatField()
-
-
-class AuditSearchSerializer(serializers.Serializer):
-    """Serializer para búsqueda de auditoría"""
-    query = serializers.CharField(required=False, allow_blank=True)
-    action = serializers.CharField(required=False, allow_blank=True)
-    result = serializers.CharField(required=False, allow_blank=True)
-    user = serializers.IntegerField(required=False, allow_null=True)
-    severity = serializers.CharField(required=False, allow_blank=True)
-    category = serializers.CharField(required=False, allow_blank=True)
-    ip_address = serializers.CharField(required=False, allow_blank=True)
-    module = serializers.CharField(required=False, allow_blank=True)
-    date_from = serializers.DateTimeField(required=False)
-    date_to = serializers.DateTimeField(required=False)
-    ordering = serializers.ChoiceField(
-        choices=['timestamp', '-timestamp', 'action', '-action', 'severity', '-severity'],
-        required=False,
-        default='-timestamp'
-    )
-
-
-class AuditExportSerializer(serializers.Serializer):
-    """Serializer para exportación de auditoría"""
-    format = serializers.ChoiceField(choices=['csv', 'xlsx', 'json', 'pdf'])
-    date_from = serializers.DateTimeField(required=False)
-    date_to = serializers.DateTimeField(required=False)
-    filters = serializers.JSONField(required=False, default=dict)
-    include_details = serializers.BooleanField(default=True)
-    include_changes = serializers.BooleanField(default=True)
-    include_metadata = serializers.BooleanField(default=False)
-    group_by = serializers.CharField(required=False, allow_blank=True)
-
-
-class AuditDashboardWidgetSerializer(serializers.Serializer):
-    """Serializer para widgets del dashboard"""
-    widget_type = serializers.CharField()
-    title = serializers.CharField()
-    config = serializers.JSONField(default=dict)
-    position = serializers.JSONField(default=dict)
-    size = serializers.JSONField(default=dict)
-    filters = serializers.JSONField(default=dict)
-    refresh_interval = serializers.IntegerField(default=300)
-    is_visible = serializers.BooleanField(default=True)
-
-
-class AuditRealTimeSerializer(serializers.Serializer):
-    """Serializer para datos en tiempo real de auditoría"""
-    timestamp = serializers.DateTimeField()
-    action = serializers.CharField()
-    user = serializers.CharField()
-    result = serializers.CharField()
-    severity = serializers.CharField()
-    description = serializers.CharField()
-    ip_address = serializers.IPAddressField()
-    module = serializers.CharField()
-    duration = serializers.DurationField()
+    def restore(self, deleted_item):
+        """Lógica de restauración optimizada"""
+        try:
+            from django.apps import apps
+            import json
+            from django.core import serializers
+            
+            # 1. Obtener modelo
+            try:
+                ModelClass = apps.get_model(deleted_item.app_label, deleted_item.model_name)
+            except LookupError:
+                raise serializers.ValidationError(f"El modelo {deleted_item.app_label}.{deleted_item.model_name} ya no existe.")
+            
+            # 2. Verificar si ya existe un objeto con ese ID
+            if ModelClass.objects.filter(pk=deleted_item.original_id).exists():
+                raise serializers.ValidationError(f"Ya existe un objeto {deleted_item.model_name} con ID {deleted_item.original_id}. No se puede restaurar.")
+                
+            # 3. Deserializar
+            serialized_data = deleted_item.serialized_data
+            
+            # Manejar si serialized_data es string o dict/list
+            if isinstance(serialized_data, str):
+                json_str = serialized_data
+            else:
+                json_str = json.dumps(serialized_data)
+                
+            # Método alternativo más seguro: usar deserializer de Django
+            # Django serializer devuelve una lista de DeserializedObject
+            # Si serialized_data es una lista de objetos serializados (formato django default):
+            if isinstance(serialized_data, list) and len(serialized_data) > 0:
+                 json_str = json.dumps(serialized_data)
+            # Si es un dict (quizas custom), hay que ver. Asumimos formato standard Django serializers.serialize('json', [obj])
+            
+            # Intentar deserializar
+            deserialized_objects = list(serializers.deserialize('json', json_str))
+            
+            if not deserialized_objects:
+                raise serializers.ValidationError("No se pudo interpretar la data de respaldo.")
+                
+            obj = deserialized_objects[0].object
+            obj.save(force_insert=True) # Forzar insert con el ID original
+            
+            # Eliminar backup tras restaurar
+            deleted_item.delete()
+            
+            return obj
+                 
+        except Exception as e:
+            # Re-raise validation errors or wrap others
+            if isinstance(e, serializers.ValidationError):
+                raise e
+            raise serializers.ValidationError(f"Error técnico al restaurar: {str(e)}")

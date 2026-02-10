@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 import { Logo } from '../components/Logo';
 import { brandConfig } from '../config/brand';
 import {
@@ -53,12 +53,12 @@ const Login = () => {
       <div className="absolute inset-0 opacity-20" style={{
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
       }}></div>
-      
+
       {/* Floating Elements */}
       <div className="absolute top-20 left-20 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
       <div className="absolute bottom-20 right-20 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
       <div className="absolute top-1/2 left-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl animate-pulse delay-500"></div>
-      
+
       <div className="max-w-md w-full relative z-10">
         {/* Logo and Header */}
         <div className="relative mb-8">
@@ -88,60 +88,60 @@ const Login = () => {
           <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-indigo-600/10 rounded-3xl blur-3xl"></div>
           <div className="relative bg-white/10 backdrop-blur-xl rounded-3xl p-8 border border-white/20 shadow-2xl">
             <form className="space-y-6" onSubmit={handleSubmit}>
-                {/* Username Field */}
-                <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
-                    Usuario
-                  </label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <UserIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
-                    </div>
-                    <input
-                      id="username"
-                      name="username"
-                      type="text"
-                      required
-                      className="block w-full pl-10 pr-3 py-3 border border-white/20 rounded-xl bg-white/10 backdrop-blur-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 focus:bg-white/20"
-                      placeholder="Ingrese su usuario"
-                      value={formData.username}
-                      onChange={handleChange}
-                    />
+              {/* Username Field */}
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
+                  Usuario
+                </label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <UserIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
                   </div>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    required
+                    className="block w-full pl-10 pr-3 py-3 border border-white/20 rounded-xl bg-white/10 backdrop-blur-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 focus:bg-white/20"
+                    placeholder="Ingrese su usuario"
+                    value={formData.username}
+                    onChange={handleChange}
+                  />
                 </div>
+              </div>
 
-                {/* Password Field */}
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
-                    Contraseña
-                  </label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <LockClosedIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
-                    </div>
-                    <input
-                      id="password"
-                      name="password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      className="block w-full pl-10 pr-12 py-3 border border-white/20 rounded-xl bg-white/10 backdrop-blur-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 focus:bg-white/20"
-                      placeholder="Ingrese su contraseña"
-                      value={formData.password}
-                      onChange={handleChange}
-                    />
-                    <button
-                      type="button"
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center hover:bg-white/10 rounded-r-xl transition-colors"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? (
-                        <EyeSlashIcon className="h-5 w-5 text-gray-400 hover:text-white transition-colors" />
-                      ) : (
-                        <EyeIcon className="h-5 w-5 text-gray-400 hover:text-white transition-colors" />
-                      )}
-                    </button>
+              {/* Password Field */}
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-200 mb-2">
+                  Contraseña
+                </label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <LockClosedIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-400 transition-colors" />
                   </div>
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    className="block w-full pl-10 pr-12 py-3 border border-white/20 rounded-xl bg-white/10 backdrop-blur-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 focus:bg-white/20"
+                    placeholder="Ingrese su contraseña"
+                    value={formData.password}
+                    onChange={handleChange}
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center hover:bg-white/10 rounded-r-xl transition-colors"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeSlashIcon className="h-5 w-5 text-gray-400 hover:text-white transition-colors" />
+                    ) : (
+                      <EyeIcon className="h-5 w-5 text-gray-400 hover:text-white transition-colors" />
+                    )}
+                  </button>
                 </div>
+              </div>
 
               {/* Submit Button */}
               <div>
@@ -181,7 +181,7 @@ const Login = () => {
                   </div>
                 </div>
               </div>
-              
+
               {/* Temporary button to clear auth - Solo para desarrollo */}
               {process.env.NODE_ENV === 'development' && (
                 <div className="mt-4 text-center">

@@ -1,10 +1,11 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
+import {
   DocumentTextIcon,
-  DocumentArrowUpIcon, 
-  PlusIcon, 
-  EyeIcon, 
+  DocumentArrowUpIcon,
+  PlusIcon,
+  EyeIcon,
   PencilIcon,
   TrashIcon,
   PaperClipIcon,
@@ -19,10 +20,13 @@ import {
   CloudArrowUpIcon,
   BeakerIcon,
   XMarkIcon,
+  PaperAirplaneIcon,
+  ArrowTopRightOnSquareIcon,
+  BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
-import QualityReportForm from '../components/QualityReportForm';
+
 import { useNotifications } from '../hooks/useNotifications';
-import { api } from '../services/api';
+import { api, incidentsAPI, qualityReportsAPI } from '../services/api';
 import useReportsManager from '../hooks/useReportsManager';
 import ReportAttachments from '../components/ReportAttachments';
 import DocumentManager from '../components/DocumentManager';
@@ -35,13 +39,16 @@ import { openDocument, downloadDocument, generateDocument } from '../utils/docum
  * Permite crear, visualizar, escalar y gestionar reportes
  */
 const InternalQualityReportsPage = () => {
+  const navigate = useNavigate();
   const { showSuccess, showError } = useNotifications();
   const queryClient = useQueryClient();
-  const { 
-    createInternalQualityReport, 
-    escalateInternalReport, 
+  const {
+    createInternalQualityReport,
+    escalateInternalReport,
+    escalateToSupplier,
+    deleteQualityReport,
     generateReport,
-    isGenerating 
+    isGenerating
   } = useReportsManager();
 
   // Estados
@@ -55,1514 +62,791 @@ const InternalQualityReportsPage = () => {
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState('');
   const [showIncidentClosure, setShowIncidentClosure] = useState(false);
+  const [showSupplierEscalateModal, setShowSupplierEscalateModal] = useState(false); // Nuevo estado
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Estado para el modal de cierre estandarizado
+  const [closureData, setClosureData] = useState({
+    stage: 'calidad',
+    reason: '',
+    closure_summary: '',
+    closure_attachment: null
+  });
+
+  // Scroll to top on page mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Obtener reportes de calidad interna
-  const { 
-    data: reports = [], 
-    isLoading: reportsLoading, 
+  const {
+    data: reports = [],
+    isLoading: reportsLoading,
     error: reportsError,
-    refetch: refetchReports 
+    refetch: refetchReports
   } = useQuery({
-    queryKey: ['internal-quality-reports'],
+    queryKey: ['internal-quality-reports', { search: searchTerm }],
     queryFn: async () => {
-      const response = await api.get('/documents/quality-reports/internal/');
-      return response.data || [];
+      const response = await api.get('/documents/quality-reports/internal/', {
+        params: { search: searchTerm }
+      });
+      return response.data?.reports || [];
+    },
+    keepPreviousData: true,
+    staleTime: 60000,
+    retry: 1
+  });
+
+  // Obtener incidencias escaladas a calidad (para reportes internos)
+  const {
+    data: incidents = [],
+    isLoading: incidentsLoading
+  } = useQuery({
+    queryKey: ['incidents-escalated-quality'],
+    queryFn: async () => {
+      // Usar endpoint específico para incidencias escaladas a calidad interna
+      const response = await api.get('/incidents/escalated/', {
+        params: { escalated_to_internal: 'true', without_quality_report: 'true' }
+      });
+      return response.data?.incidents || [];
     },
   });
 
-  // Obtener incidencias disponibles
-  const { 
-    data: incidents = [], 
-    isLoading: incidentsLoading 
-  } = useQuery({
-    queryKey: ['incidents-for-reports'],
-    queryFn: async () => {
-      const response = await api.get('/incidents/');
-      return Array.isArray(response.data) ? response.data : (response.data?.results || []);
-    },
-  });
+  // Estados para el flujo de creación optimizado
+  const [showSelectionModal, setShowSelectionModal] = useState(false);
 
-  // Filtrar y ordenar reportes
+  // Filtrar y ordenar reportes (Búsqueda Server-Side, Ordenamiento Client-Side)
   const filteredReports = useMemo(() => {
     let filtered = Array.isArray(reports) ? reports : [];
 
-    // Filtrar solo reportes de incidencias escaladas a calidad
-    filtered = filtered.filter(report => {
-      const relatedIncident = incidents.find(incident => incident.id === report.incident_id);
-      return relatedIncident && relatedIncident.escalated_to_quality === true;
-    });
-
-    // Filtrar por término de búsqueda
-    if (searchTerm) {
-      filtered = filtered.filter(report =>
-      report.incident_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        report.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        report.description?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Filtrar por estado
+    // Filter by status if selected (Client-side is fine for status dropdown)
     if (filterStatus !== 'all') {
-      filtered = filtered.filter(report => {
-        switch (filterStatus) {
-          case 'draft':
-            return report.status === 'draft';
-          case 'pending':
-            return report.status === 'pending';
-          case 'escalated':
-            return report.status === 'escalated';
-          case 'completed':
-            return report.status === 'completed';
-          default:
-            return true;
-        }
-      });
+      filtered = filtered.filter(report => report.status === filterStatus);
     }
 
-    // Ordenar
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'title':
-          return (a.title || '').localeCompare(b.title || '');
-        case 'incident':
-          return (a.incident_code || '').localeCompare(b.incident_code || '');
-        case 'date':
-        default:
-          return new Date(b.created_at) - new Date(a.created_at);
+    return filtered.sort((a, b) => {
+      if (sortBy === 'date') return new Date(b.created_at) - new Date(a.created_at);
+      if (sortBy === 'incident') return (a.incident_code || '').localeCompare(b.incident_code || '');
+      return 0;
+    });
+  }, [reports, filterStatus, sortBy]);
+
+
+  // --- Handlers ---
+
+  const handleCreateReportClick = () => {
+    setShowSelectionModal(true);
+  };
+
+  const handleIncidentSelect = (incidentId) => {
+    setSelectedIncidentId(incidentId);
+    setShowSelectionModal(false);
+    navigate(`/quality-report-form/${incidentId}?internal=true`); // Navegación a la nueva página
+  };
+
+  const handleCreateReport = async (formData) => {
+    try {
+      if (!selectedIncidentId) {
+        showError('Debes seleccionar una incidencia');
+        return;
       }
-    });
-
-    return filtered;
-  }, [reports, incidents, searchTerm, filterStatus, sortBy]);
-
-  // Crear reporte
-  const handleCreateReport = useCallback(async (formData) => {
-    try {
-      await createInternalQualityReport.mutateAsync({
-        incidentId: formData.incidentId,
-        reportData: {
-          title: formData.title,
-          description: formData.description,
-          findings: formData.findings,
-          recommendations: formData.recommendations,
-          priority: formData.priority,
-        },
-        attachments: formData.attachments || [],
-      });
-      
+      await createInternalQualityReport(selectedIncidentId, formData);
       setShowCreateModal(false);
-      showSuccess('Reporte de calidad interna creado exitosamente');
-      } catch (error) {
-      console.error('Error creating report:', error);
-      showError('Error al crear el reporte');
+      refetchReports();
+    } catch (error) {
+      console.error(error);
+      // Error handled in hook
     }
-  }, [createInternalQualityReport, showSuccess, showError]);
+  };
 
-  // Manejar subida de documento
-  const handleUploadDocument = useCallback(async (formData) => {
-    try {
-        const response = await api.post('/documents/upload/quality-report/', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-
-        if (response.data.success) {
-          setShowUploadModal(false);
-        showSuccess('Documento adjuntado exitosamente');
-        refetchReports();
-        }
-      } catch (error) {
-        console.error('Error uploading document:', error);
-      showError('Error al adjuntar el documento');
-    }
-  }, [showSuccess, showError, refetchReports]);
-
-  // Función unificada para abrir documentos
-  const handleOpenDocument = useCallback((report) => {
-    openDocument(report, 'quality-report', showSuccess, showError);
-  }, [showSuccess, showError]);
-
-  // Función unificada para descargar documentos
-  const handleDownloadDocument = useCallback((report) => {
-    downloadDocument(report, 'quality-report', showSuccess, showError);
-  }, [showSuccess, showError]);
-
-  // Función unificada para generar documentos
-  const handleGenerateDocument = useCallback(async (report) => {
-    await generateDocument(report, 'quality-report', showSuccess, showError);
-  }, [showSuccess, showError]);
-
-  // Función para seleccionar reporte
-  const handleSelectReport = useCallback((report) => {
+  const handleEscalate = async (report) => {
     setSelectedReport(report);
-  }, []);
+    setShowEscalateModal(true);
+  };
 
-  // Escalar reporte
-  const handleEscalateReport = useCallback(async (escalationData) => {
+  const handleEscalateToSupplierAction = (report) => {
+    setSelectedReport(report);
+    setShowSupplierEscalateModal(true);
+  };
+
+  const handleConfirmEscalation = async () => {
     if (!selectedReport) return;
-    
     try {
-      await escalateInternalReport.mutateAsync({
-        reportId: selectedReport.id,
-        escalationData,
-      });
-      
+      await escalateInternalReport(selectedReport.id, "Escalado a cliente");
       setShowEscalateModal(false);
-      setSelectedReport(null);
-      showSuccess('Reporte escalado exitosamente');
+      refetchReports();
     } catch (error) {
-      console.error('Error escalating report:', error);
-      showError('Error al escalar el reporte');
+      console.error(error);
     }
-  }, [selectedReport, escalateInternalReport, showSuccess, showError]);
+  };
 
-  // Generar reporte automático
-  const handleGenerateReport = useCallback(async (incidentId) => {
+  const handleConfirmSupplierEscalation = async () => {
+    if (!selectedReport) return;
     try {
-      await generateReport('internal-quality', incidentId);
-      showSuccess('Reporte generado exitosamente');
+      // Use mutateAsync from the hook object
+      await escalateToSupplier.mutateAsync({
+        reportId: selectedReport.id,
+        escalationData: {
+          supplier_name: selectedReport.incident?.provider || 'Proveedor',
+          supplier_email: 'contacto@proveedor.com',
+          subject: `Escalamiento de Incidencia ${selectedReport.incident_code || ''}`,
+          message: 'Se ha escalado esta incidencia para su revisión.',
+          reason: 'Escalado a proveedor desde interno'
+        }
+      });
+      setShowSupplierEscalateModal(false);
+      refetchReports();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleDelete = async (reportId) => {
+    if (confirm('¿Estás seguro de eliminar este reporte?')) {
+      try {
+        await deleteQualityReport.mutateAsync(reportId);
+        refetchReports();
       } catch (error) {
-      console.error('Error generating report:', error);
-      showError('Error al generar el reporte');
-    }
-  }, [generateReport, showSuccess, showError]);
-
-  // Formatear fecha
-  const formatDate = useCallback((dateString) => {
-    return new Date(dateString).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }, []);
-
-  // Obtener color del estado
-  const getStatusColor = useCallback((status) => {
-    switch (status) {
-      case 'draft':
-        return 'bg-gray-100 text-gray-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'escalated':
-        return 'bg-orange-100 text-orange-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  }, []);
-
-  // Obtener icono del estado
-  const getStatusIcon = useCallback((status) => {
-    switch (status) {
-      case 'draft':
-        return <DocumentTextIcon className="h-4 w-4" />;
-      case 'pending':
-        return <ClockIcon className="h-4 w-4" />;
-      case 'escalated':
-        return <ExclamationTriangleIcon className="h-4 w-4" />;
-      case 'completed':
-        return <CheckCircleIcon className="h-4 w-4" />;
-      default:
-        return <DocumentTextIcon className="h-4 w-4" />;
-    }
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <BeakerIcon className="h-8 w-8 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <h1 className="text-xl font-semibold text-gray-900">
-                  Reportes de Calidad Interna
-                </h1>
-                <p className="text-sm text-gray-500">
-                  Gestión de reportes de control de calidad interno (solo incidencias escaladas)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <PlusIcon className="h-5 w-5 mr-2" />
-                Crear Reporte
-              </button>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-xl text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
-                Adjuntar Documento
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-          {/* Filtros */}
-          <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Búsqueda */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Buscar
-                </label>
-          <div className="relative">
-                  <MagnifyingGlassIcon className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por código, título o descripción..."
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-        </div>
-
-              {/* Filtro por estado */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Estado
-                </label>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="all">Todos los estados</option>
-                  <option value="draft">Borrador</option>
-                  <option value="pending">Pendiente</option>
-                  <option value="escalated">Escalado</option>
-                  <option value="completed">Completado</option>
-                </select>
-          </div>
-          
-              {/* Ordenar por */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Ordenar por
-                </label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="date">Fecha (más reciente)</option>
-                  <option value="title">Título (A-Z)</option>
-                  <option value="incident">Código de incidencia</option>
-                </select>
-                            </div>
-                          </div>
-                            </div>
-          
-        {/* Lista de reportes */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          {reportsLoading ? (
-            <div className="p-6">
-              <div className="animate-pulse space-y-4">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex items-center space-x-4">
-                    <div className="w-10 h-10 bg-gray-200 rounded"></div>
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                            </div>
-                          </div>
-                ))}
-                        </div>
-                        </div>
-          ) : filteredReports.length === 0 ? (
-            <div className="p-6 text-center">
-              <DocumentTextIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No hay reportes
-              </h3>
-              <p className="text-gray-500 mb-4">
-                Crea tu primer reporte de calidad interna
-              </p>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-              >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Crear Reporte
-              </button>
-                        </div>
-          ) : (
-            <div className="divide-y divide-gray-200">
-              {filteredReports.map((report) => (
-                <div key={report.id} className="p-6 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {report.title || 'Sin título'}
-                        </h3>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
-                          {getStatusIcon(report.status)}
-                          <span className="ml-1 capitalize">{report.status}</span>
-                        </span>
-                      </div>
-                      
-                      <p className="text-gray-600 mb-3 line-clamp-2">
-                        {report.description || 'Sin descripción'}
-                      </p>
-                      
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <div className="flex items-center">
-                          <DocumentTextIcon className="h-4 w-4 mr-1" />
-                          {report.incident_code || 'Sin código'}
-                        </div>
-                        <div className="flex items-center">
-                          <CalendarIcon className="h-4 w-4 mr-1" />
-                          {formatDate(report.created_at)}
-                            </div>
-                        <div className="flex items-center">
-                          <UserIcon className="h-4 w-4 mr-1" />
-                          {report.created_by || 'Sistema'}
-                            </div>
-                          </div>
-                        </div>
-                    
-                    <div className="flex items-center space-x-2 ml-4">
-                          <button
-                            onClick={() => handleOpenDocument(report)}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Ver reporte"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </button>
-                          
-                            <button
-                        onClick={() => handleDownloadDocument(report)}
-                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                        title="Descargar reporte"
-                          >
-                            <DocumentArrowUpIcon className="h-4 w-4" />
-                            </button>
-                          
-                          <button
-                        onClick={() => handleGenerateDocument(report)}
-                        className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                        title="Generar documento PDF"
-                          >
-                            <DocumentTextIcon className="h-4 w-4" />
-                          </button>
-                          
-                          <button
-                        onClick={() => handleSelectReport(report)}
-                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                        title="Adjuntar documentos"
-                          >
-                            <PaperClipIcon className="h-4 w-4" />
-                          </button>
-                      
-                      {report.status === 'pending' && (
-                          <button
-                          onClick={() => {
-                            setSelectedReport(report);
-                            setShowEscalateModal(true);
-                          }}
-                          className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
-                          title="Escalar reporte"
-                        >
-                          <ExclamationTriangleIcon className="h-4 w-4" />
-                          </button>
-                          )}
-                      
-                <button
-                        onClick={() => handleGenerateReport(report.incident_id)}
-                        disabled={isGenerating}
-                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                        title="Generar reporte"
-                      >
-                        <CloudArrowUpIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-            </div>
-                </div>
-                  ))}
-            </div>
-          )}
-            </div>
-
-        {/* Modal de creación */}
-        {showCreateModal && (
-          <CreateReportModal
-            incidents={incidents}
-            onSubmit={handleCreateReport}
-            onClose={() => setShowCreateModal(false)}
-            reportType="interno"
-          />
-        )}
-
-        {/* Modal de adjuntar documento */}
-        {showUploadModal && (
-          <UploadDocumentModal
-            incidents={incidents}
-            onSubmit={handleUploadDocument}
-            onClose={() => setShowUploadModal(false)}
-          />
-        )}
-
-        {/* Sección de adjuntos para reportes */}
-        {selectedReport && (
-              <div className="mt-6">
-            <ReportAttachments
-              reportId={selectedReport.id}
-              reportType="quality_report"
-              onAttachmentUploaded={() => {
-                refetchReports();
-                showSuccess('Documento adjuntado exitosamente');
-              }}
-              onAttachmentDeleted={() => {
-                refetchReports();
-                showSuccess('Documento eliminado exitosamente');
-              }}
-            />
-            </div>
-          )}
-
-        {/* Modal de escalamiento */}
-        {showEscalateModal && selectedReport && (
-          <EscalateReportModal
-            report={selectedReport}
-            onSubmit={handleEscalateReport}
-            onClose={() => {
-              setShowEscalateModal(false);
-              setSelectedReport(null);
-            }}
-          />
-        )}
-
-        {/* Formulario de cierre de incidencia */}
-        {showIncidentClosure && selectedIncident && (
-          <IncidentClosureForm
-            incident={selectedIncident}
-            onSubmit={handleCloseIncident}
-            onCancel={() => {
-              setShowIncidentClosure(false);
-              setSelectedIncident(null);
-            }}
-            isLoading={false}
-          />
-          )}
-        </div>
-      </div>
-  );
-};
-
-// Modal unificado para crear reportes - FORMULARIO PROFESIONAL COMPLETO
-const CreateReportModal = ({ incidents, onSubmit, onClose, reportType = "cliente" }) => {
-  const [formData, setFormData] = useState({
-    incidentId: '',
-    title: '',
-    description: '',
-    findings: '',
-    recommendations: '',
-    priority: 'medium',
-    status: 'draft',
-    category: '',
-    subcategory: '',
-    severity: 'medium',
-    impact: 'medium',
-    urgency: 'medium',
-    responsible_person: '',
-    department: '',
-    location: '',
-    equipment_involved: '',
-    test_methods: '',
-    standards_applied: '',
-    non_conformities: '',
-    corrective_actions: '',
-    preventive_actions: '',
-    follow_up_date: '',
-    estimated_completion: '',
-    budget_impact: '',
-    resources_required: '',
-    attachments: [],
-    additional_notes: '',
-    client_contact: '',
-    supplier_contact: '',
-    regulatory_requirements: '',
-    compliance_status: '',
-    risk_assessment: '',
-    mitigation_measures: '',
-    lessons_learned: '',
-    improvement_suggestions: ''
-  });
-
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
-
-  const totalSteps = 5;
-
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: type === 'checkbox' ? checked : value 
-    }));
-    
-    // Clear error when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
+        console.error(error);
+      }
     }
   };
 
-  const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    setFormData(prev => ({
-      ...prev,
-      attachments: [...prev.attachments, ...files]
-    }));
-  };
-
-  const removeAttachment = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      attachments: prev.attachments.filter((_, i) => i !== index)
-    }));
-  };
-
-  const validateStep = (step) => {
-    const newErrors = {};
-    
-    switch (step) {
-      case 1:
-        if (!formData.incidentId) newErrors.incidentId = 'Debe seleccionar una incidencia';
-        if (!formData.title.trim()) newErrors.title = 'El título es obligatorio';
-        if (!formData.description.trim()) newErrors.description = 'La descripción es obligatoria';
-        break;
-      case 2:
-        if (!formData.findings.trim()) newErrors.findings = 'Los hallazgos son obligatorios';
-        if (!formData.recommendations.trim()) newErrors.recommendations = 'Las recomendaciones son obligatorias';
-        break;
-      case 3:
-        if (!formData.category) newErrors.category = 'La categoría es obligatoria';
-        if (!formData.severity) newErrors.severity = 'La severidad es obligatoria';
-        break;
-      case 4:
-        if (!formData.responsible_person.trim()) newErrors.responsible_person = 'La persona responsable es obligatoria';
-        if (!formData.department.trim()) newErrors.department = 'El departamento es obligatorio';
-        break;
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleNext = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, totalSteps));
-    }
-  };
-
-  const handlePrevious = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateStep(currentStep)) return;
-    
-    setIsSubmitting(true);
-    try {
-      await onSubmit(formData);
-    } catch (error) {
-      console.error('Error submitting form:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const getTitle = () => {
-    return reportType === "cliente" 
-      ? "Crear Reporte de Calidad para Cliente"
-      : "Crear Reporte de Calidad Interna";
-  };
-
-  const getDescription = () => {
-    return reportType === "cliente"
-      ? "Gestión profesional de reportes de control de calidad para clientes"
-      : "Gestión profesional de reportes de control de calidad interno (solo incidencias escaladas)";
-  };
-
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <div className="space-y-6">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-blue-900 mb-2">Información Básica</h4>
-              <p className="text-blue-700 text-sm">Complete la información fundamental del reporte</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Incidencia Relacionada
-              </label>
-              <select
-                name="incidentId"
-                value={formData.incidentId}
-                onChange={handleChange}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.incidentId ? 'border-red-500' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Seleccionar incidencia...</option>
-                {incidents
-                  .filter(incident => reportType === "interno" ? incident.escalated_to_quality === true : true)
-                  .map(incident => (
-                    <option key={incident.id} value={incident.id}>
-                      {incident.code} - {incident.title || incident.cliente}
-                    </option>
-                  ))}
-              </select>
-              {errors.incidentId && <p className="text-red-500 text-sm mt-1">{errors.incidentId}</p>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Título del Reporte
-              </label>
-              <input
-                type="text"
-                name="title"
-                value={formData.title}
-                onChange={handleChange}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.title ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Título descriptivo del reporte de calidad..."
-              />
-              {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Descripción General
-              </label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                rows={4}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.description ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Descripción detallada del problema o situación..."
-              />
-              {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Estado del Reporte
-                </label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="draft">Borrador</option>
-                  <option value="pending">Pendiente</option>
-                  <option value="in_review">En Revisión</option>
-                  <option value="approved">Aprobado</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Prioridad
-                </label>
-                <select
-                  name="priority"
-                  value={formData.priority}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="low">Baja</option>
-                  <option value="medium">Media</option>
-                  <option value="high">Alta</option>
-                  <option value="critical">Crítica</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-6">
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-green-900 mb-2">Análisis Técnico</h4>
-              <p className="text-green-700 text-sm">Detalle los hallazgos y recomendaciones técnicas</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Hallazgos Técnicos
-              </label>
-              <textarea
-                name="findings"
-                value={formData.findings}
-                onChange={handleChange}
-                rows={6}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.findings ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Detalle todos los hallazgos técnicos encontrados durante la investigación..."
-              />
-              {errors.findings && <p className="text-red-500 text-sm mt-1">{errors.findings}</p>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Recomendaciones
-              </label>
-              <textarea
-                name="recommendations"
-                value={formData.recommendations}
-                onChange={handleChange}
-                rows={6}
-                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.recommendations ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Proporcione recomendaciones específicas para resolver los problemas identificados..."
-              />
-              {errors.recommendations && <p className="text-red-500 text-sm mt-1">{errors.recommendations}</p>}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Métodos de Prueba Utilizados
-                </label>
-                <textarea
-                  name="test_methods"
-                  value={formData.test_methods}
-                  onChange={handleChange}
-                  rows={3}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Describa los métodos de prueba utilizados..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Estándares Aplicados
-                </label>
-                <textarea
-                  name="standards_applied"
-                  value={formData.standards_applied}
-                  onChange={handleChange}
-                  rows={3}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Especifique los estándares de calidad aplicados..."
-                />
-              </div>
-            </div>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-6">
-            <div className="bg-yellow-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-yellow-900 mb-2">Clasificación y Evaluación</h4>
-              <p className="text-yellow-700 text-sm">Categorice y evalúe el impacto del problema</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Categoría
-                </label>
-                <select
-                  name="category"
-                  value={formData.category}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.category ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="">Seleccionar categoría...</option>
-                  <option value="product_quality">Calidad del Producto</option>
-                  <option value="process_quality">Calidad del Proceso</option>
-                  <option value="supplier_quality">Calidad del Proveedor</option>
-                  <option value="service_quality">Calidad del Servicio</option>
-                  <option value="system_quality">Calidad del Sistema</option>
-                  <option value="regulatory">Regulatorio</option>
-                  <option value="safety">Seguridad</option>
-                  <option value="environmental">Ambiental</option>
-                </select>
-                {errors.category && <p className="text-red-500 text-sm mt-1">{errors.category}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Subcategoría
-                </label>
-                <input
-                  type="text"
-                  name="subcategory"
-                  value={formData.subcategory}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Especifique la subcategoría..."
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Severidad
-                </label>
-                <select
-                  name="severity"
-                  value={formData.severity}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.severity ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                >
-                  <option value="low">Baja</option>
-                  <option value="medium">Media</option>
-                  <option value="high">Alta</option>
-                  <option value="critical">Crítica</option>
-                </select>
-                {errors.severity && <p className="text-red-500 text-sm mt-1">{errors.severity}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Impacto
-                </label>
-                <select
-                  name="impact"
-                  value={formData.impact}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="low">Bajo</option>
-                  <option value="medium">Medio</option>
-                  <option value="high">Alto</option>
-                  <option value="critical">Crítico</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Urgencia
-                </label>
-                <select
-                  name="urgency"
-                  value={formData.urgency}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="low">Baja</option>
-                  <option value="medium">Media</option>
-                  <option value="high">Alta</option>
-                  <option value="critical">Crítica</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Ubicación del Problema
-              </label>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Especifique la ubicación donde ocurrió el problema..."
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Equipos Involucrados
-              </label>
-              <input
-                type="text"
-                name="equipment_involved"
-                value={formData.equipment_involved}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Liste los equipos o sistemas involucrados..."
-              />
-            </div>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-6">
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-purple-900 mb-2">Responsabilidades y Recursos</h4>
-              <p className="text-purple-700 text-sm">Asigne responsables y defina los recursos necesarios</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Persona Responsable
-                </label>
-                <input
-                  type="text"
-                  name="responsible_person"
-                  value={formData.responsible_person}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.responsible_person ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Nombre del responsable principal..."
-                />
-                {errors.responsible_person && <p className="text-red-500 text-sm mt-1">{errors.responsible_person}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Departamento
-                </label>
-                <input
-                  type="text"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleChange}
-                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    errors.department ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Departamento responsable..."
-                />
-                {errors.department && <p className="text-red-500 text-sm mt-1">{errors.department}</p>}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha de Seguimiento
-                </label>
-                <input
-                  type="date"
-                  name="follow_up_date"
-                  value={formData.follow_up_date}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha Estimada de Completación
-                </label>
-                <input
-                  type="date"
-                  name="estimated_completion"
-                  value={formData.estimated_completion}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Impacto Presupuestario
-                </label>
-                <input
-                  type="number"
-                  name="budget_impact"
-                  value={formData.budget_impact}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="0.00"
-                  step="0.01"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Recursos Requeridos
-                </label>
-                <textarea
-                  name="resources_required"
-                  value={formData.resources_required}
-                  onChange={handleChange}
-                  rows={3}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Describa los recursos necesarios..."
-                />
-              </div>
-            </div>
-          </div>
-        );
-
-      case 5:
-        return (
-          <div className="space-y-6">
-            <div className="bg-indigo-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-indigo-900 mb-2">Acciones y Documentación</h4>
-              <p className="text-indigo-700 text-sm">Defina las acciones correctivas y adjunte documentación</p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                No Conformidades Identificadas
-              </label>
-              <textarea
-                name="non_conformities"
-                value={formData.non_conformities}
-                onChange={handleChange}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Detalle las no conformidades encontradas..."
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Acciones Correctivas
-                </label>
-                <textarea
-                  name="corrective_actions"
-                  value={formData.corrective_actions}
-                  onChange={handleChange}
-                  rows={4}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Describa las acciones correctivas..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Acciones Preventivas
-                </label>
-                <textarea
-                  name="preventive_actions"
-                  value={formData.preventive_actions}
-                  onChange={handleChange}
-                  rows={4}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Describa las acciones preventivas..."
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Adjuntar Documentos
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                <input
-                  type="file"
-                  multiple
-                  onChange={handleFileChange}
-                  className="hidden"
-                  id="file-upload"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.bmp,.tiff"
-                />
-                <label htmlFor="file-upload" className="cursor-pointer">
-                  <CloudArrowUpIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-lg font-medium text-gray-700 mb-2">
-                    Arrastra archivos aquí o haz clic para seleccionar
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    PDF, DOC, XLS, PPT, imágenes y más
-                  </p>
-                </label>
-              </div>
-              
-              {formData.attachments.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Archivos seleccionados:</p>
-                  <div className="space-y-2">
-                    {formData.attachments.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-                        <div className="flex items-center">
-                          <DocumentTextIcon className="h-5 w-5 text-gray-400 mr-2" />
-                          <span className="text-sm text-gray-700">{file.name}</span>
-                          <span className="text-xs text-gray-500 ml-2">
-                            ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                          </span>
-                        </div>
-                <button
-                          type="button"
-                          onClick={() => removeAttachment(index)}
-                          className="text-red-500 hover:text-red-700"
-                >
-                          <XMarkIcon className="h-4 w-4" />
-                </button>
-                      </div>
-                    ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Notas Adicionales
-              </label>
-              <textarea
-                name="additional_notes"
-                value={formData.additional_notes}
-                onChange={handleChange}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Cualquier información adicional relevante..."
-              />
-      </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[95vh] overflow-hidden">
-        {/* Header */}
-        <div className="px-8 py-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-              <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-2xl font-bold flex items-center">
-                <PlusIcon className="h-6 w-6 mr-3" />
-                {getTitle()}
-                </h3>
-              <p className="text-blue-100 mt-1">
-                {getDescription()}
-              </p>
-            </div>
-                <button
-              onClick={onClose}
-              className="text-white hover:text-gray-200 transition-colors duration-200 p-2"
-                >
-                  <XMarkIcon className="h-6 w-6" />
-                </button>
-              </div>
-          
-          {/* Progress Bar */}
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-sm text-blue-100 mb-2">
-              <span>Paso {currentStep} de {totalSteps}</span>
-              <span>{Math.round((currentStep / totalSteps) * 100)}%</span>
-            </div>
-            <div className="w-full bg-blue-200 rounded-full h-2">
-              <div 
-                className="bg-white h-2 rounded-full transition-all duration-300"
-                style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-              ></div>
-            </div>
-          </div>
-              </div>
-
-        {/* Content */}
-        <div className="p-8 max-h-[70vh] overflow-y-auto">
-          <form onSubmit={handleSubmit}>
-            {renderStepContent()}
-          </form>
-        </div>
-        
-        {/* Footer */}
-        <div className="px-8 py-6 bg-gray-50 border-t border-gray-200">
-          <div className="flex justify-between">
-                <button
-              type="button"
-              onClick={handlePrevious}
-              disabled={currentStep === 1}
-              className="px-6 py-3 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-            >
-              Anterior
-            </button>
-            
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-6 py-3 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors duration-200"
-                >
-                  Cancelar
-                </button>
-              
-              {currentStep < totalSteps ? (
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="px-6 py-3 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
-                >
-                  Siguiente
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-8 py-3 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                >
-                  {isSubmitting ? 'Creando...' : 'Crear Reporte'}
-                </button>
-              )}
-              </div>
-            </div>
-          </div>
-        </div>
-    </div>
-  );
-};
-
-// Componente para modal de escalamiento
-const EscalateReportModal = ({ report, onSubmit, onClose }) => {
-  const [escalationData, setEscalationData] = useState({
-    reason: '',
-    priority: 'high',
-    assignedTo: '',
-    notes: '',
-  });
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setEscalationData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(escalationData);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Escalar Reporte
-                </h3>
-              </div>
-        
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Razón del Escalamiento
-            </label>
-            <textarea
-              name="reason"
-              value={escalationData.reason}
-              onChange={handleChange}
-              required
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Asignar a
-                </label>
-            <input
-              type="text"
-              name="assignedTo"
-              value={escalationData.assignedTo}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Nombre del responsable"
-            />
-              </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notas Adicionales
-            </label>
-            <textarea
-              name="notes"
-              value={escalationData.notes}
-              onChange={handleChange}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-              </div>
-
-          <div className="flex justify-end space-x-3 pt-4">
-                <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-lg hover:bg-orange-700"
-            >
-              Escalar Reporte
-                </button>
-              </div>
-        </form>
-        </div>
-
-        {/* Formulario de cierre de incidencia */}
-        {showIncidentClosure && selectedIncident && (
-          <IncidentClosureForm
-            incident={selectedIncident}
-            onSubmit={handleCloseIncident}
-            onCancel={() => {
-              setShowIncidentClosure(false);
-              setSelectedIncident(null);
-            }}
-            isLoading={false}
-          />
-      )}
-    </div>
-  );
-};
-
-// Modal para adjuntar documento
-const UploadDocumentModal = ({ incidents, onSubmit, onClose }) => {
-  const [formData, setFormData] = useState({
-    incidentId: '',
-    file: null,
-    description: '',
-  });
-
-  const handleChange = (e) => {
-    const { name, value, files } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: files ? files[0] : value
-    }));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!formData.incidentId || !formData.file) {
-      alert('Por favor selecciona una incidencia y un archivo');
+  const handleUploadDocument = async () => {
+    if (!selectedIncidentId) {
+      showError('Por favor selecciona una incidencia primero.');
       return;
     }
 
-    const submitData = new FormData();
-    submitData.append('incident_id', formData.incidentId);
-    submitData.append('file', formData.file);
-    submitData.append('description', formData.description);
-    submitData.append('document_type', 'quality_report');
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.pdf,.doc,.docx';
+    fileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
 
-    onSubmit(submitData);
+      setIsSubmitting(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('incident_id', selectedIncidentId);
+      formData.append('report_type', 'interno'); // Important for backend distinction
+
+      try {
+        await api.post('/documents/upload/quality-report/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        showSuccess('Documento subido exitosamente');
+        setShowUploadModal(false);
+        refetchReports();
+      } catch (error) {
+        console.error(error);
+        showError('Error al subir documento');
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+    fileInput.click();
   };
 
+  const handleOpenDocumentWrapper = (report) => {
+    // Check if report has a download URL (preferred) or legacy path
+    const baseUrl = api.defaults.baseURL.replace('/api', '');
+
+    if (report.download_url) {
+      // Use the proper download URL provided by backend
+      const url = `${baseUrl}${report.download_url}`;
+      window.open(url, '_blank');
+      return;
+    }
+
+    // Fallback for legacy paths
+    if (report.pdf_path) {
+      const url = report.pdf_path.startsWith('http') ? report.pdf_path : `${baseUrl}${report.pdf_path}`;
+      window.open(url, '_blank');
+    } else {
+      showError("No hay documento PDF disponible.");
+    }
+  };
+
+
   return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 rounded-t-2xl">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <DocumentArrowUpIcon className="h-5 w-5 mr-2" />
-              Adjuntar Documento
-                </h3>
-                <button
-              onClick={onClose}
-                  className="text-white hover:text-gray-200 transition-colors duration-200"
-                >
+    <div className="scroll-container-sticky">
+      <div className="scroll-content-wrapper">
+        <div className="w-full px-4 sm:px-6 lg:px-8 space-y-6 py-8">
+
+          {/* Compact Professional Header Section */}
+          <div className="relative mb-6 p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200 shadow-sm overflow-hidden group flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-purple-500/5 to-indigo-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="p-2.5 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl shadow-md shadow-purple-500/20 group-hover:scale-105 transition-transform duration-500">
+                <BeakerIcon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-800 tracking-tight flex items-center gap-2">
+                  Reportes Internos
+                  <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-bold uppercase tracking-wider border border-purple-100">
+                    Gestión Técnica
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Documentación y análisis interno de calidad
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 relative z-10">
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="inline-flex items-center px-3 py-2 bg-white border border-slate-200 text-slate-600 font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm text-xs"
+              >
+                <DocumentArrowUpIcon className="h-4 w-4 mr-1.5 text-indigo-500" />
+                Adjuntar
+              </button>
+              <button
+                onClick={handleCreateReportClick}
+                className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/30 hover:bg-indigo-700 hover:shadow-indigo-500/40 hover:-translate-y-0.5 transition-all"
+              >
+                <PlusIcon className="h-4 w-4 mr-1.5" />
+                Nuevo Reporte
+              </button>
+            </div>
+          </div>
+
+          {/* Filters & Search - Glassmorphism */}
+          <div className="bg-white/40 backdrop-blur-md rounded-2xl p-1.5 mb-8 shadow-sm border border-white/50">
+            <div className="flex flex-col md:flex-row gap-4 p-2 justify-between items-center">
+              <div className="flex-1 relative w-full md:max-w-xl group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  className="block w-full pl-10 pr-3 py-2.5 bg-white/60 backdrop-blur-sm border-transparent text-gray-900 placeholder-gray-500 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent rounded-xl transition-all duration-200 shadow-sm font-medium"
+                  placeholder="Buscar reporte..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <div className="relative">
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="appearance-none block w-full pl-3 pr-10 py-2.5 bg-white/60 backdrop-blur-sm border-transparent text-gray-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent rounded-xl transition-all duration-200 shadow-sm font-medium cursor-pointer"
+                  >
+                    <option value="all">Todos los estados</option>
+                    <option value="draft">Borrador</option>
+                    <option value="final">Finalizado</option>
+                  </select>
+                  <FunnelIcon className="h-5 w-5 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
+                </div>
+
+                <div className="relative">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="appearance-none block w-full pl-3 pr-10 py-2.5 bg-white/60 backdrop-blur-sm border-transparent text-gray-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-transparent rounded-xl transition-all duration-200 shadow-sm font-medium cursor-pointer"
+                  >
+                    <option value="date">Más recientes</option>
+                    <option value="incident">Por Incidencia</option>
+                  </select>
+                  <CalendarIcon className="h-5 w-5 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Reports Table - Modern Glass */}
+          <div className="bg-white/60 backdrop-blur-2xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 overflow-hidden">
+            <div className="overflow-x-visible scroll-horizontal-sticky min-h-[400px]">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-gray-200/50 bg-gray-50/20">
+                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest w-64">Reporte</th>
+                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Incidencia</th>
+                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Cliente / Obra</th>
+                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Estado</th>
+                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Fecha</th>
+                    <th className="px-6 py-4 text-right text-[11px] font-bold text-gray-400 uppercase tracking-widest">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100/50">
+                  {filteredReports.map((report) => (
+                    <tr key={report.id} className="group hover:bg-white/60 transition-colors duration-150">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-9 w-9 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 mr-3 shadow-sm border border-indigo-100">
+                            <DocumentTextIcon className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-gray-900 bg-clip-text bg-gradient-to-r from-gray-900 to-gray-700 truncate max-w-[180px]" title={report.title}>{report.title}</div>
+                            <div className="text-xs text-gray-500">ID: {report.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2.5 py-1 text-xs font-bold text-gray-600 bg-gray-100/80 rounded-lg border border-gray-200 backdrop-blur-sm">
+                          {report.incident_code || '-'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-gray-900">{report.incident?.cliente || report.cliente || 'Sin Cliente'}</span>
+                          <span className="text-xs text-gray-500 flex items-center mt-0.5">
+                            <BuildingOfficeIcon className="h-3 w-3 mr-1" />
+                            {report.incident?.obra || report.obra || 'Sin Obra'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed'
+                          ? 'bg-gray-100 text-gray-600 border-gray-200'
+                          : report.status === 'escalated'
+                            ? 'bg-purple-50 text-purple-700 border-purple-100'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          }`}>
+                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? <CheckCircleIcon className="w-3.5 h-3.5 mr-1" /> :
+                            report.status === 'escalated' ? <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" /> :
+                              <ClockIcon className="w-3.5 h-3.5 mr-1" />}
+                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? 'Cerrado' :
+                            report.status === 'escalated' ? 'Escalado' :
+                              'Listo'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
+                        {new Date(report.created_at).toLocaleDateString('es-CL')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleOpenDocumentWrapper(report)}
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            title="Ver Detalle"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </button>
+
+                          {report.incident?.estado !== 'cerrado' && (
+                            <button
+                              onClick={() => handleEscalate(report)}
+                              className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                              title="Escalar a Cliente"
+                            >
+                              <ArrowPathIcon className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {report.incident?.estado !== 'cerrado' && (
+                            <button
+                              onClick={() => handleEscalateToSupplierAction(report)}
+                              className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                              title="Escalar a Proveedor"
+                            >
+                              <PaperAirplaneIcon className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          {report.incident?.estado !== 'cerrado' && (
+                            <button
+                              onClick={() => {
+                                setSelectedReport(report);
+                                setClosureData({ stage: 'calidad', reason: '', closure_summary: '', closure_attachment: null });
+                                setShowIncidentClosure(true);
+                              }}
+                              className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                              title="Cerrar Incidencia"
+                            >
+                              <CheckCircleIcon className="h-4 w-4" />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleDelete(report.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Eliminar"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredReports.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="px-6 py-20 text-center text-gray-500">
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="bg-gray-50/50 backdrop-blur-sm p-6 rounded-full mb-4">
+                            <DocumentTextIcon className="h-10 w-10 text-gray-300" />
+                          </div>
+                          <p className="text-lg font-medium text-gray-600">No hay reportes internos</p>
+                          <p className="text-sm">Crea uno nuevo para comenzar</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* MODAL 1: SELECCIONAR INCIDENCIA */}
+      {
+        showSelectionModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-white/20 p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Seleccionar Incidencia</h3>
+                <button onClick={() => setShowSelectionModal(false)} className="text-gray-400 hover:text-gray-600">
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
+
+              <div className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded-xl mb-4">
+                  <p className="text-sm text-blue-800 font-medium flex items-center">
+                    <ExclamationTriangleIcon className="h-5 w-5 mr-2" />
+                    Solo se muestran incidencias escaladas a calidad.
+                  </p>
+                </div>
+
+                {incidents.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="bg-orange-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <ExclamationTriangleIcon className="h-8 w-8 text-orange-400" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900">No hay incidencias escaladas disponibles</h3>
+                    <p className="text-gray-500 mt-2">
+                      No se encontraron incidencias escaladas desde reportes de calidad a clientes.
+                    </p>
+                    <button
+                      onClick={() => setShowSelectionModal(false)}
+                      className="mt-6 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {incidents.map((incident) => (
+                      <div
+                        key={incident.id}
+                        onClick={() => handleIncidentSelect(incident.id)}
+                        className="p-4 border border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 cursor-pointer transition-all group"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200 group-hover:border-blue-200 trantision-colors">
+                            {incident.code}
+                          </span>
+                          <span className="text-xs text-gray-500 flex items-center bg-gray-100 px-2 py-0.5 rounded-full">
+                            <CalendarIcon className="h-3 w-3 mr-1" />
+                            {new Date(incident.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="mb-2">
+                          <h4 className="font-semibold text-gray-800 mb-1">{incident.cliente}</h4>
+                          <p className="text-sm text-gray-600 line-clamp-2">{incident.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                          <span className="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-700 font-medium">
+                            {incident.obra || 'Sin obra'}
+                          </span>
+                          <span className="px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-700 font-medium ml-auto">
+                            Escalado de Calidad
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-        
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                Incidencia
+          </div>
+        )
+      }
+
+      {/* MODAL 2: FORMULARIO FULL SCREEN */}
+      {/* El formulario ahora es una página independiente */}
+
+      {/* Upload Modal (Added for completeness) */}
+      {
+        showUploadModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 max-w-md w-full shadow-2xl border border-white/50">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Adjuntar Documento Interno</h3>
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Seleccionar Incidencia
                 </label>
-                <select
-                name="incidentId"
-                value={formData.incidentId}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                required
+                <div className="relative">
+                  <select
+                    value={selectedIncidentId}
+                    onChange={(e) => setSelectedIncidentId(e.target.value)}
+                    className="w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none font-medium text-gray-700"
+                  >
+                    <option value="">Seleccionar...</option>
+                    {(Array.isArray(incidents) ? incidents : (incidents?.results || []))
+                      .map(incident => (
+                        <option key={incident.id} value={incident.id}>
+                          {incident.code} - {incident.title || incident.cliente}
+                        </option>
+                      ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-500">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-500 mb-6">Selecciona el archivo PDF/DOC del reporte firmado o documento técnico.</p>
+
+              <div className={`border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center transition-all cursor-pointer group ${!selectedIncidentId ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/50 hover:border-indigo-400'}`}
+                onClick={() => selectedIncidentId && handleUploadDocument()}
               >
-                <option value="">Selecciona una incidencia</option>
-                {incidents
-                  .filter(incident => incident.escalated_to_quality === true)
-                  .map(incident => (
-                    <option key={incident.id} value={incident.id}>
-                      {incident.code} - {incident.title}
-                    </option>
-                  ))}
-                </select>
+                <CloudArrowUpIcon className="h-12 w-12 text-gray-400 group-hover:text-indigo-500 transition-colors mx-auto mb-3" />
+                <span className="text-sm font-bold text-indigo-600">Click para seleccionar archivo</span>
               </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Archivo
-              </label>
-              <input
-                type="file"
-                name="file"
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                required
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              />
-              </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Descripción
-              </label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                placeholder="Descripción del documento..."
-              />
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="mt-6 w-full py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                Cancelar
+              </button>
             </div>
-              </div>
+          </div>
+        )
+      }
 
-          <div className="flex justify-end space-x-3 mt-6">
+      {/* Escalate Modal */}
+      {
+        showEscalateModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-white/20">
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Confirmar Escalado</h3>
+              <p className="text-gray-500 mb-6 text-sm">¿Deseas escalar este reporte para revisión de cliente?</p>
+              <div className="flex justify-end gap-3">
                 <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200"
+                  onClick={() => setShowEscalateModal(false)}
+                  className="px-4 py-2 text-gray-600 font-bold bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
                 >
                   Cancelar
                 </button>
-            <button
-              type="submit"
-              className="px-6 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Adjuntar Documento
+                <button
+                  onClick={handleConfirmEscalation}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-lg shadow-purple-500/30 transition-all"
+                >
+                  Confirmar
                 </button>
               </div>
-        </form>
             </div>
-    </div>
+          </div>
+        )
+      }
+
+      {/* Supplier Escalate Modal */}
+      {
+        showSupplierEscalateModal && (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-white/20">
+              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mb-4 text-orange-600">
+                <PaperAirplaneIcon className="h-6 w-6" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Escalar a Proveedor</h3>
+              <p className="text-gray-500 mb-6 text-sm">Se notificará al equipo de proveedores y se cambiará el estado.</p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowSupplierEscalateModal(false)}
+                  className="px-4 py-2 text-gray-600 font-bold bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmSupplierEscalation}
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 transition-all"
+                >
+                  Escalar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Close Incident Modal */}
+      {
+        showIncidentClosure && selectedReport && (
+          <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={() => setShowIncidentClosure(false)}></div>
+
+              <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+              <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                  <div className="sm:flex sm:items-start">
+                    <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+                      <CheckCircleIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
+                    </div>
+                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                      <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                        Cerrar Incidencia
+                      </h3>
+                      <div className="mt-2">
+                        <p className="text-sm text-gray-500 mb-4">
+                          Cerrando incidencia <b>{selectedReport.incident_code}</b>. Esta acción es definitiva.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    {/* Etapa de Cierre */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Etapa de Cierre <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={closureData.stage}
+                        onChange={(e) => setClosureData({ ...closureData, stage: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                      >
+                        <option value="calidad">Cerrada en Calidad</option>
+                        <option value="proveedor">Cerrada en Proveedor</option>
+                        <option value="reporte_visita">Cerrada en Reporte de Visita</option>
+                        <option value="incidencia">Cerrada en Incidencia</option>
+                      </select>
+                    </div>
+
+                    {/* Motivo de Cierre */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Motivo de Cierre <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={closureData.reason || ''}
+                        onChange={(e) => setClosureData({ ...closureData, reason: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                      >
+                        <option value="">-- Seleccionar motivo --</option>
+                        <option value="Resuelto satisfactoriamente">Resuelto satisfactoriamente</option>
+                        <option value="Sin garantía aplicable">Sin garantía aplicable</option>
+                        <option value="Producto reemplazado">Producto reemplazado</option>
+                        <option value="Crédito emitido">Crédito emitido</option>
+                        <option value="Problema no reproducible">Problema no reproducible</option>
+                        <option value="Solicitud del cliente">Solicitud del cliente</option>
+                        <option value="Otro">Otro</option>
+                      </select>
+                    </div>
+
+                    {/* Resumen Obligatorio */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Resumen de Acciones y Conclusiones <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        value={closureData.closure_summary}
+                        onChange={(e) => setClosureData({ ...closureData, closure_summary: e.target.value })}
+                        rows={5}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                        placeholder="Describa las acciones tomadas y conclusiones (mínimo 10 caracteres)..."
+                      />
+                      <p className={`mt-1 text-sm ${closureData.closure_summary.length < 10 ? 'text-red-500' : 'text-green-600'}`}>
+                        {closureData.closure_summary.length}/10 caracteres mínimos
+                      </p>
+                    </div>
+
+                    {/* Archivo Adjunto Opcional */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Archivo Adjunto (opcional)
+                      </label>
+                      <div className="flex items-center space-x-3">
+                        <input
+                          type="file"
+                          id="closure-file-internal"
+                          className="hidden"
+                          onChange={(e) => setClosureData({ ...closureData, closure_attachment: e.target.files[0] || null })}
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
+                        />
+                        <label
+                          htmlFor="closure-file-internal"
+                          className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors"
+                        >
+                          Seleccionar Archivo
+                        </label>
+                        {closureData.closure_attachment && (
+                          <div className="flex items-center space-x-2 text-sm text-gray-600">
+                            <PaperClipIcon className="h-4 w-4" />
+                            <span className="truncate max-w-[150px]">{closureData.closure_attachment.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setClosureData({ ...closureData, closure_attachment: null })}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                  <button
+                    type="button"
+                    disabled={isSubmitting || closureData.closure_summary.length < 10 || !closureData.reason}
+                    onClick={async () => {
+                      if (!closureData.reason) {
+                        showError('Por favor selecciona un motivo de cierre');
+                        return;
+                      }
+                      if (closureData.closure_summary.length < 10) {
+                        showError('El resumen debe tener al menos 10 caracteres');
+                        return;
+                      }
+                      setIsSubmitting(true);
+                      try {
+                        const incidentId = selectedReport.incident_id || selectedReport.incident?.id;
+                        const finalSummary = `[Motivo: ${closureData.reason}] ${closureData.closure_summary}`;
+                        await incidentsAPI.close(incidentId, {
+                          stage: closureData.stage,
+                          closure_summary: finalSummary
+                        });
+                        showSuccess('Incidencia cerrada exitosamente');
+                        setShowIncidentClosure(false);
+                        refetchReports();
+                        queryClient.invalidateQueries(['incidents-escalated-quality']);
+                      } catch (error) {
+                        showError('Error al cerrar: ' + (error.response?.data?.error || error.message));
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Cerrando...' : 'Confirmar Cierre'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowIncidentClosure(false)}
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+    </div >
   );
 };
 

@@ -112,6 +112,16 @@ class AIProvider(models.Model):
         self.calls_made_today += calls_made
         self.save(update_fields=['tokens_used_today', 'calls_made_today'])
     
+    def get_api_key(self):
+        """Retorna la API Key desencriptada"""
+        from apps.core.security_utils import decrypt_value
+        return decrypt_value(self.api_key_encrypted)
+
+    def set_api_key(self, raw_key):
+        """Encripta y guarda la API Key"""
+        from apps.core.security_utils import encrypt_value
+        self.api_key_encrypted = encrypt_value(raw_key)
+
     def get_next_reset_time(self):
         """Get next quota reset time"""
         today = timezone.now().date()

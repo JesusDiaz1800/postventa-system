@@ -1,590 +1,346 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNotifications } from '../hooks/useNotifications';
-import { api } from '../services/api';
-import { Card, CardHeader, CardBody } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
-import { Input, Select, FormGroup, Label } from '../components/ui/Input';
+import { incidentsAPI } from '../services/api';
+import { exportReportStats } from '../utils/exportUtils';
+import { InteractivePieChart } from '../components/InteractivePieChart';
 import {
   ChartBarIcon,
-  DocumentTextIcon,
   ExclamationTriangleIcon,
-  UsersIcon,
-  CalendarIcon,
-  ArrowTrendingUpIcon,
-  ClockIcon,
-  ArrowPathIcon,
-  EyeIcon,
   PrinterIcon,
-  ShareIcon,
-  FunnelIcon,
-  XMarkIcon,
+  CheckCircleIcon,
+  BeakerIcon,
+  TruckIcon,
+  ArrowDownTrayIcon,
+  ArrowPathIcon,
+  ClockIcon,
+  PresentationChartLineIcon
 } from '@heroicons/react/24/outline';
 
 const ReportsPage = () => {
-  const queryClient = useQueryClient();
-  const { showSuccess, showError } = useNotifications();
-  const [filters, setFilters] = useState({
-    start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    end_date: new Date().toISOString().split('T')[0],
-    provider: '',
-    status: '',
-    category: ''
-  });
-  const [showFilters, setShowFilters] = useState(false);
+  const { showSuccess } = useNotifications();
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  // Fetch reports data
-  const { data: reportsData, isLoading, error } = useQuery({
-    queryKey: ['reports', filters],
+  // Fetch all incidents for statistics
+  const { data: incidentsData, isLoading, error } = useQuery({
+    queryKey: ['incidents-reports'],
     queryFn: async () => {
-      const response = await api.get('/reports/dashboard/', {
-        params: filters
-      });
-      return response.data;
+      const response = await incidentsAPI.list({ page_size: 1000 });
+      return response.data?.results || response.data || [];
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    cacheTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 5 * 60 * 1000,
   });
 
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
+  const incidents = incidentsData || [];
 
-  const clearFilters = () => {
-    setFilters({
-      start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      end_date: new Date().toISOString().split('T')[0],
-      provider: '',
-      status: '',
-      category: ''
-    });
-  };
+  // Calculate comprehensive statistics
+  const stats = useMemo(() => {
+    if (!incidents.length) return null;
 
-
-  const handleRefresh = () => {
-    queryClient.invalidateQueries(['reports']);
-    showSuccess('Datos actualizados');
-  };
-
-  // Función para generar reporte PDF
-  const handleGeneratePDF = async () => {
-    try {
-      // Mostrar mensaje de carga
-      showSuccess('Generando PDF con reporte de visita...');
-      
-      // Crear contenido del PDF con reporte de visita incluido
-      const pdfContent = `
-        <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; margin-bottom: 30px; border-bottom: 2px solid #3B82F6; padding-bottom: 20px;">
-            <h1 style="color: #1F2937; margin: 0; font-size: 28px;">Reporte de Calidad - Polifusión S.A.</h1>
-            <p style="color: #6B7280; margin: 10px 0 0 0; font-size: 16px;">Sistema de Gestión de Incidencias</p>
-            <p style="color: #9CA3AF; margin: 5px 0 0 0; font-size: 14px;">Generado el ${new Date().toLocaleDateString('es-ES')}</p>
-          </div>
-          
-          <div style="margin-bottom: 30px;">
-            <h2 style="color: #1F2937; font-size: 20px; margin-bottom: 15px;">📊 Resumen Ejecutivo</h2>
-            <div style="background: #F8FAFC; padding: 20px; border-radius: 8px; border-left: 4px solid #3B82F6;">
-              <p style="margin: 0; color: #374151; line-height: 1.6;">
-                Este reporte incluye el análisis completo del sistema de gestión de incidencias, 
-                incluyendo el reporte de visita técnica correspondiente al período evaluado.
-              </p>
-            </div>
-          </div>
-          
-          <div style="margin-bottom: 30px;">
-            <h2 style="color: #1F2937; font-size: 20px; margin-bottom: 15px;">📈 Métricas Principales</h2>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-              <div style="background: #EFF6FF; padding: 15px; border-radius: 8px; text-align: center;">
-                <h3 style="color: #1E40AF; margin: 0; font-size: 24px;">${reportsData?.total_reports || 0}</h3>
-                <p style="color: #6B7280; margin: 5px 0 0 0;">Total Reportes</p>
-              </div>
-              <div style="background: #F0FDF4; padding: 15px; border-radius: 8px; text-align: center;">
-                <h3 style="color: #166534; margin: 0; font-size: 24px;">${reportsData?.completed_reports || 0}</h3>
-                <p style="color: #6B7280; margin: 5px 0 0 0;">Completados</p>
-              </div>
-            </div>
-          </div>
-          
-          <div style="margin-bottom: 30px;">
-            <h2 style="color: #1F2937; font-size: 20px; margin-bottom: 15px;">🔍 Reporte de Visita Técnica</h2>
-            <div style="background: #FEF3C7; padding: 20px; border-radius: 8px; border-left: 4px solid #F59E0B;">
-              <h3 style="color: #92400E; margin: 0 0 10px 0;">Visita Técnica - ${new Date().toLocaleDateString('es-ES')}</h3>
-              <p style="color: #374151; margin: 0 0 10px 0;"><strong>Objetivo:</strong> Evaluación técnica del sistema de gestión de incidencias</p>
-              <p style="color: #374151; margin: 0 0 10px 0;"><strong>Responsable:</strong> Equipo Técnico Polifusión</p>
-              <p style="color: #374151; margin: 0 0 10px 0;"><strong>Estado:</strong> Completada</p>
-              <div style="margin-top: 15px;">
-                <h4 style="color: #92400E; margin: 0 0 10px 0;">Hallazgos Principales:</h4>
-                <ul style="color: #374151; margin: 0; padding-left: 20px;">
-                  <li>Sistema operativo estable con ${reportsData?.total_reports || 0} reportes procesados</li>
-                  <li>Tasa de resolución del ${reportsData?.total_reports > 0 ? Math.round((reportsData.completed_reports / reportsData.total_reports) * 100) : 0}%</li>
-                  <li>${reportsData?.active_users || 0} usuarios activos en el sistema</li>
-                  <li>Procesos de calidad implementados correctamente</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          
-          <div style="margin-bottom: 30px;">
-            <h2 style="color: #1F2937; font-size: 20px; margin-bottom: 15px;">📋 Recomendaciones</h2>
-            <div style="background: #F0FDF4; padding: 20px; border-radius: 8px; border-left: 4px solid #10B981;">
-              <ul style="color: #374151; margin: 0; padding-left: 20px;">
-                <li>Mantener el seguimiento continuo de incidencias pendientes</li>
-                <li>Implementar mejoras en el sistema de notificaciones</li>
-                <li>Capacitar al personal en nuevas funcionalidades</li>
-                <li>Revisar periódicamente los procesos de calidad</li>
-              </ul>
-            </div>
-          </div>
-          
-          <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #E5E7EB;">
-            <p style="color: #6B7280; margin: 0; font-size: 14px;">
-              Reporte generado automáticamente por el Sistema de Gestión de Incidencias Polifusión S.A.
-            </p>
-            <p style="color: #9CA3AF; margin: 5px 0 0 0; font-size: 12px;">
-              Este documento incluye el reporte de visita técnica correspondiente al período evaluado.
-            </p>
-          </div>
-        </div>
-      `;
-      
-      // Crear ventana nueva para imprimir
-      const printWindow = window.open('', '_blank');
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Reporte de Calidad - Polifusión S.A.</title>
-            <style>
-              @media print {
-                body { margin: 0; }
-                .no-print { display: none; }
-              }
-              body { 
-                font-family: Arial, sans-serif; 
-                margin: 20px; 
-                background: white;
-              }
-            </style>
-          </head>
-          <body>
-            ${pdfContent}
-            <div class="no-print" style="text-align: center; margin-top: 30px;">
-              <button onclick="window.print()" style="background: #3B82F6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px;">
-                🖨️ Imprimir PDF
-              </button>
-              <button onclick="window.close()" style="background: #6B7280; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; margin-left: 10px;">
-                ❌ Cerrar
-              </button>
-            </div>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      
-    } catch (error) {
-      showError('Error al generar PDF: ' + error.message);
-    }
-  };
-
-  // Función para enviar reporte por email
-  const handleEmailReport = () => {
-    const email = prompt('Ingresa el email para enviar el reporte:');
-    if (email) {
-      showSuccess(`Reporte enviado a ${email}`);
-    }
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: 'Reportes Polifusión',
-        text: 'Reportes del sistema de gestión de incidencias',
-        url: window.location.href
-      });
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      showSuccess('Enlace copiado al portapapeles');
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[...Array(4)].map((_, i) => (
-              <Card key={i}>
-                <CardBody>
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                  <div className="h-8 bg-gray-200 rounded w-1/2"></div>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card className="border-red-200 bg-red-50">
-        <CardBody>
-          <div className="flex items-center">
-            <ExclamationTriangleIcon className="h-6 w-6 text-red-600 mr-3" />
-            <div>
-              <h3 className="text-lg font-medium text-red-800">Error al cargar reportes</h3>
-              <p className="text-red-600 mt-1">{error.message}</p>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
-    );
-  }
-
-  const data = reportsData || {};
-
-  const statCards = [
-    {
-      title: 'Total Incidencias',
-      value: data.total_incidents || 0,
-      change: '+12%',
-      changeType: 'positive',
-      icon: ExclamationTriangleIcon,
-      color: 'blue'
-    },
-    {
-      title: 'Resueltas',
-      value: data.resolved_incidents || 0,
-      change: '+8%',
-      changeType: 'positive',
-      icon: ArrowTrendingUpIcon,
-      color: 'green'
-    },
-    {
-      title: 'Pendientes',
-      value: data.pending_incidents || 0,
-      change: '-5%',
-      changeType: 'negative',
-      icon: ClockIcon,
-      color: 'yellow'
-    },
-    {
-      title: 'Tiempo Promedio',
-      value: `${data.average_resolution_time || 0} días`,
-      change: '-2 días',
-      changeType: 'positive',
-      icon: CalendarIcon,
-      color: 'purple'
-    }
-  ];
-
-  const getStatusBadge = (status) => {
-    const variants = {
-      'abierto': 'warning',
-      'en_progreso': 'primary',
-      'cerrado': 'success',
-      'escalado': 'danger'
+    const normalizeText = (text) => {
+      if (!text) return 'SIN DATOS';
+      return text.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
     };
-    return variants[status] || 'gray';
-  };
+
+    const cerrados = incidents.filter(i => i.estado === 'cerrado').length;
+    const abiertos = incidents.filter(i => i.estado !== 'cerrado' && (i.estado === 'abierto' || i.estado === 'nuevo') && !i.escalated_to_quality && !i.escalated_to_supplier).length;
+    const laboratorio = incidents.filter(i => i.estado !== 'cerrado' && ((i.estado === 'calidad' || i.estado === 'reporte_visita' || i.estado === 'en_calidad') || (i.escalated_to_quality && !i.escalated_to_supplier))).length;
+    const proveedor = incidents.filter(i => i.estado !== 'cerrado' && (i.estado === 'proveedor' || i.estado === 'en_proveedor' || i.escalated_to_supplier)).length;
+
+    const clientCount = {};
+    incidents.forEach(i => {
+      const client = i.cliente || 'Sin cliente';
+      const normalizedClient = normalizeText(client);
+      clientCount[normalizedClient] = (clientCount[normalizedClient] || 0) + 1;
+    });
+    const topClients = Object.entries(clientCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    const categoryTree = {};
+    incidents.forEach(i => {
+      const catRaw = typeof i.categoria === 'string' ? i.categoria : (i.categoria?.name || 'Sin categoría');
+      const cat = normalizeText(catRaw);
+      const subRaw = i.subcategoria || 'General';
+      if (!categoryTree[cat]) categoryTree[cat] = { total: 0, subcategories: {} };
+      categoryTree[cat].total++;
+      const subParts = subRaw.split(/\s+-\s+|\s*,\s*|\s*\/\s*/);
+      subParts.forEach(part => {
+        const cleanPart = normalizeText(part);
+        if (cleanPart && cleanPart.length > 1) categoryTree[cat].subcategories[cleanPart] = (categoryTree[cat].subcategories[cleanPart] || 0) + 1;
+      });
+    });
+
+    const monthlyStats = Array(12).fill(0).map(() => ({ total: 0, cerrados: 0 }));
+    incidents.forEach(i => {
+      const dateStr = i.fecha_deteccion || i.fecha_reporte || i.created_at;
+      const date = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00');
+      if (date.getFullYear() === selectedYear) {
+        monthlyStats[date.getMonth()].total++;
+        if (i.estado === 'cerrado') monthlyStats[date.getMonth()].cerrados++;
+      }
+    });
+
+    const yearlyStats = {};
+    incidents.forEach(i => {
+      const dateStr = i.fecha_deteccion || i.fecha_reporte || i.created_at;
+      const year = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00').getFullYear();
+      if (!yearlyStats[year]) yearlyStats[year] = { total: 0, cerrados: 0 };
+      yearlyStats[year].total++;
+      if (i.estado === 'cerrado') yearlyStats[year].cerrados++;
+    });
+
+    const resolutionRate = incidents.length > 0 ? Math.round((cerrados / incidents.length) * 100) : 0;
+    const cutoffDate = new Date('2026-01-13T00:00:00');
+    const closedWithTime = incidents.filter(i => i.estado === 'cerrado' && i.closed_at && i.fecha_deteccion && new Date(i.fecha_deteccion) >= cutoffDate);
+    const avgResolutionDays = closedWithTime.length > 0 ? Math.round(closedWithTime.reduce((sum, i) => sum + ((new Date(i.closed_at) - new Date(i.fecha_deteccion)) / (1000 * 60 * 60 * 24)), 0) / closedWithTime.length) : 0;
+
+    const providerCount = {};
+    incidents.forEach(i => {
+      const prov = i.provider || 'Sin proveedor';
+      const normalizedProv = normalizeText(prov);
+      providerCount[normalizedProv] = (providerCount[normalizedProv] || 0) + 1;
+    });
+
+    return {
+      total: incidents.length, abiertos, laboratorio, proveedor, cerrados, resolutionRate, avgResolutionDays,
+      categoryTree, topClients, monthlyStats, yearlyStats, topProviders: Object.entries(providerCount).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    };
+  }, [incidents, selectedYear]);
+
+  if (isLoading) return (
+    <div className="flex flex-col items-center justify-center p-20 animate-fade-in">
+      <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+      <p className="mt-4 text-gray-500 font-semibold tracking-wide capitalize">Cargando tablero informativo...</p>
+    </div>
+  );
+
+  const years = stats ? Object.keys(stats.yearlyStats).sort((a, b) => b - a) : [];
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
   return (
-    <div className="page-container space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">Reportes y Análisis</h1>
-          <p className="text-lg text-gray-600">
-            Análisis completo del sistema de gestión de incidencias Polifusión
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex flex-wrap gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-            icon={<FunnelIcon className="h-4 w-4" />}
-          >
-            {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleRefresh}
-            icon={<ArrowPathIcon className="h-4 w-4" />}
-          >
-            Actualizar
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleGeneratePDF}
-            icon={<PrinterIcon className="h-4 w-4" />}
-          >
-            Generar PDF
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleEmailReport}
-            icon={<ShareIcon className="h-4 w-4" />}
-          >
-            Enviar por Email
-          </Button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      {showFilters && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Filtros de Búsqueda</h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearFilters}
-                icon={<XMarkIcon className="h-4 w-4" />}
-              >
-                Limpiar
-              </Button>
-            </div>
-          </CardHeader>
-          <CardBody>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <FormGroup>
-                <Label>Fecha Inicio</Label>
-                <Input
-                  type="date"
-                  value={filters.start_date}
-                  onChange={(e) => handleFilterChange('start_date', e.target.value)}
-                />
-              </FormGroup>
-              <FormGroup>
-                <Label>Fecha Fin</Label>
-                <Input
-                  type="date"
-                  value={filters.end_date}
-                  onChange={(e) => handleFilterChange('end_date', e.target.value)}
-                />
-              </FormGroup>
-              <FormGroup>
-                <Label>Proveedor</Label>
-                <Input
-                  type="text"
-                  value={filters.provider}
-                  onChange={(e) => handleFilterChange('provider', e.target.value)}
-                  placeholder="Filtrar por proveedor"
-                />
-              </FormGroup>
-              <FormGroup>
-                <Label>Estado</Label>
-                <Select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                >
-                  <option value="">Todos los estados</option>
-                  <option value="abierto">Abierto</option>
-                  <option value="en_progreso">En Progreso</option>
-                  <option value="cerrado">Cerrado</option>
-                  <option value="escalado">Escalado</option>
-                </Select>
-              </FormGroup>
-              <FormGroup>
-                <Label>Categoría</Label>
-                <Select
-                  value={filters.category}
-                  onChange={(e) => handleFilterChange('category', e.target.value)}
-                >
-                  <option value="">Todas las categorías</option>
-                  <option value="calidad">Calidad</option>
-                  <option value="logistica">Logística</option>
-                  <option value="tecnico">Técnico</option>
-                  <option value="administrativo">Administrativo</option>
-                </Select>
-              </FormGroup>
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-        {statCards.map((stat, index) => {
-          const IconComponent = stat.icon;
-          const colorClasses = {
-            blue: 'bg-blue-100 text-blue-600',
-            green: 'bg-green-100 text-green-600',
-            yellow: 'bg-yellow-100 text-yellow-600',
-            purple: 'bg-purple-100 text-purple-600'
-          };
-          
-          return (
-            <Card key={index} className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
-              <CardBody className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-600 mb-2">{stat.title}</p>
-                    <p className="text-3xl font-bold text-gray-900 mb-2">{stat.value}</p>
-                    <div className="flex items-center">
-                      <span className={`text-sm font-medium px-2 py-1 rounded-full ${
-                        stat.changeType === 'positive' 
-                          ? 'text-green-700 bg-green-100' 
-                          : 'text-red-700 bg-red-100'
-                      }`}>
-                        {stat.change}
-                      </span>
-                      <span className="text-xs text-gray-500 ml-2">vs período anterior</span>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-xl shadow-lg ${colorClasses[stat.color]} transform hover:scale-110 transition-transform duration-200`}>
-                    <IconComponent className="h-7 w-7" />
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Additional Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Documentos Generados</h3>
-          </CardHeader>
-          <CardBody>
-            <div className="flex items-center">
-              <div className="p-3 bg-blue-100 rounded-lg mr-4">
-                <DocumentTextIcon className="h-8 w-8 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-3xl font-bold text-gray-900">{data.documents_generated || 0}</p>
-                <p className="text-sm text-gray-600">Documentos en el período seleccionado</p>
-                <div className="mt-2">
-                  <Badge variant="primary">+15% vs anterior</Badge>
-                </div>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Usuarios Activos</h3>
-          </CardHeader>
-          <CardBody>
-            <div className="flex items-center">
-              <div className="p-3 bg-green-100 rounded-lg mr-4">
-                <UsersIcon className="h-8 w-8 text-green-600" />
-              </div>
-              <div>
-                <p className="text-3xl font-bold text-gray-900">{data.active_users || 0}</p>
-                <p className="text-sm text-gray-600">Usuarios activos en el período</p>
-                <div className="mt-2">
-                  <Badge variant="success">+8% vs anterior</Badge>
-                </div>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* Status Distribution */}
-      {data.incidents_by_status && data.incidents_by_status.length > 0 && (
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Distribución por Estado</h3>
-          </CardHeader>
-          <CardBody>
-            <div className="space-y-4">
-              {data.incidents_by_status.map((item, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
-                    <span className="text-sm font-medium text-gray-700 capitalize">
-                      {item.estado}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-lg font-bold text-gray-900">
-                      {item.count}
-                    </span>
-                    <Badge variant={getStatusBadge(item.estado)}>
-                      {item.estado}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Quick Actions */}
-      <Card className="mt-8">
-        <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
-          <h3 className="text-xl font-bold text-gray-900">Acciones Rápidas</h3>
-          <p className="text-sm text-gray-600">Accede rápidamente a las secciones más importantes del sistema</p>
-        </CardHeader>
-        <CardBody className="p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <Link
-              to="/incidents"
-              className="group flex flex-col items-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl hover:from-blue-100 hover:to-blue-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-200">
-                <ExclamationTriangleIcon className="h-6 w-6 text-white" />
-              </div>
-              <span className="text-sm font-semibold text-blue-900 text-center">Ver Incidencias</span>
-              <span className="text-xs text-blue-600 mt-1">Gestionar problemas</span>
-            </Link>
-            
-            <Link
-              to="/visit-reports"
-              className="group flex flex-col items-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-xl hover:from-green-100 hover:to-green-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-200">
-                <DocumentTextIcon className="h-6 w-6 text-white" />
-              </div>
-              <span className="text-sm font-semibold text-green-900 text-center">Reportes de Visita</span>
-              <span className="text-xs text-green-600 mt-1">Visitas técnicas</span>
-            </Link>
-            
-            <Link
-              to="/lab-reports"
-              className="group flex flex-col items-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl hover:from-purple-100 hover:to-purple-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-200">
-                <ChartBarIcon className="h-6 w-6 text-white" />
-              </div>
-              <span className="text-sm font-semibold text-purple-900 text-center">Reportes de Laboratorio</span>
-              <span className="text-xs text-purple-600 mt-1">Análisis técnicos</span>
-            </Link>
-            
-            <Link
-              to="/users"
-              className="group flex flex-col items-center p-6 bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl hover:from-orange-100 hover:to-orange-200 transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="w-12 h-12 bg-orange-500 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-200">
-                <UsersIcon className="h-6 w-6 text-white" />
-              </div>
-              <span className="text-sm font-semibold text-orange-900 text-center">Gestión de Usuarios</span>
-              <span className="text-xs text-orange-600 mt-1">Administrar usuarios</span>
-            </Link>
+    <div className="w-full space-y-8 animate-fade-in pb-12 bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 min-h-screen p-6">
+      {/* Encabezado del Tablero */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+            <PresentationChartLineIcon className="h-8 w-8" />
           </div>
-        </CardBody>
-      </Card>
+          <div>
+            <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Tablero de Control Operativo</h1>
+            <p className="text-gray-500 flex items-center gap-2 mt-1">
+              <span className="flex h-2 w-2 rounded-full bg-green-500"></span>
+              Última actualización: {new Date().toLocaleTimeString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 no-print">
+          <button
+            onClick={() => exportReportStats(stats, `tablero_${new Date().toISOString().split('T')[0]}`)}
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-all text-sm"
+          >
+            <ArrowDownTrayIcon className="h-4 w-4" /> Exportar Datos
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all text-sm"
+          >
+            <PrinterIcon className="h-4 w-4" /> Imprimir
+          </button>
+        </div>
+      </div>
+
+      {stats && (
+        <>
+          {/* Tarjetas de Resumen (KPIs) - Premium Glassmorphism */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { label: 'Incidencias Abiertas', val: stats.abiertos, color: 'text-blue-600', bg: 'bg-blue-50', bgGradient: 'from-blue-50 to-indigo-50', icon: ExclamationTriangleIcon },
+              { label: 'En Laboratorio', val: stats.laboratorio, color: 'text-purple-600', bg: 'bg-purple-50', bgGradient: 'from-purple-50 to-pink-50', icon: BeakerIcon },
+              { label: 'Pendiente Proveedor', val: stats.proveedor, color: 'text-orange-600', bg: 'bg-orange-50', bgGradient: 'from-orange-50 to-amber-50', icon: TruckIcon },
+              { label: 'Cerradas Exitosas', val: stats.cerrados, color: 'text-green-600', bg: 'bg-green-50', bgGradient: 'from-emerald-50 to-green-50', icon: CheckCircleIcon }
+            ].map((stat, i) => (
+              <div key={i} className="group relative bg-white/70 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/60 shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default">
+                {/* Glow effect sutil en hover */}
+                <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${stat.bgGradient} opacity-0 group-hover:opacity-20 transition-opacity duration-300`}></div>
+
+                <div className="relative flex items-center justify-between mb-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
+                  <div className={`p-2.5 ${stat.bg} ${stat.color} rounded-xl group-hover:scale-110 transition-transform shadow-md`}>
+                    <stat.icon className="h-5 w-5" />
+                  </div>
+                </div>
+                <h3 className={`relative text-4xl font-extrabold ${stat.color}`}>{stat.val}</h3>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Gráfico de Eficiencia y Tendencias */}
+            <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex flex-col sm:flex-row justify-between items-start mb-10 gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 border-l-4 border-blue-600 pl-4">Eficiencia de Resolución</h3>
+                  <p className="text-sm text-gray-500 mt-1 ml-5">Rendimiento histórico del sistema de postventa</p>
+                </div>
+                <div className="flex items-center gap-8 pr-4">
+                  <div className="text-center">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Tiempo Promedio</p>
+                    <p className="text-2xl font-black text-blue-600">{stats.avgResolutionDays}d</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Tasa de Éxito</p>
+                    <p className="text-2xl font-black text-green-600">{stats.resolutionRate}%</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barra de progreso de éxito */}
+              <div className="relative h-3 w-full bg-gray-100 rounded-full overflow-hidden mb-12 shadow-inner">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-600 to-green-500 transition-all duration-1000 ease-out"
+                  style={{ width: `${stats.resolutionRate}%` }}
+                ></div>
+              </div>
+
+              {/* Selector de Año y Histograma */}
+              <div className="space-y-6">
+                <div className="flex justify-between items-center px-2">
+                  <h4 className="text-sm font-bold text-gray-700">Flujo Mensual de Casos</h4>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    className="text-sm bg-gray-50 border-gray-200 rounded-lg px-3 py-1.5 font-semibold text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  >
+                    {years.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+
+                <div className="h-48 flex items-end justify-between gap-3 px-2 pt-6">
+                  {stats.monthlyStats.map((month, i) => {
+                    const max = Math.max(...stats.monthlyStats.map(m => m.total), 1);
+                    const h = (month.total / max) * 100;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center group relative">
+                        <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-all bg-gray-900 text-white text-[10px] font-bold px-3 py-1 rounded-lg z-20 whitespace-nowrap shadow-xl">
+                          {month.total} Casos
+                        </div>
+                        <div
+                          className="w-full bg-blue-50 group-hover:bg-blue-600 transition-all duration-300 rounded-t-lg relative"
+                          style={{ height: `${Math.max(h, 4)}%` }}
+                        >
+                          <div className="absolute inset-x-0 top-0 h-1 bg-blue-400 group-hover:bg-white/20 rounded-t-lg opacity-40"></div>
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-400 mt-4 uppercase group-hover:text-blue-600 transition-colors">{months[i]}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Gráfico de Torta Interactivo con Drill-Down */}
+            <div className="bg-white/80 backdrop-blur-sm p-8 rounded-2xl border border-slate-200/60 shadow-lg flex flex-col">
+              <InteractivePieChart data={
+                Object.entries(stats.categoryTree)
+                  .sort((a, b) => b[1].total - a[1].total)
+                  .map(([name, data]) => ({
+                    name,
+                    value: data.total,
+                    color: name.includes('LLAVE') || name.includes('TUBERIA') || name.includes('ACCESORIO') ? '#3b82f6' :
+                      name.includes('GARANTIA') || name.includes('RECLAMO') ? '#10b981' :
+                        name.includes('CONSULTA') || name.includes('INFORMACION') ? '#f59e0b' :
+                          name.includes('INSTALACION') ? '#8b5cf6' : '#6366f1',
+                    subcategories: Object.entries(data.subcategories)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([subName, subCount], idx) => ({
+                        name: subName,
+                        value: subCount,
+                        color: `hsl(${(idx * 30 + 220) % 360}, 70%, ${50 + idx * 5}%)`
+                      }))
+                  }))
+              } />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Ranking de Entidades */}
+            <div className="lg:col-span-2 bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+              <h3 className="text-xl font-bold text-gray-900 mb-8 border-l-4 border-indigo-600 pl-4">Ranking Operativo</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                {/* Top Clientes */}
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 border-b border-gray-100 pb-3 mb-4">
+                    <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg"><ChartBarIcon className="h-4 w-4" /></span>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Nodos Cliente Top</p>
+                  </div>
+                  {stats.topClients.map(([client, count], i) => (
+                    <div key={client} className="flex items-center gap-4 group">
+                      <span className="text-xs font-bold text-gray-300">0{i + 1}</span>
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-xs font-bold text-gray-700 truncate max-w-[180px] capitalize">{client.toLowerCase()}</span>
+                          <span className="text-xs font-extrabold text-blue-600">{count}</span>
+                        </div>
+                        <div className="h-1 w-full bg-gray-50 rounded-full">
+                          <div className="h-full bg-blue-200 rounded-full group-hover:bg-blue-500 transition-colors" style={{ width: `${(count / stats.topClients[0][1]) * 100}%` }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Top Proveedores */}
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 border-b border-gray-100 pb-3 mb-4">
+                    <span className="p-1.5 bg-purple-50 text-purple-600 rounded-lg"><TruckIcon className="h-4 w-4" /></span>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Hubs de Proveedor</p>
+                  </div>
+                  {stats.topProviders.map(([prov, count], i) => (
+                    <div key={prov} className="flex items-center gap-4 group">
+                      <span className="text-xs font-bold text-gray-300">0{i + 1}</span>
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-xs font-bold text-gray-700 truncate max-w-[180px] capitalize">{prov.toLowerCase()}</span>
+                          <span className="text-xs font-extrabold text-purple-600">{count}</span>
+                        </div>
+                        <div className="h-1 w-full bg-gray-50 rounded-full">
+                          <div className="h-full bg-purple-200 rounded-full group-hover:bg-purple-500 transition-colors" style={{ width: `${(count / stats.topProviders[0][1]) * 100}%` }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Panel de Acción Estratégica */}
+            <div className="bg-gradient-to-br from-gray-900 to-blue-900 p-8 rounded-3xl flex flex-col justify-between text-white shadow-2xl relative overflow-hidden group">
+              <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full blur-3xl group-hover:bg-white/10 transition-all"></div>
+
+              <div className="relative z-10">
+                <div className="p-3 bg-white/10 w-fit rounded-2xl mb-6">
+                  <ClockIcon className="h-8 w-8 text-blue-300" />
+                </div>
+                <h3 className="text-2xl font-bold leading-tight mb-4">Registro Operativo de Fidelidad</h3>
+                <p className="text-sm text-blue-100/70 leading-relaxed font-medium">Genere archivos operativos de alta fidelidad para revisiones ejecutivas y ajustes de protocolo a largo plazo.</p>
+              </div>
+
+              <div className="space-y-5 relative z-10">
+                <button
+                  onClick={() => exportReportStats(stats, 'registro_operativo_completo')}
+                  className="w-full py-4 bg-white text-blue-900 rounded-2xl font-black uppercase tracking-wider hover:bg-blue-50 transition-all active:scale-[0.98] shadow-lg text-xs"
+                >
+                  EJECUTAR EXPORTACIÓN TOTAL
+                </button>
+                <div className="flex justify-between items-center opacity-30">
+                  <div className="h-px flex-1 bg-white"></div>
+                  <span className="px-4 text-[9px] uppercase font-bold tracking-[0.3em]">Sincronización Activa</span>
+                  <div className="h-px flex-1 bg-white"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

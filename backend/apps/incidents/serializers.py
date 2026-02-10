@@ -44,6 +44,59 @@ class IncidentTimelineSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'user', 'created_at']
 
 
+class IncidentNestedSerializer(serializers.ModelSerializer):
+    """
+    Serializer safe for nested use (no annotations required).
+    Used in QualityReports to provide incident context.
+    """
+    created_by = UserSerializer(read_only=True)
+    categoria = serializers.SerializerMethodField()
+    responsable = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Incident
+        fields = [
+            'id', 'code', 'created_by', 'provider', 'obra', 'cliente', 'cliente_rut',
+            'sku', 'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
+            'descripcion', 'categoria', 'subcategoria', 'prioridad', 'estado', 'responsable',
+            'escalated_to_quality', 'escalated_to_supplier', 'escalation_date',
+            'escalation_reason', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'code']
+        
+    def get_categoria(self, obj):
+        return obj.categoria.name if obj.categoria else None
+    
+    def get_responsable(self, obj):
+        """Returns the responsable name, with fallback for edge cases"""
+        if obj.responsable:
+            if hasattr(obj.responsable, 'name'):
+                return obj.responsable.name
+            elif isinstance(obj.responsable, int):
+                from .models import Responsible
+                try:
+                    resp = Responsible.objects.get(id=obj.responsable)
+                    return resp.name
+                except Responsible.DoesNotExist:
+                    return f"ID: {obj.responsable}"
+        return None
+
+
+
+class EscalatedIncidentSerializer(serializers.ModelSerializer):
+    """Serializer optimizado para la vista de incidencias escaladas"""
+    categoria = serializers.CharField(source='categoria.name', read_only=True)
+    description = serializers.CharField(source='descripcion', read_only=True)
+    
+    class Meta:
+        model = Incident
+        fields = [
+            'id', 'code', 'cliente', 'provider', 'obra', 'categoria',
+            'description', 'estado', 'prioridad', 'escalation_date',
+            'escalated_to_quality', 'escalated_to_internal_quality',
+            'escalated_to_supplier', 'created_at', 'updated_at'
+        ]
+
 class IncidentListSerializer(serializers.ModelSerializer):
     """Serializer for incident list view"""
     created_by = UserSerializer(read_only=True)
@@ -51,6 +104,9 @@ class IncidentListSerializer(serializers.ModelSerializer):
     closed_by = UserSerializer(read_only=True)
     images_count = serializers.IntegerField(read_only=True)
     documents_count = serializers.IntegerField(read_only=True)
+    # Return categoria and responsable as names (strings)
+    categoria = serializers.SerializerMethodField()
+    responsable = serializers.SerializerMethodField()
     
     class Meta:
         model = Incident
@@ -58,11 +114,31 @@ class IncidentListSerializer(serializers.ModelSerializer):
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente',
             'sku', 'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'categoria', 'subcategoria', 'prioridad', 'estado', 'assigned_to',
-            'responsable', 'escalated_to_quality', 'escalated_to_supplier', 'escalation_date',
-            'escalation_reason', 'closed_by', 'closed_at', 'images_count', 'documents_count',
-            'created_at', 'updated_at'
+            'responsable', 'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier', 'escalation_date',
+            'escalation_reason', 'closed_by', 'closed_at', 'closed_at_stage', 'closure_summary',
+            'sla_due_date', 'sla_breached', 'resolution_time_hours',
+            'images_count', 'documents_count', 'created_at', 'updated_at',
+            # SAP Fields
+            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
         ]
         read_only_fields = ['id', 'code', 'created_by', 'created_at', 'updated_at']
+    
+    def get_categoria(self, obj):
+        return obj.categoria.name if obj.categoria else None
+    
+    def get_responsable(self, obj):
+        """Returns the responsable name, with fallback for edge cases"""
+        if obj.responsable:
+            if hasattr(obj.responsable, 'name'):
+                return obj.responsable.name
+            elif isinstance(obj.responsable, int):
+                from .models import Responsible
+                try:
+                    resp = Responsible.objects.get(id=obj.responsable)
+                    return resp.name
+                except Responsible.DoesNotExist:
+                    return f"ID: {obj.responsable}"
+        return None
 
 
 class IncidentDetailSerializer(serializers.ModelSerializer):
@@ -73,6 +149,9 @@ class IncidentDetailSerializer(serializers.ModelSerializer):
     images = IncidentImageSerializer(many=True, read_only=True)
     lab_reports = LabReportSerializer(many=True, read_only=True)
     timeline = IncidentTimelineSerializer(many=True, read_only=True)
+    # Return categoria and responsable as names (strings)
+    categoria = serializers.SerializerMethodField()
+    responsable = serializers.SerializerMethodField()
     
     class Meta:
         model = Incident
@@ -82,18 +161,43 @@ class IncidentDetailSerializer(serializers.ModelSerializer):
             'pedido_num', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'acciones_inmediatas', 'categoria', 'subcategoria',
             'prioridad', 'estado', 'assigned_to', 'responsable', 'escalated_to_quality',
-            'escalated_to_supplier', 'escalation_date', 'escalation_reason',
-            'closed_by', 'closed_at', 
-            'images', 'lab_reports', 'timeline', 'created_at', 'updated_at'
+            'escalated_to_internal_quality', 'escalated_to_supplier', 'escalation_date', 'escalation_reason',
+            'closed_by', 'closed_at', 'closed_at_stage', 'closure_summary', 'closure_attachment',
+            'sla_due_date', 'sla_breached', 'first_response_at', 'resolution_time_hours',
+            'images', 'lab_reports', 'timeline', 'created_at', 'updated_at',
+            # SAP Fields
+            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
         ]
         read_only_fields = [
-            'id', 'code', 'created_by', 'closed_by', 'closed_at',
-            'created_at', 'updated_at'
+            'id', 'code', 'created_by', 'closed_by', 'closed_at', 'closed_at_stage',
+            'resolution_time_hours', 'created_at', 'updated_at'
         ]
+    
+    def get_categoria(self, obj):
+        return obj.categoria.name if obj.categoria else None
+    
+    def get_responsable(self, obj):
+        """Returns the responsable name, with fallback for edge cases"""
+        if obj.responsable:
+            # Normal case: ForeignKey properly resolved
+            if hasattr(obj.responsable, 'name'):
+                return obj.responsable.name
+            # Edge case: might be an ID somehow
+            elif isinstance(obj.responsable, int):
+                from .models import Responsible
+                try:
+                    resp = Responsible.objects.get(id=obj.responsable)
+                    return resp.name
+                except Responsible.DoesNotExist:
+                    return f"ID: {obj.responsable}"
+        return None
 
 
 class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating and updating incidents"""
+    # Allow string values for these ForeignKey fields
+    categoria = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    responsable = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     
     class Meta:
         model = Incident
@@ -102,6 +206,9 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
             'sku', 'lote', 'factura_num', 'pedido_num', 'fecha_deteccion',
             'hora_deteccion', 'descripcion', 'acciones_inmediatas', 'categoria',
             'subcategoria', 'prioridad', 'estado', 'assigned_to', 'responsable',
+            'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier',
+            # SAP Fields
+            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
         ]
         read_only_fields = ['fecha_reporte']
         extra_kwargs = {
@@ -112,6 +219,24 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Custom validation"""
+        from .models import Category, Responsible
+        
+        # Handle categoria - look up by name or create
+        categoria_value = data.get('categoria')
+        if categoria_value and isinstance(categoria_value, str):
+            categoria_obj, _ = Category.objects.get_or_create(name=categoria_value)
+            data['categoria'] = categoria_obj
+        elif categoria_value == '' or categoria_value is None:
+            data['categoria'] = None
+            
+        # Handle responsable - look up by name or create
+        responsable_value = data.get('responsable')
+        if responsable_value and isinstance(responsable_value, str):
+            responsable_obj, _ = Responsible.objects.get_or_create(name=responsable_value)
+            data['responsable'] = responsable_obj
+        elif responsable_value == '' or responsable_value is None:
+            data['responsable'] = None
+        
         # Convert empty strings to None for optional fields
         for field in ['cliente_rut', 'direccion_cliente', 'sku', 'lote', 'factura_num', 
                      'pedido_num', 'acciones_inmediatas', 'subcategoria', 
@@ -149,7 +274,21 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
         # Set fecha_reporte to current time if not provided
         if 'fecha_reporte' not in validated_data:
             validated_data['fecha_reporte'] = timezone.now()
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+        
+        # Crear registro en timeline
+        from .models import IncidentTimeline
+        user = validated_data.get('created_by')
+        user_name = user.full_name if user and hasattr(user, 'full_name') else (user.username if user else 'Sistema')
+        
+        IncidentTimeline.objects.create(
+            incident=instance,
+            action='created',
+            description=f'Incidencia creada por {user_name}',
+            user=user
+        )
+        
+        return instance
 
 
 class IncidentImageUploadSerializer(serializers.ModelSerializer):
@@ -198,9 +337,20 @@ class IncidentStatusUpdateSerializer(serializers.Serializer):
 
 
 class IncidentCloseSerializer(serializers.Serializer):
-    """Serializer for closing incidents"""
-    description = serializers.CharField(help_text="Descripción del cierre")
-    actions_taken = serializers.CharField(help_text="Acciones tomadas para resolver la incidencia")
+    """Serializer for closing incidents with required summary"""
+    stage = serializers.ChoiceField(
+        choices=['incidencia', 'reporte_visita', 'calidad', 'proveedor'],
+        help_text="Etapa donde se cierra la incidencia"
+    )
+    closure_summary = serializers.CharField(
+        help_text="Resumen obligatorio de acciones, conclusiones y decisiones tomadas",
+        min_length=10
+    )
+    closure_attachment = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        help_text="Ruta del archivo adjunto con información de cierre (opcional)"
+    )
 
 
 class IncidentAttachmentSerializer(serializers.ModelSerializer):

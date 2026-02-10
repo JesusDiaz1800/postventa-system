@@ -1,573 +1,907 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNotifications } from '../hooks/useNotifications';
-import PageHeader from '../components/PageHeader';
+import { incidentsAPI, api } from '../services/api';
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
   DocumentTextIcon,
   DocumentArrowDownIcon,
   EyeIcon,
-  CalendarIcon,
-  UserIcon,
-  BuildingOfficeIcon,
-  TagIcon,
-  PaperClipIcon,
-  DocumentIcon,
-  ChartBarIcon,
   ArrowPathIcon,
-  PlusIcon,
-  CloudArrowUpIcon,
-  DocumentMagnifyingGlassIcon,
+  XMarkIcon,
+  FolderOpenIcon,
+  FolderIcon,
+  DocumentIcon,
+  ClipboardDocumentListIcon,
+  PhotoIcon,
+  PaperClipIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
+  BeakerIcon,
+  TruckIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 
 const Documents = () => {
+  const queryClient = useQueryClient();
   const { showSuccess, showError } = useNotifications();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filters, setFilters] = useState({
-    incidentCode: '',
-    client: '',
-    obra: '',
-    category: '',
-    subcategory: '',
-    dateFrom: '',
-    dateTo: '',
-    documentType: '',
-    status: ''
-  });
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
-
-  // Query para obtener todas las incidencias con sus documentos
-  const { data: incidentsData, isLoading: incidentsLoading, refetch: refetchIncidents } = useQuery({
-    queryKey: ['incidents-documents', filters],
-    queryFn: async () => {
-      try {
-        const response = await fetch(`/api/incidents/?search=${searchTerm}&estado=&prioridad=`);
-        if (!response.ok) throw new Error('Error al cargar incidencias');
-        return response.json();
-      } catch (error) {
-        showError('Error al cargar incidencias: ' + error.message);
-        throw error;
-      }
-    },
-    enabled: true,
+  const [filters, setFilters] = useState({
+    status: '',
+    dateFrom: '',
+    dateTo: '',
   });
 
-  // Query para obtener documentos por incidencia
-  const { data: documentsData, isLoading: documentsLoading } = useQuery({
-    queryKey: ['documents-by-incident', selectedIncident?.id],
+  // State for collapsible image folders
+  const [expandedFolders, setExpandedFolders] = useState({
+    incident_images: false,
+    visit_images: false
+  });
+
+  // Toggle folder expansion
+  const toggleFolder = (folderType) => {
+    setExpandedFolders(prev => ({
+      ...prev,
+      [folderType]: !prev[folderType]
+    }));
+  };
+
+  // Fetch incidents with authentication
+  const { data: incidentsData, isLoading, error, refetch } = useQuery({
+    queryKey: ['documents-incidents', filters],
     queryFn: async () => {
-      if (!selectedIncident?.id) return null;
-      
+      const response = await incidentsAPI.list({ page_size: 100 });
+      return response.data?.results || response.data || [];
+    },
+    staleTime: 30000,
+  });
+
+  // Fetch documents for selected incident (all document types)
+  const { data: allDocsData, isLoading: loadingDocs } = useQuery({
+    queryKey: ['incident-all-documents', selectedIncident?.id],
+    queryFn: async () => {
+      if (!selectedIncident?.id) return { attachments: [], visitReports: [], reportImages: [], qualityReports: [], supplierReports: [] };
+
       try {
-        const [documentsRes, visitReportsRes, qualityReportsRes, supplierReportsRes, labReportsRes] = await Promise.all([
-          fetch(`/api/documents/?incident_id=${selectedIncident.id}`),
-          fetch(`/api/documents/visit-reports/?incident_id=${selectedIncident.id}`),
-          fetch(`/api/documents/quality-reports/?incident_id=${selectedIncident.id}`),
-          fetch(`/api/documents/supplier-reports/?incident_id=${selectedIncident.id}`),
-          fetch(`/api/documents/lab-reports/?incident_id=${selectedIncident.id}`)
-        ]);
+        // Fetch incident attachments
+        const attachmentsRes = await api.get(`/documents/attachments/incident/${selectedIncident.id}/`);
+        const attachments = attachmentsRes.data?.attachments ||
+          (Array.isArray(attachmentsRes.data) ? attachmentsRes.data :
+            (attachmentsRes.data?.results || []));
 
-        const [documents, visitReports, qualityReports, supplierReports, labReports] = await Promise.all([
-          documentsRes.ok ? documentsRes.json() : { results: [] },
-          visitReportsRes.ok ? visitReportsRes.json() : { results: [] },
-          qualityReportsRes.ok ? qualityReportsRes.json() : { results: [] },
-          supplierReportsRes.ok ? supplierReportsRes.json() : { results: [] },
-          labReportsRes.ok ? labReportsRes.json() : { results: [] }
-        ]);
+        // Fetch visit reports for this incident
+        const visitReportsRes = await api.get(`/documents/visit-reports/?incident_id=${selectedIncident.id}`);
+        const visitReports = Array.isArray(visitReportsRes.data) ? visitReportsRes.data :
+          (visitReportsRes.data?.results || []);
 
-        return {
-          documents: documents.results || documents.data || documents || [],
-          visitReports: visitReports.results || visitReports.data || visitReports || [],
-          qualityReports: qualityReports.results || qualityReports.data || qualityReports || [],
-          supplierReports: supplierReports.results || supplierReports.data || supplierReports || [],
-          labReports: labReports.results || labReports.data || labReports || []
-        };
+        // Fetch quality reports for this incident (both client and internal)
+        let qualityReports = [];
+        try {
+          const qualityRes = await api.get(`/documents/quality-reports/by-incident/${selectedIncident.id}/`);
+          // Backend returns { success: true, reports: [...] }
+          qualityReports = qualityRes.data?.reports ||
+            (Array.isArray(qualityRes.data) ? qualityRes.data : []) ||
+            [];
+        } catch (e) {
+          // Try alternative endpoint or fail silently
+          try {
+            // Fallback attempt
+            const qualityRes = await api.get(`/documents/quality-reports/?incident_id=${selectedIncident.id}`);
+            qualityReports = qualityRes.data?.results || (Array.isArray(qualityRes.data) ? qualityRes.data : []) || [];
+          } catch (e2) { }
+          console.warn('Error specific to quality reports fetch', e);
+        }
+
+        // Fetch supplier reports for this incident
+        let supplierReports = [];
+        try {
+          const supplierRes = await api.get(`/documents/supplier-reports/?incident_id=${selectedIncident.id}`);
+          supplierReports = Array.isArray(supplierRes.data) ? supplierRes.data : (supplierRes.data?.results || []);
+        } catch (e) { }
+
+
+        // Fetch report images for each visit report
+        let reportImages = [];
+        for (const report of visitReports) {
+          try {
+            const imagesRes = await api.get(`/documents/report-attachments/${report.id}/visit/`);
+            const images = Array.isArray(imagesRes.data) ? imagesRes.data : (imagesRes.data?.results || []);
+            reportImages = [...reportImages, ...images.map(img => ({
+              ...img,
+              reportId: report.id,
+              reportNumber: report.order_number
+            }))];
+          } catch (e) { }
+        }
+
+        return { attachments, visitReports, reportImages, qualityReports, supplierReports };
       } catch (error) {
-        showError('Error al cargar documentos: ' + error.message);
-        return null;
+        console.error('Error fetching documents:', error);
+        return { attachments: [], visitReports: [], reportImages: [], qualityReports: [], supplierReports: [] };
       }
     },
     enabled: !!selectedIncident?.id,
   });
 
-  // Procesar datos de incidencias
-  const incidents = incidentsData?.data?.results || incidentsData?.results || incidentsData || [];
-  
-  // Filtrar incidencias basado en los filtros
-  const filteredIncidents = incidents.filter(incident => {
-    const matchesSearch = !searchTerm || 
-      (incident.code && incident.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (incident.cliente && incident.cliente.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (incident.obra && incident.obra.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesFilters = 
-      (!filters.incidentCode || (incident.code && incident.code.includes(filters.incidentCode))) &&
-      (!filters.client || (incident.cliente && incident.cliente.toLowerCase().includes(filters.client.toLowerCase()))) &&
-      (!filters.obra || (incident.obra && incident.obra.toLowerCase().includes(filters.obra.toLowerCase()))) &&
-      (!filters.category || (incident.categoria && incident.categoria.name === filters.category)) &&
-      (!filters.subcategory || (incident.subcategoria && incident.subcategoria.toLowerCase().includes(filters.subcategory.toLowerCase()))) &&
-      (!filters.dateFrom || new Date(incident.fecha_reporte) >= new Date(filters.dateFrom)) &&
-      (!filters.dateTo || new Date(incident.fecha_reporte) <= new Date(filters.dateTo)) &&
-      (!filters.status || incident.estado === filters.status);
+  const incidents = incidentsData || [];
+  const {
+    attachments = [],
+    visitReports = [],
+    reportImages = [],
+    qualityReports = [],
+    supplierReports = []
+  } = allDocsData || {};
 
-    return matchesSearch && matchesFilters;
-  });
+  // Combine all documents into a single list with proper labels
+  const allDocuments = useMemo(() => {
+    const docs = [];
 
-  // Combinar todos los documentos de una incidencia
-  const getAllDocumentsForIncident = (incidentId) => {
-    if (!documentsData || selectedIncident?.id !== incidentId) return [];
-    
-    const allDocs = [
-      ...documentsData.documents.map(doc => ({ ...doc, type: 'document', typeLabel: 'Documento' })),
-      ...documentsData.visitReports.map(doc => ({ ...doc, type: 'visit_report', typeLabel: 'Reporte de Visita' })),
-      ...documentsData.qualityReports.map(doc => ({ ...doc, type: 'quality_report', typeLabel: 'Reporte de Calidad' })),
-      ...documentsData.supplierReports.map(doc => ({ ...doc, type: 'supplier_report', typeLabel: 'Reporte de Proveedor' })),
-      ...documentsData.labReports.map(doc => ({ ...doc, type: 'lab_report', typeLabel: 'Reporte de Laboratorio' }))
-    ];
-    
-    return allDocs;
-  };
+    // Add visit reports first (most important)
+    visitReports.forEach((report, index) => {
+      docs.push({
+        id: `vr-${report.id}`,
+        type: 'visit_report',
+        typeLabel: 'Reporte de Visita',
+        name: report.order_number || `RV-${index + 1}`,
+        filename: report.pdf_path ? report.pdf_path.split(/[/\\]/).pop() : 'Reporte de Visita.pdf',
+        created_at: report.created_at || report.visit_date,
+        downloadUrl: `/documents/visit-reports/${report.id}/download/`,
+        hasDocument: !!report.pdf_path || !!report.has_document,
+        icon: 'report',
+        reportId: report.id
+      });
+    });
 
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    // Add quality reports (client and internal)
+    qualityReports.forEach((report, index) => {
+      const isClient = report.report_type === 'cliente';
+      docs.push({
+        id: `qr-${report.id}`,
+        type: isClient ? 'quality_client' : 'quality_internal',
+        typeLabel: isClient ? 'Calidad Cliente' : 'Calidad Interno',
+        name: report.report_number || `QR-${index + 1}`,
+        filename: report.pdf_path ? report.pdf_path.split(/[/\\]/).pop() : `Reporte Calidad.pdf`,
+        created_at: report.created_at,
+        downloadUrl: `/documents/quality-reports/${report.id}/download/`,
+        hasDocument: !!report.pdf_path,
+        icon: isClient ? 'quality_client' : 'quality_internal',
+        reportId: report.id,
+        status: report.status
+      });
+    });
+
+    // Add supplier reports
+    supplierReports.forEach((report, index) => {
+      docs.push({
+        id: `sr-${report.id}`,
+        type: 'supplier_report',
+        typeLabel: 'Reclamo Proveedor',
+        name: report.report_number || `RCP-${index + 1}`,
+        filename: report.pdf_path ? report.pdf_path.split(/[/\\]/).pop() : 'Reclamo Proveedor.pdf',
+        created_at: report.created_at,
+        downloadUrl: `/documents/supplier-reports/${report.id}/download/`,
+        hasDocument: !!report.pdf_path,
+        icon: 'supplier',
+        reportId: report.id,
+        status: report.status,
+        supplierName: report.supplier_name
+      });
+    });
+
+
+    // Add report images (from visit reports)
+    reportImages.forEach((img, index) => {
+      docs.push({
+        id: `ri-${img.id}`,
+        type: 'report_image',
+        typeLabel: `Imagen (${img.reportNumber || 'RV'})`,
+        name: img.description || img.filename || `Imagen-${index + 1}`,
+        filename: img.filename,
+        description: img.description,
+        created_at: img.created_at,
+        downloadUrl: `/documents/report-attachments/${img.reportId}/visit/${img.id}/view/`,
+        hasDocument: true,
+        icon: 'image',
+        reportId: img.reportId
+      });
+    });
+
+    // Add incident attachments
+    attachments.forEach((att, index) => {
+      const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(att.filename || att.name || '');
+
+      // Check if this is a supplier response attachment based on document_type
+      const isSupplierResponse = att.document_type === 'supplier_response';
+
+      // Check if this is a closure attachment based on title or description
+      const isClosureAttachment =
+        (att.title && att.title.toLowerCase().includes('cierre')) ||
+        (att.description && att.description.toLowerCase().includes('cierre'));
+
+      let typeLabel = isImage ? 'Imagen' : 'Adjunto';
+      if (isSupplierResponse) {
+        typeLabel = 'Respuesta Proveedor';
+      } else if (isClosureAttachment) {
+        typeLabel = isImage ? 'Imagen Cierre' : 'Adjunto Cierre';
+      }
+
+      docs.push({
+        id: `att-${att.id}`,
+        type: isSupplierResponse ? 'supplier_response' : (isClosureAttachment ? 'closure_attachment' : (isImage ? 'image' : 'attachment')),
+        typeLabel: typeLabel,
+        name: att.description || att.filename || att.name || `Adjunto-${index + 1}`,
+        title: att.title,
+        description: att.description,
+        filename: att.filename || att.name,
+        created_at: att.created_at,
+        downloadUrl: att.download_url || `/documents/attachments/incident/${selectedIncident?.id}/${att.id}/download/`,
+        viewUrl: att.view_url || `/documents/attachments/incident/${selectedIncident?.id}/${att.id}/view/`,
+        hasDocument: true,
+        icon: isSupplierResponse ? 'supplier_response' : (isClosureAttachment ? 'closure' : (isImage ? 'image' : 'attachment'))
+      });
+    });
+
+    return docs;
+  }, [visitReports, attachments, reportImages, qualityReports, supplierReports, selectedIncident]);
+
+  // Group images into collapsible folders (OPTIMIZED with useMemo)
+  const combinedDocuments = useMemo(() => {
+    const result = [];
+
+    // Separate images from other documents
+    const incidentImages = allDocuments.filter(d => d.type === 'image');
+    const visitImages = allDocuments.filter(d => d.type === 'report_image');
+    const otherDocs = allDocuments.filter(d => d.type !== 'image' && d.type !== 'report_image');
+
+    // Add incident images folder if there are any
+    if (incidentImages.length > 0) {
+      result.push({
+        id: 'folder-incident-images',
+        type: 'folder',
+        folderType: 'incident_images',
+        name: '🖼️ Imágenes Incidencia',
+        count: incidentImages.length,
+        children: incidentImages,
+        isExpanded: expandedFolders.incident_images
+      });
+    }
+
+    // Add visit report images folder if there are any
+    if (visitImages.length > 0) {
+      result.push({
+        id: 'folder-visit-images',
+        type: 'folder',
+        folderType: 'visit_images',
+        name: '📸 Imágenes Reporte de Visita',
+        count: visitImages.length,
+        children: visitImages,
+        isExpanded: expandedFolders.visit_images
+      });
+    }
+
+    // Add all other documents (not grouped)
+    result.push(...otherDocs);
+
+    // Sort: folders first, then by date
+    result.sort((a, b) => {
+      if (a.type === 'folder' && b.type !== 'folder') return -1;
+      if (a.type !== 'folder' && b.type === 'folder') return 1;
+
+      const dateA = new Date(a.created_at || 0);
+      const dateB = new Date(b.created_at || 0);
+      return dateB - dateA;
+    });
+
+    return result;
+  }, [allDocuments, expandedFolders]);
+
+
+  // Filter incidents
+  const filteredIncidents = useMemo(() => {
+    return incidents.filter(incident => {
+      const matchesSearch = !searchTerm ||
+        (incident.code && incident.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (incident.cliente && incident.cliente.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (incident.obra && incident.obra.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (incident.provider && incident.provider.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (incident.categoria && incident.categoria.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (incident.subcategoria && incident.subcategoria.toLowerCase().includes(searchTerm.toLowerCase()));
+
+      const matchesStatus = !filters.status || incident.estado === filters.status;
+
+      const matchesDateFrom = !filters.dateFrom ||
+        new Date(incident.fecha_reporte) >= new Date(filters.dateFrom);
+
+      const matchesDateTo = !filters.dateTo ||
+        new Date(incident.fecha_reporte) <= new Date(filters.dateTo);
+
+      return matchesSearch && matchesStatus && matchesDateFrom && matchesDateTo;
+    });
+  }, [incidents, searchTerm, filters]);
+
+  const handleRefresh = () => {
+    refetch();
+    queryClient.invalidateQueries(['incident-all-documents']);
+    showSuccess('Datos actualizados');
   };
 
   const clearFilters = () => {
-    setFilters({
-      incidentCode: '',
-      client: '',
-      obra: '',
-      category: '',
-      subcategory: '',
-      dateFrom: '',
-      dateTo: '',
-      documentType: '',
-      status: ''
-    });
+    setFilters({ status: '', dateFrom: '', dateTo: '' });
     setSearchTerm('');
   };
 
-  const downloadDocument = async (document) => {
+  const handleViewDocument = async (doc) => {
     try {
-      const response = await fetch(`/api/documents/${document.id}/download/`);
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = document.title || document.name || 'documento';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        showSuccess('Documento descargado exitosamente');
-      } else {
-        showError('Error al descargar el documento');
-      }
+      const response = await api.get(doc.downloadUrl, { responseType: 'blob' });
+
+      // Determine MIME type
+      const extension = (doc.filename || '').split('.').pop()?.toLowerCase();
+      const mimeTypes = {
+        'pdf': 'application/pdf',
+        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+        'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+
+      const blob = new Blob([response.data], { type: mimeTypes[extension] || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (error) {
-      showError('Error al descargar el documento: ' + error.message);
+      console.error('Error viewing document:', error);
+      showError('Error al visualizar el documento');
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'abierto': return 'bg-red-100 text-red-800';
-      case 'en_proceso': return 'bg-yellow-100 text-yellow-800';
-      case 'cerrado': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const handleDownloadDocument = async (doc) => {
+    try {
+      const response = await api.get(doc.downloadUrl, { responseType: 'blob' });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', doc.filename || 'documento');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      showSuccess('Documento descargado');
+    } catch (error) {
+      showError('Error al descargar el documento');
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'alta': return 'bg-red-100 text-red-800';
-      case 'media': return 'bg-yellow-100 text-yellow-800';
-      case 'baja': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+  // Get stage info with icon and color (Standardized)
+  const getStageInfo = (incident) => {
+    // 1. Cerrado
+    if (incident.estado === 'cerrado' || incident.estado === 'completed') {
+      return {
+        icon: <CheckCircleIcon className="h-4 w-4" />,
+        color: 'text-gray-600 bg-gray-200',
+        label: 'Cerrado',
+        date: incident.closed_at || incident.updated_at
+      };
     }
+
+    // 2. En Proveedor
+    if (incident.escalated_to_supplier || incident.estado === 'proveedor' || incident.estado === 'escalado_proveedor') {
+      return {
+        icon: <TruckIcon className="h-4 w-4" />,
+        color: 'text-orange-600 bg-orange-100',
+        label: 'En Proveedor',
+        date: incident.escalation_date || incident.updated_at
+      };
+    }
+
+    // 3. En Calidad (Cliente o Interno)
+    if (incident.escalated_to_internal_quality || incident.escalated_to_quality || incident.estado === 'calidad' || incident.estado === 'escalado_calidad' || incident.estado === 'en_calidad') {
+      return {
+        icon: <BeakerIcon className="h-4 w-4" />,
+        color: 'text-purple-600 bg-purple-100',
+        label: 'En Calidad',
+        date: incident.escalation_date || incident.updated_at
+      };
+    }
+
+    // 4. En Reporte de Visita
+    if (incident.estado === 'visit_report' || incident.estado === 'reporte_visita' || incident.estado === 'en_proceso') {
+      return {
+        icon: <ClipboardDocumentListIcon className="h-4 w-4" />,
+        color: 'text-indigo-600 bg-indigo-100',
+        label: 'En Reporte de Visita',
+        date: incident.fecha_deteccion || incident.created_at
+      };
+    }
+
+    // 5. Abierto (Default)
+    return {
+      icon: <ClockIcon className="h-4 w-4" />,
+      color: 'text-blue-600 bg-blue-100',
+      label: 'Abierto',
+      date: incident.fecha_deteccion || incident.created_at
+    };
   };
+
+  const getDocumentIcon = (doc) => {
+    if (doc.icon === 'report') {
+      return <ClipboardDocumentListIcon className="h-5 w-5 text-blue-600" />;
+    }
+    if (doc.icon === 'quality_client') {
+      return <BeakerIcon className="h-5 w-5 text-emerald-600" />;
+    }
+    if (doc.icon === 'quality_internal') {
+      return <BeakerIcon className="h-5 w-5 text-indigo-600" />;
+    }
+    if (doc.icon === 'supplier') {
+      return <TruckIcon className="h-5 w-5 text-orange-600" />;
+    }
+    if (doc.icon === 'lab') {
+      return <BeakerIcon className="h-5 w-5 text-purple-600" />;
+    }
+    if (doc.icon === 'image') {
+      return <PhotoIcon className="h-5 w-5 text-green-500" />;
+    }
+    const ext = (doc.filename || '').split('.').pop()?.toLowerCase();
+    if (['pdf'].includes(ext)) return <DocumentTextIcon className="h-5 w-5 text-red-500" />;
+    if (['doc', 'docx'].includes(ext)) return <DocumentIcon className="h-5 w-5 text-blue-500" />;
+    return <PaperClipIcon className="h-5 w-5 text-gray-500" />;
+  };
+
+  const getTypeBadge = (doc) => {
+    const colors = {
+      'visit_report': 'bg-blue-100 text-blue-800 border-blue-200',
+      'quality_client': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      'quality_internal': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+      'supplier_report': 'bg-orange-100 text-orange-800 border-orange-200',
+      'supplier_response': 'bg-orange-100 text-orange-800 border-orange-200',
+      'report_image': 'bg-pink-100 text-pink-800 border-pink-200',
+      'image': 'bg-green-100 text-green-800 border-green-200',
+      'attachment': 'bg-gray-100 text-gray-800 border-gray-200',
+      'closure_attachment': 'bg-teal-100 text-teal-800 border-teal-200',
+    };
+    return (
+      <span className={`px-2 py-0.5 text-xs font-medium rounded border ${colors[doc.type] || colors.attachment}`}>
+        {doc.typeLabel}
+      </span>
+    );
+  };
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+          <p className="text-red-600">Error al cargar documentos: {error.message}</p>
+          <button onClick={handleRefresh} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg">
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PageHeader
-        title="Trazabilidad de Documentos"
-        subtitle="Sistema completo de gestión y trazabilidad de documentos por incidencia"
-        icon={DocumentMagnifyingGlassIcon}
-      />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filtros y Búsqueda */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            {/* Búsqueda */}
-            <div className="flex-1">
-              <div className="relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por código, cliente, obra..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Botones */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <FunnelIcon className="h-4 w-4 mr-2" />
-                Filtros Avanzados
-              </button>
-              
-              <button
-                onClick={() => refetchIncidents()}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <ArrowPathIcon className="h-4 w-4 mr-2" />
-                Actualizar
-              </button>
-            </div>
+    <div className="p-6 bg-gray-50 min-h-screen">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">📁 Trazabilidad de Documentos</h1>
+            <p className="mt-2 text-lg text-gray-600">
+              Centro de trazabilidad documental completo por incidencia
+            </p>
           </div>
-
-          {/* Filtros Avanzados */}
-          {showFilters && (
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-6 border-t border-gray-200">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Código de Incidencia
-                </label>
-                <input
-                  type="text"
-                  value={filters.incidentCode}
-                  onChange={(e) => handleFilterChange('incidentCode', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ej: INC-2025-001"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cliente
-                </label>
-                <input
-                  type="text"
-                  value={filters.client}
-                  onChange={(e) => handleFilterChange('client', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Nombre del cliente"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Obra
-                </label>
-                <input
-                  type="text"
-                  value={filters.obra}
-                  onChange={(e) => handleFilterChange('obra', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Nombre de la obra"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Estado
-                </label>
-                <select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Todos los estados</option>
-                  <option value="abierto">Abierto</option>
-                  <option value="en_proceso">En Proceso</option>
-                  <option value="cerrado">Cerrado</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha Desde
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateFrom}
-                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha Hasta
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateTo}
-                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  onClick={clearFilters}
-                  className="w-full px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200"
-                >
-                  Limpiar Filtros
-                </button>
-              </div>
-            </div>
-          )}
+          <button
+            onClick={handleRefresh}
+            className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-xl hover:bg-gray-50"
+          >
+            <ArrowPathIcon className="h-5 w-5 mr-2 text-gray-600" />
+            Actualizar
+          </button>
         </div>
+      </div>
 
-        {/* Estadísticas */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <DocumentTextIcon className="h-6 w-6 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Incidencias</p>
-                <p className="text-2xl font-bold text-gray-900">{filteredIncidents.length}</p>
-              </div>
-            </div>
+      {/* Search and Filters */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+        <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex-1 relative">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por código, cliente, obra, proveedor..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+            />
           </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <DocumentIcon className="h-6 w-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Documentos</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {filteredIncidents.reduce((total, incident) => {
-                    const docs = getAllDocumentsForIncident(incident.id);
-                    return total + docs.length;
-                  }, 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <ChartBarIcon className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Abiertas</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {filteredIncidents.filter(incident => incident.estado === 'abierto').length}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <PaperClipIcon className="h-6 w-6 text-purple-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Con Adjuntos</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {filteredIncidents.filter(incident => {
-                    const docs = getAllDocumentsForIncident(incident.id);
-                    return docs.length > 0;
-                  }).length}
-                </p>
-              </div>
-            </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`inline-flex items-center px-4 py-3 rounded-xl border ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300'}`}
+            >
+              <FunnelIcon className="h-5 w-5 mr-2" />
+              Filtros
+            </button>
+            {(searchTerm || filters.status || filters.dateFrom || filters.dateTo) && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center px-4 py-3 text-red-600 hover:text-red-800"
+              >
+                <XMarkIcon className="h-5 w-5 mr-1" />
+                Limpiar
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Lista de Incidencias */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Incidencias y Documentos ({filteredIncidents.length})
-            </h3>
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              >
+                <option value="">Todos</option>
+                <option value="abierto">Abierto</option>
+                <option value="proveedor">Proveedor</option>
+                <option value="cerrado">Cerrado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Fecha desde</label>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Fecha hasta</label>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Main Content - Split View */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Incidents List */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+            <h2 className="text-lg font-semibold text-white flex items-center">
+              <ClipboardDocumentListIcon className="h-5 w-5 mr-2" />
+              Incidencias ({filteredIncidents.length})
+            </h2>
           </div>
 
-          {incidentsLoading ? (
+          {isLoading ? (
             <div className="p-8 text-center">
-              <ArrowPathIcon className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
-              <p className="text-gray-600">Cargando incidencias...</p>
+              <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto"></div>
+              <p className="mt-4 text-gray-500">Cargando incidencias...</p>
             </div>
           ) : filteredIncidents.length === 0 ? (
-            <div className="p-8 text-center">
-              <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No se encontraron incidencias con los filtros aplicados</p>
+            <div className="p-8 text-center text-gray-500">
+              <FolderOpenIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <p>No se encontraron incidencias</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-200">
+            <div className="max-h-[600px] overflow-y-auto divide-y divide-gray-100">
               {filteredIncidents.map((incident) => {
-                const documents = getAllDocumentsForIncident(incident.id);
-                const isSelected = selectedIncident?.id === incident.id;
-                
+                const stageInfo = getStageInfo(incident);
                 return (
-                  <div key={incident.id} className="p-6 hover:bg-gray-50 transition-colors duration-200">
-                    <div className="flex items-start justify-between">
+                  <div
+                    key={incident.id}
+                    onClick={() => setSelectedIncident(incident)}
+                    className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${selectedIncident?.id === incident.id ? 'bg-blue-50 border-l-4 border-blue-600' : ''
+                      }`}
+                  >
+                    <div className="flex justify-between items-start">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <button
-                            onClick={() => setSelectedIncident(isSelected ? null : incident)}
-                            className={`px-3 py-1 rounded-full text-sm font-medium ${
-                              isSelected 
-                                ? 'bg-blue-100 text-blue-800' 
-                                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                            }`}
-                          >
-                            {isSelected ? 'Ocultar Documentos' : 'Ver Documentos'}
-                          </button>
-                          
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(incident.estado)}`}>
-                            {incident.estado}
-                          </span>
-                          
-                          {incident.prioridad && (
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(incident.prioridad)}`}>
-                              {incident.prioridad}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                          <div>
-                            <h4 className="font-semibold text-gray-900 mb-1">
-                              {incident.code || `INC-${incident.id}`}
-                            </h4>
-                            <p className="text-sm text-gray-600">
-                              <BuildingOfficeIcon className="h-4 w-4 inline mr-1" />
-                              {incident.cliente || 'Sin cliente'}
-                            </p>
-                          </div>
-
-                          <div>
-                            <p className="text-sm text-gray-600">
-                              <BuildingOfficeIcon className="h-4 w-4 inline mr-1" />
-                              {incident.obra || 'Sin obra'}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              <TagIcon className="h-4 w-4 inline mr-1" />
-                              {incident.categoria?.name || 'Sin categoría'}
-                            </p>
-                          </div>
-
-                          <div>
-                            <p className="text-sm text-gray-600">
-                              <CalendarIcon className="h-4 w-4 inline mr-1" />
-                              {new Date(incident.fecha_reporte).toLocaleDateString()}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              <UserIcon className="h-4 w-4 inline mr-1" />
-                              {incident.provider || 'Sin proveedor'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <p className="text-gray-700 text-sm mb-4">
-                          {incident.descripcion || 'Sin descripción'}
+                        <p className="font-semibold text-gray-900">{incident.code}</p>
+                        <p className="text-sm text-gray-800 mt-1 font-medium">
+                          {incident.cliente} {incident.obra ? `• ${incident.obra}` : ''}
                         </p>
-
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span className="flex items-center">
-                            <DocumentIcon className="h-4 w-4 mr-1" />
-                            {documents.length} documentos
-                          </span>
-                          {incident.sku && (
-                            <span className="flex items-center">
-                              <TagIcon className="h-4 w-4 mr-1" />
-                              SKU: {incident.sku}
+                        <p className="text-xs text-gray-500 mt-0.5">Prov: {incident.provider || '-'}</p>
+                        {(incident.categoria || incident.subcategoria) && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                              {incident.categoria || '-'}
+                              {incident.subcategoria ? ` / ${incident.subcategoria}` : ''}
                             </span>
-                          )}
-                          {incident.lote && (
-                            <span className="flex items-center">
-                              <TagIcon className="h-4 w-4 mr-1" />
-                              Lote: {incident.lote}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Documentos de la Incidencia */}
-                    {isSelected && (
-                      <div className="mt-6 pt-6 border-t border-gray-200">
-                        {documentsLoading ? (
-                          <div className="text-center py-4">
-                            <ArrowPathIcon className="h-6 w-6 animate-spin text-blue-600 mx-auto mb-2" />
-                            <p className="text-gray-600">Cargando documentos...</p>
-                          </div>
-                        ) : documents.length === 0 ? (
-                          <div className="text-center py-8">
-                            <PaperClipIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-gray-600">No hay documentos adjuntos para esta incidencia</p>
-                          </div>
-                        ) : (
-                          <div>
-                            <h5 className="font-semibold text-gray-900 mb-4">Documentos Adjuntos</h5>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {documents.map((doc, index) => (
-                                <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow duration-200">
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center">
-                                      <DocumentIcon className="h-5 w-5 text-blue-600 mr-2" />
-                                      <div>
-                                        <p className="font-medium text-gray-900 text-sm">
-                                          {doc.title || doc.name || `Documento ${index + 1}`}
-                                        </p>
-                                        <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                                          {doc.typeLabel}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {doc.description && (
-                                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                                      {doc.description}
-                                    </p>
-                                  )}
-
-                                  <div className="flex items-center justify-between">
-                                    <div className="text-xs text-gray-500">
-                                      {doc.created_at && (
-                                        <span>
-                                          {new Date(doc.created_at).toLocaleDateString()}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <button
-                                      onClick={() => downloadDocument(doc)}
-                                      className="inline-flex items-center px-3 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    >
-                                      <DocumentArrowDownIcon className="h-3 w-3 mr-1" />
-                                      Descargar
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
                           </div>
                         )}
                       </div>
-                    )}
+                      <div className="text-right">
+                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${stageInfo.color}`}>
+                          {stageInfo.icon}
+                          <span className="ml-1">{stageInfo.label}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Desde: {stageInfo.date ? new Date(stageInfo.date).toLocaleDateString('es-ES') : new Date(incident.fecha_deteccion || incident.created_at).toLocaleDateString('es-ES')}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
             </div>
+          )}
+        </div>
+
+        {/* Documents Panel */}
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4">
+            <h2 className="text-lg font-semibold text-white flex items-center">
+              <DocumentTextIcon className="h-5 w-5 mr-2" />
+              Documentos {selectedIncident ? `- ${selectedIncident.code}` : ''}
+            </h2>
+          </div>
+
+          {!selectedIncident ? (
+            <div className="p-8 text-center text-gray-500">
+              <DocumentIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <p>Selecciona una incidencia para ver sus documentos</p>
+            </div>
+          ) : loadingDocs ? (
+            <div className="p-8 text-center">
+              <div className="animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto"></div>
+              <p className="mt-4 text-gray-500">Cargando documentos...</p>
+            </div>
+          ) : (
+            <>
+              {/* Document List */}
+              {combinedDocuments.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  <FolderOpenIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                  <p>No hay documentos para esta incidencia</p>
+                </div>
+              ) : (
+                <div className="max-h-[350px] overflow-y-auto divide-y divide-gray-100">
+                  {combinedDocuments.map((doc) => {
+                    // Render folder row
+                    if (doc.type === 'folder') {
+                      return (
+                        <React.Fragment key={doc.id}>
+                          {/* Folder Header */}
+                          <div
+                            onClick={() => toggleFolder(doc.folderType)}
+                            className="p-4 hover:bg-slate-50/70 cursor-pointer bg-slate-50/30 transition-all duration-200"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-3">
+                                <div className="p-2 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
+                                  {doc.isExpanded ? (
+                                    <FolderOpenIcon className="h-5 w-5 text-blue-600" />
+                                  ) : (
+                                    <FolderIcon className="h-5 w-5 text-blue-500" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-semibold text-gray-900">{doc.name}</p>
+                                    <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                                      {doc.count}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    Click para {doc.isExpanded ? 'colapsar' : 'expandir'}
+                                  </p>
+                                </div>
+                              </div>
+                              <ChevronRightIcon
+                                className={`h-5 w-5 text-gray-400 transition-transform duration-200 ${doc.isExpanded ? 'rotate-90' : ''}`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Folder Children (with smooth animation) */}
+                          {doc.isExpanded && doc.children.map((child) => (
+                            <div
+                              key={child.id}
+                              className="pl-12 pr-4 py-3 hover:bg-gray-50 border-l-2 border-blue-200"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <div className="p-2 bg-gray-100 rounded-lg">
+                                    {getDocumentIcon(child)}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-medium text-gray-900 text-sm">{child.name}</p>
+                                      {getTypeBadge(child)}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {child.filename}
+                                    </p>
+                                    {child.created_at && (
+                                      <p className="text-xs text-gray-400">
+                                        {new Date(child.created_at).toLocaleDateString('es-ES')}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  {child.hasDocument && (
+                                    <>
+                                      <button
+                                        onClick={() => handleViewDocument(child)}
+                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Ver"
+                                      >
+                                        <EyeIcon className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDownloadDocument(child)}
+                                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                        title="Descargar"
+                                      >
+                                        <DocumentArrowDownIcon className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </React.Fragment>
+                      );
+                    }
+
+                    // Render regular document row
+                    return (
+                      <div key={doc.id} className="p-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <div className="p-2 bg-gray-100 rounded-lg">
+                              {getDocumentIcon(doc)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium text-gray-900">{doc.name}</p>
+                                {getTypeBadge(doc)}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {doc.filename}
+                              </p>
+                              {doc.created_at && (
+                                <p className="text-xs text-gray-400">
+                                  {new Date(doc.created_at).toLocaleDateString('es-ES')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {doc.hasDocument && (
+                              <>
+                                <button
+                                  onClick={() => handleViewDocument(doc)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Ver"
+                                >
+                                  <EyeIcon className="h-5 w-5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDownloadDocument(doc)}
+                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                  title="Descargar"
+                                >
+                                  <DocumentArrowDownIcon className="h-5 w-5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Incident Info Card with Stages */}
+              <div className="border-t bg-gray-50 p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">📋 Trazabilidad de la Incidencia</h3>
+
+                {/* Stage Timeline */}
+                <div className="mb-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    {(() => {
+                      const stageInfo = getStageInfo(selectedIncident);
+                      return (
+                        <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${stageInfo.color}`}>
+                          {stageInfo.icon}
+                          <span className="ml-2">Etapa actual: {stageInfo.label}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Cliente:</span>
+                    <p className="font-medium">{selectedIncident.cliente || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Obra:</span>
+                    <p className="font-medium">{selectedIncident.obra || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Proveedor:</span>
+                    <p className="font-medium">{selectedIncident.provider || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Categoría:</span>
+                    <p className="font-medium text-xs mt-0.5">
+                      {selectedIncident.categoria || '-'}
+                      {selectedIncident.subcategoria ? ` / ${selectedIncident.subcategoria}` : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Fecha Detección:</span>
+                    <p className="font-medium">
+                      {selectedIncident.fecha_deteccion ? new Date(selectedIncident.fecha_deteccion).toLocaleDateString('es-ES') : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Documentos:</span>
+                    <p className="font-medium">{allDocuments.length}</p>
+                  </div>
+
+                  {selectedIncident.escalation_date && (
+                    <div className="col-span-2">
+                      <span className="text-gray-500">Fecha Escalamiento:</span>
+                      <p className="font-medium">
+                        {new Date(selectedIncident.escalation_date).toLocaleDateString('es-ES')}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedIncident.estado === 'cerrado' && (
+                    <>
+                      <div className="col-span-2">
+                        <span className="text-gray-500">Fecha Cierre:</span>
+                        <p
+                          className="font-medium cursor-help"
+                          title={selectedIncident.closure_summary || 'Sin resumen'}
+                        >
+                          {selectedIncident.fecha_cierre ? new Date(selectedIncident.fecha_cierre).toLocaleDateString('es-ES') :
+                            selectedIncident.closed_at ? new Date(selectedIncident.closed_at).toLocaleDateString('es-ES') : '-'}
+                        </p>
+                      </div>
+                      {selectedIncident.motivo_cierre && (
+                        <div className="col-span-2">
+                          <span className="text-gray-500">Motivo de Cierre:</span>
+                          <p className="font-medium text-green-700 bg-green-50 px-2 py-1 rounded mt-1">
+                            {selectedIncident.motivo_cierre}
+                          </p>
+                        </div>
+                      )}
+                      {selectedIncident.closure_summary && (
+                        <div className="col-span-2 mt-1">
+                          <span className="text-gray-500 text-xs">Resumen de Cierre:</span>
+                          <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded mt-1 border border-gray-100">
+                            {selectedIncident.closure_summary}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

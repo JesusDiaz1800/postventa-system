@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { 
-  PhotoIcon, 
-  CpuChipIcon, 
+import {
+  PhotoIcon,
+  CpuChipIcon,
   DocumentTextIcon,
   ArrowDownTrayIcon,
   XMarkIcon,
@@ -29,31 +29,24 @@ const AIImageAnalyzer = () => {
       formData.append('analysis_type', 'comprehensive_technical_analysis');
       formData.append('description', 'Análisis técnico completo de imagen para diagnóstico de fallas');
       formData.append('context', 'Sistema de postventa - Análisis de fallas en tuberías, accesorios y componentes');
-      
+
       try {
-        const token = localStorage.getItem('access_token');
-        const response = await fetch('/api/ai/analyze-image/', {
-          method: 'POST',
+        // Importar api dinámicamente para evitar problemas de circularidad
+        const { api } = await import('../services/api');
+
+        const response = await api.post('/ai/analyze-image/', formData, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
           },
-          body: formData,
         });
-        
-        if (!response.ok) {
-          let errorMessage = 'Error al analizar la imagen';
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorData.message || errorMessage;
-          } catch (e) {
-            errorMessage = `Error del servidor: ${response.status}`;
-          }
-          throw new Error(errorMessage);
-        }
-        
-        return response.json();
+
+        return response.data;
       } catch (error) {
         console.error('Error in image analysis:', error);
+        if (error.response) {
+          const errorMessage = error.response.data?.error || error.response.data?.message || `Error del servidor: ${error.response.status}`;
+          throw new Error(errorMessage);
+        }
         throw error;
       }
     },
@@ -74,7 +67,23 @@ const AIImageAnalyzer = () => {
     onError: (error) => {
       console.error('Error analyzing image:', error);
       let errorMessage = 'Error al analizar la imagen';
-      
+
+      const response = error.response?.data;
+      if (error.response?.status === 429 || error.message.includes('429')) {
+        const nextReset = response?.next_reset;
+        const timeStr = nextReset ? new Date(nextReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'mañana';
+
+        errorMessage = (
+          <div className="flex flex-col gap-1">
+            <span className="font-bold">Límite de cuota de IA alcanzado</span>
+            <span className="text-xs">Se restablecerá aproximadamente a las {timeStr}.</span>
+            <span className="text-xs italic">Mientras tanto, el sistema usará el motor local básico.</span>
+          </div>
+        );
+        showWarning(errorMessage);
+        return;
+      }
+
       if (error.message.includes('401')) {
         errorMessage = 'Error de autenticación. Por favor, inicia sesión nuevamente.';
       } else if (error.message.includes('500')) {
@@ -84,65 +93,12 @@ const AIImageAnalyzer = () => {
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       showError(errorMessage);
     },
   });
 
-  const generateReportMutation = useMutation({
-    mutationFn: async (analysisData) => {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch('/api/ai/generate-report/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          analysis_id: analysisData.analysis_id
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Error al generar el informe');
-      }
-      
-      return response.json();
-    },
-    onSuccess: (data) => {
-      if (data.success) {
-        // Crear un blob con el informe generado
-        const blob = new Blob([data.report], { type: 'text/plain' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `informe_analisis_${new Date().toISOString().split('T')[0]}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        
-        showSuccess('Informe técnico generado y descargado exitosamente');
-      } else {
-        throw new Error(data.error || 'Error en la generación del informe');
-      }
-    },
-    onError: (error) => {
-      console.error('Error generating report:', error);
-      let errorMessage = 'Error al generar el informe';
-      
-      if (error.message.includes('401')) {
-        errorMessage = 'Error de autenticación. Por favor, inicia sesión nuevamente.';
-      } else if (error.message.includes('500')) {
-        errorMessage = 'Error del servidor. Verifica que los proveedores de IA estén configurados.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      showError(errorMessage);
-    },
-  });
+
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
@@ -153,16 +109,16 @@ const AIImageAnalyzer = () => {
         showError('Tipo de archivo no soportado. Use JPG, PNG, GIF, WebP o BMP.');
         return;
       }
-      
+
       // Validar tamaño (máximo 10MB)
       const maxSize = 10 * 1024 * 1024; // 10MB
       if (file.size > maxSize) {
         showError('El archivo es demasiado grande. Máximo 10MB.');
         return;
       }
-      
+
       setSelectedImage(file);
-      
+
       // Crear preview
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -178,11 +134,7 @@ const AIImageAnalyzer = () => {
     }
   };
 
-  const handleGenerateReport = () => {
-    if (analysisResult) {
-      generateReportMutation.mutate(analysisResult);
-    }
-  };
+
 
   const clearAll = () => {
     setSelectedImage(null);
@@ -208,8 +160,8 @@ const AIImageAnalyzer = () => {
       {/* Selección de imagen */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-4">1. Seleccionar Imagen</h3>
-        
-        <div 
+
+        <div
           className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors"
           onDrop={(e) => {
             e.preventDefault();
@@ -262,7 +214,7 @@ const AIImageAnalyzer = () => {
       {selectedImage && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">2. Análisis con IA</h3>
-          
+
           <div className="flex space-x-4">
             <button
               onClick={handleAnalyze}
@@ -274,7 +226,7 @@ const AIImageAnalyzer = () => {
                 {analyzeImageMutation.isPending ? 'Analizando...' : 'Analizar Imagen'}
               </span>
             </button>
-            
+
             <button
               onClick={clearAll}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
@@ -377,40 +329,89 @@ const AIImageAnalyzer = () => {
 
           <div className="flex space-x-4 mt-6">
             <button
-              onClick={handleGenerateReport}
-              disabled={generateReportMutation.isPending}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                const text = `INFORME TÉCNICO DE ANÁLISIS - IA
+FECHA: ${new Date().toLocaleString()}
+MODELO: ${analysisResult.model_used || 'Gemini 1.5 Flash'}
+CONFIANZA: ${analysisResult.confidence_score ? Math.round(analysisResult.confidence_score * 100) + '%' : 'N/A'}
+
+1. OBSERVACIONES TÉCNICAS
+${analysisResult.analysis?.observations || 'N/A'}
+
+2. POSIBLES CAUSAS
+${Array.isArray(analysisResult.analysis?.possible_causes)
+                    ? analysisResult.analysis.possible_causes.map(c => `- ${c}`).join('\n')
+                    : analysisResult.analysis?.possible_causes || 'N/A'}
+
+3. RECOMENDACIONES
+${Array.isArray(analysisResult.analysis?.recommendations)
+                    ? analysisResult.analysis.recommendations.map(r => `- ${r}`).join('\n')
+                    : analysisResult.analysis?.recommendations || 'N/A'}
+
+4. ACCIONES CORRECTIVAS
+${Array.isArray(analysisResult.analysis?.corrective_actions)
+                    ? analysisResult.analysis.corrective_actions.map(a => `- ${a}`).join('\n')
+                    : analysisResult.analysis?.corrective_actions || 'N/A'}
+`;
+                navigator.clipboard.writeText(text);
+                showSuccess('Análisis copiado al portapapeles');
+              }}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               <DocumentTextIcon className="h-5 w-5" />
-              <span>
-                {generateReportMutation.isPending ? 'Generando...' : 'Generar Informe Técnico'}
-              </span>
+              <span>Copiar Información</span>
             </button>
-            
+
             <button
               onClick={() => {
-                const reportData = {
-                  timestamp: new Date().toISOString(),
-                  image_name: selectedImage?.name,
-                  analysis: analysisResult.analysis,
-                  confidence: analysisResult.confidence_score,
-                  model: analysisResult.model_used
-                };
-                const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+                const text = `INFORME TÉCNICO DE ANÁLISIS - IA
+----------------------------------------
+FECHA: ${new Date().toLocaleString()}
+ID ANÁLISIS: ${analysisResult.analysis_id || 'N/A'}
+MODELO: ${analysisResult.model_used || 'Gemini 1.5 Flash'}
+CONFIANZA: ${analysisResult.confidence_score ? Math.round(analysisResult.confidence_score * 100) + '%' : 'N/A'}
+----------------------------------------
+
+1. OBSERVACIONES TÉCNICAS
+----------------------------------------
+${analysisResult.analysis?.observations || 'N/A'}
+
+2. POSIBLES CAUSAS
+----------------------------------------
+${Array.isArray(analysisResult.analysis?.possible_causes)
+                    ? analysisResult.analysis.possible_causes.map(c => `- ${c}`).join('\n')
+                    : analysisResult.analysis?.possible_causes || 'N/A'}
+
+3. RECOMENDACIONES
+----------------------------------------
+${Array.isArray(analysisResult.analysis?.recommendations)
+                    ? analysisResult.analysis.recommendations.map(r => `- ${r}`).join('\n')
+                    : analysisResult.analysis?.recommendations || 'N/A'}
+
+4. ACCIONES CORRECTIVAS
+----------------------------------------
+${Array.isArray(analysisResult.analysis?.corrective_actions)
+                    ? analysisResult.analysis.corrective_actions.map(a => `- ${a}`).join('\n')
+                    : analysisResult.analysis?.corrective_actions || 'N/A'}
+  
+----------------------------------------
+Generado por Sistema PostVenta - Módulo IA
+`;
+                const blob = new Blob([text], { type: 'text/plain' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `analisis_ia_${new Date().toISOString().split('T')[0]}.json`;
+                a.download = `Informe_Tecnico_${new Date().toISOString().split('T')[0]}.txt`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-                showSuccess('Datos del análisis descargados');
+                showSuccess('Informe técnico descargado');
               }}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
             >
               <ArrowDownTrayIcon className="h-5 w-5" />
-              <span>Descargar Datos</span>
+              <span>Descargar Informe .TXT</span>
             </button>
           </div>
         </div>
@@ -443,7 +444,7 @@ const AIImageAnalyzer = () => {
         </div>
         <div className="mt-3 p-3 bg-blue-100 rounded-lg">
           <p className="text-sm text-blue-800">
-            <strong>Nota:</strong> El análisis de IA es una herramienta de apoyo técnico. 
+            <strong>Nota:</strong> El análisis de IA es una herramienta de apoyo técnico.
             Siempre consulte con especialistas para validar los hallazgos antes de tomar decisiones críticas.
           </p>
         </div>

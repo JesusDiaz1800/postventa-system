@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 
 from .models import AIProvider, AIAnalysis
-# from .providers import orchestrator  # Comentado temporalmente para migraciones
+from .providers import get_orchestrator
 from .serializers import AIProviderSerializer, AIAnalysisSerializer
 
 
@@ -32,6 +32,7 @@ def analyze_image(request):
     image_data = image_file.read()
     
     # Analyze using orchestrator
+    orchestrator = get_orchestrator()
     result = orchestrator.analyze_image(image_data, image_file.content_type)
     
     if result.get('success'):
@@ -58,9 +59,16 @@ def analyze_image(request):
         })
     
     else:
+        error_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        if result.get('code') == 429:
+            error_code = status.HTTP_429_TOO_MANY_REQUESTS
+            
         return Response(
-            {'error': result.get('error', 'Error en el análisis')}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {
+                'error': result.get('error', 'Error en el análisis'),
+                'next_reset': result.get('next_reset')
+            }, 
+            status=error_code
         )
 
 
@@ -79,6 +87,7 @@ def generate_text(request):
         )
     
     # Generate text using orchestrator
+    orchestrator = get_orchestrator()
     result = orchestrator.generate_text(prompt, context)
     
     if result.get('success'):
@@ -100,9 +109,16 @@ def generate_text(request):
         })
     
     else:
+        error_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        if result.get('code') == 429:
+            error_code = status.HTTP_429_TOO_MANY_REQUESTS
+            
         return Response(
-            {'error': result.get('error', 'Error en la generación de texto')}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {
+                'error': result.get('error', 'Error en la generación de texto'),
+                'next_reset': result.get('next_reset')
+            }, 
+            status=error_code
         )
 
 
@@ -150,6 +166,18 @@ def provider_status(request):
         }
     ]
     
+    # Usar el orquestador real si está disponible
+    try:
+        orchestrator = get_orchestrator()
+        actual_status = orchestrator.get_provider_status()
+        if actual_status:
+            return Response({
+                'providers': actual_status,
+                'timestamp': timezone.now().isoformat()
+            })
+    except Exception:
+        pass
+        
     return Response({
         'providers': status_list,
         'timestamp': timezone.now().isoformat()

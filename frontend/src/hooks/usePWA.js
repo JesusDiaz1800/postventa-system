@@ -29,12 +29,12 @@ export const usePWA = () => {
       // Verificar si se está ejecutando en modo standalone
       const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
       const isInStandaloneMode = window.navigator.standalone === true;
-      
+
       setIsInstalled(isStandalone || isInStandaloneMode);
     };
 
     checkInstalled();
-    
+
     // Escuchar cambios en el modo de visualización
     const mediaQuery = window.matchMedia('(display-mode: standalone)');
     mediaQuery.addEventListener('change', checkInstalled);
@@ -64,7 +64,6 @@ export const usePWA = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
-          console.log('Service Worker registrado:', registration);
           setSwRegistration(registration);
 
           // Verificar actualizaciones
@@ -80,7 +79,7 @@ export const usePWA = () => {
           // Escuchar mensajes del Service Worker
           navigator.serviceWorker.addEventListener('message', (event) => {
             const { type, payload } = event.data;
-            
+
             switch (type) {
               case 'UPDATE_AVAILABLE':
                 setUpdateAvailable(true);
@@ -112,7 +111,7 @@ export const usePWA = () => {
     try {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      
+
       if (outcome === 'accepted') {
         console.log('Usuario aceptó instalar la app');
         setCanInstall(false);
@@ -162,7 +161,7 @@ export const usePWA = () => {
     if (swRegistration && swRegistration.active) {
       return new Promise((resolve, reject) => {
         const messageChannel = new MessageChannel();
-        
+
         messageChannel.port1.onmessage = (event) => {
           if (event.data.success) {
             resolve(true);
@@ -375,37 +374,37 @@ export const usePWA = () => {
     isInstalled,
     canInstall,
     updateAvailable,
-    
+
     // Funciones de instalación
     installApp,
     updateApp,
-    
+
     // Funciones de cache
     clearCache,
     cacheUrls,
     getCacheInfo,
-    
+
     // Funciones de sincronización
     syncInBackground,
-    
+
     // Funciones de notificaciones
     subscribeToPush,
     unsubscribeFromPush,
     checkNotificationPermission,
     requestNotificationPermission,
     showNotification,
-    
+
     // Funciones de dispositivo
     getDeviceInfo,
     isMobile,
     isIOS,
     isAndroid,
-    
+
     // Funciones de compartir
     shareContent,
     copyToClipboard,
     readFromClipboard,
-    
+
     // Service Worker
     swRegistration
   };
@@ -497,7 +496,7 @@ export const useOffline = () => {
   const processOfflineQueue = useCallback(async () => {
     if (offlineQueue.length > 0) {
       console.log('Procesando cola offline:', offlineQueue.length, 'elementos');
-      
+
       for (const action of offlineQueue) {
         try {
           // Ejecutar acción
@@ -506,7 +505,7 @@ export const useOffline = () => {
           console.error('Error procesando acción offline:', error);
         }
       }
-      
+
       setOfflineQueue([]);
     }
   }, [offlineQueue]);

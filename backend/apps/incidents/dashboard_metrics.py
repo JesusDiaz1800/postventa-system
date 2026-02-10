@@ -6,7 +6,8 @@ Provides comprehensive analytics and reporting
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
-from django.db.models import Count, Avg, Q, Sum, F
+from django.db.models import Count, Avg, Q, Sum, F, Value, CharField
+from django.db.models.functions import TruncDate, TruncMonth, TruncWeek, Concat
 from django.utils import timezone
 from .models import Incident, IncidentImage
 from apps.users.models import User
@@ -73,31 +74,53 @@ class DashboardMetrics:
         try:
             start_date = self.now - timedelta(days=days)
             
-            # Daily incident counts
+            # Daily incident counts using TruncDate (DB agnostic)
             daily_incidents = Incident.objects.filter(
                 created_at__gte=start_date
-            ).extra(
-                select={'day': 'date(created_at)'}
+            ).annotate(
+                day=TruncDate('created_at')
             ).values('day').annotate(count=Count('id')).order_by('day')
             
-            # Weekly incident counts
+            # Weekly incident counts using TruncWeek
             weekly_incidents = Incident.objects.filter(
                 created_at__gte=start_date
-            ).extra(
-                select={'week': 'strftime("%Y-%W", created_at)'}
+            ).annotate(
+                week=TruncWeek('created_at')
             ).values('week').annotate(count=Count('id')).order_by('week')
             
-            # Monthly incident counts
+            # Monthly incident counts using TruncMonth
             monthly_incidents = Incident.objects.filter(
                 created_at__gte=start_date
-            ).extra(
-                select={'month': 'strftime("%Y-%m", created_at)'}
+            ).annotate(
+                month=TruncMonth('created_at')
             ).values('month').annotate(count=Count('id')).order_by('month')
             
+            # Convert QuerySets to list and format dates for JSON serialization
+            daily_data = []
+            for item in daily_incidents:
+                daily_data.append({
+                    'day': item['day'].strftime('%Y-%m-%d') if item['day'] else None,
+                    'count': item['count']
+                })
+                
+            weekly_data = []
+            for item in weekly_incidents:
+                weekly_data.append({
+                    'week': item['week'].strftime('%Y-%W') if item['week'] else None,
+                    'count': item['count']
+                })
+                
+            monthly_data = []
+            for item in monthly_incidents:
+                monthly_data.append({
+                    'month': item['month'].strftime('%Y-%m') if item['month'] else None,
+                    'count': item['count']
+                })
+            
             return {
-                'daily_trends': list(daily_incidents),
-                'weekly_trends': list(weekly_incidents),
-                'monthly_trends': list(monthly_incidents),
+                'daily_trends': daily_data,
+                'weekly_trends': weekly_data,
+                'monthly_trends': monthly_data,
                 'trend_period': f"{days} days"
             }
             
@@ -240,11 +263,19 @@ class DashboardMetrics:
             resolution_trends = Incident.objects.filter(
                 status='resuelto',
                 created_at__gte=self.now - timedelta(days=30)
-            ).extra(
-                select={'week': 'strftime("%Y-%W", created_at)'}
+            ).annotate(
+                week=TruncWeek('created_at')
             ).values('week').annotate(
                 avg_resolution_time=Avg('resolution_time')
             ).order_by('week')
+            
+            # Format dates for JSON
+            resolution_trends_data = []
+            for item in resolution_trends:
+                resolution_trends_data.append({
+                    'week': item['week'].strftime('%Y-%W') if item['week'] else None,
+                    'avg_resolution_time': item['avg_resolution_time']
+                })
             
             # First-time resolution rate
             first_time_resolution = Incident.objects.filter(
@@ -261,7 +292,7 @@ class DashboardMetrics:
             
             return {
                 'resolution_by_category': list(resolution_by_category),
-                'resolution_trends': list(resolution_trends),
+                'resolution_trends': resolution_trends_data,
                 'first_time_resolution_rate': first_time_rate,
                 'total_resolved': first_time_resolution['total_resolved'],
                 'first_time_resolved': first_time_resolution['first_time_resolved']
@@ -331,48 +362,34 @@ class DashboardMetrics:
                 {'document_type': 'quality_report', 'count': quality_count}
             ]
             
-            # Recent document generation
-            recent_visits = VisitReport.objects.filter(
-                created_at__gte=self.now - timedelta(days=7)
-            ).count()
-            recent_suppliers = SupplierReport.objects.filter(
-                created_at__gte=self.now - timedelta(days=7)
-            ).count()
-            recent_labs = LabReport.objects.filter(
-                created_at__gte=self.now - timedelta(days=7)
-            ).count()
-            recent_quality = QualityReport.objects.filter(
-                created_at__gte=self.now - timedelta(days=7)
-            ).count()
+            # Recent document generation (Optimized)
+            recent_date = self.now - timedelta(days=7)
+            recent_visits = VisitReport.objects.filter(created_at__gte=recent_date).count()
+            recent_suppliers = SupplierReport.objects.filter(created_at__gte=recent_date).count()
+            recent_labs = LabReport.objects.filter(created_at__gte=recent_date).count()
+            recent_quality = QualityReport.objects.filter(created_at__gte=recent_date).count()
             
             recent_documents = recent_visits + recent_suppliers + recent_labs + recent_quality
             
-            # Document generation by incident
-            from django.db.models import Q
-            from apps.incidents.models import Incident
-            
-            # Obtener incidencias con documentos
-            incidents_with_docs = Incident.objects.filter(
-                Q(visitreport__isnull=False) | 
-                Q(supplierreport__isnull=False) | 
-                Q(labreport__isnull=False) |
-                Q(qualityreport__isnull=False)
-            ).distinct()
+            # Document generation by incident (Optimized using annotations)
+            # Annotate Incident with counts of each report type
+            incidents_with_docs = Incident.objects.annotate(
+                visit_count=Count('visitreport'),
+                supplier_count=Count('supplierreport'),
+                lab_count=Count('labreport'),
+                quality_count=Count('qualityreport')
+            ).annotate(
+                total_docs=F('visit_count') + F('supplier_count') + F('lab_count') + F('quality_count')
+            ).filter(
+                total_docs__gt=0
+            ).order_by('-total_docs')
             
             documents_per_incident = []
             for incident in incidents_with_docs:
-                doc_count = (
-                    incident.visitreport_set.count() + 
-                    incident.supplierreport_set.count() + 
-                    incident.labreport_set.count() + 
-                    incident.qualityreport_set.count()
-                )
                 documents_per_incident.append({
                     'incident_id': incident.id,
-                    'count': doc_count
+                    'count': incident.total_docs
                 })
-            
-            documents_per_incident.sort(key=lambda x: x['count'], reverse=True)
             
             return {
                 'total_documents': total_documents,
@@ -386,38 +403,16 @@ class DashboardMetrics:
             return {}
     
     def get_workflow_metrics(self) -> Dict:
-        """Get workflow metrics"""
-        try:
-            from apps.workflows.models import WorkflowInstance
-            
-            # Workflow instances
-            total_workflows = WorkflowInstance.objects.count()
-            active_workflows = WorkflowInstance.objects.filter(status='active').count()
-            completed_workflows = WorkflowInstance.objects.filter(status='completed').count()
-            
-            # Workflow completion rates
-            workflow_completion_rate = 0
-            if total_workflows > 0:
-                workflow_completion_rate = (completed_workflows / total_workflows) * 100
-            
-            # Average workflow duration
-            avg_workflow_duration = WorkflowInstance.objects.filter(
-                status='completed'
-            ).aggregate(
-                avg_duration=Avg('completed_at' - F('created_at'))
-            )
-            
-            return {
-                'total_workflows': total_workflows,
-                'active_workflows': active_workflows,
-                'completed_workflows': completed_workflows,
-                'workflow_completion_rate': workflow_completion_rate,
-                'avg_workflow_duration': avg_workflow_duration.get('avg_duration', 0)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting workflow metrics: {e}")
-            return {}
+        """Get workflow metrics - DISABLED: Workflows feature was removed"""
+        # Workflows feature was removed from the system
+        return {
+            'total_workflows': 0,
+            'active_workflows': 0,
+            'completed_workflows': 0,
+            'workflow_completion_rate': 0,
+            'avg_workflow_duration': 0,
+            'message': 'Workflows feature disabled'
+        }
     
     def get_security_metrics(self) -> Dict:
         """Get security and audit metrics"""
@@ -491,6 +486,8 @@ class DashboardMetrics:
     def get_comprehensive_dashboard(self) -> Dict:
         """Get comprehensive dashboard data"""
         try:
+            # We could optimize this further by gathering all metrics in a parallel or fewer queries,
+            # but for now, the individual query optimizations (N+1 fixes and DB agnostic functions) are a huge step up.
             return {
                 'overview': self.get_overview_metrics(),
                 'trends': self.get_incident_trends(),

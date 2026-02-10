@@ -1,11 +1,9 @@
-"""
-AI Provider adapters for different AI services
-"""
+from __future__ import annotations
 import json
 import time
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional
 from django.conf import settings
 from django.utils import timezone
 
@@ -22,12 +20,12 @@ class AIProviderAdapter(ABC):
         self.enabled = provider_config.get('enabled', True)
     
     @abstractmethod
-    def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
+    def analyze_image(self, image_data: bytes, image_type: str) -> dict[str, Any]:
         """Analyze an image and return results"""
         pass
     
     @abstractmethod
-    def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def generate_text(self, prompt: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Generate text based on prompt and context"""
         pass
     
@@ -35,6 +33,18 @@ class AIProviderAdapter(ABC):
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count for text"""
         pass
+    
+    def analyze_document(self, document_text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Análisis genérico de texto de documento para extracción de datos"""
+        prompt = f"Analiza el siguiente texto de un documento de incidencia y extrae los datos en formato JSON:\n\n{document_text}"
+        return self.generate_text(prompt, context)
+
+    def analyze_file(self, file_bytes: bytes, mime_type: str, document_text: str = "") -> Dict[str, Any]:
+        """Análisis multimodal de archivo (si el proveedor lo soporta)"""
+        # Fallback por defecto a análisis de texto si no hay soporte multimodal
+        if document_text:
+            return self.analyze_document(document_text)
+        return {'error': 'Este proveedor no soporta análisis multimodal de archivos'}
     
     def is_available(self) -> bool:
         """Check if provider is available"""
@@ -44,11 +54,16 @@ class AIProviderAdapter(ABC):
 class OpenAIAdapter(AIProviderAdapter):
     """Adapter for OpenAI API"""
     
-    def __init__(self, provider_config: Dict[str, Any]):
+    def __init__(self, provider_config: dict[str, Any]):
         super().__init__(provider_config)
         try:
             import openai
-            self.client = openai.OpenAI(api_key=self.api_key)
+            import httpx
+            # Fix for httpx 0.28+ breaking older openai versions due to 'proxies' param removal
+            self.client = openai.OpenAI(
+                api_key=self.api_key,
+                http_client=httpx.Client()
+            )
         except ImportError:
             logger.error("OpenAI library not installed")
             self.client = None
@@ -63,7 +78,7 @@ class OpenAIAdapter(AIProviderAdapter):
             base64_image = base64.b64encode(image_data).decode('utf-8')
             
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=getattr(settings, 'AI_OPENAI_MODEL', 'gpt-4o'),
                 messages=[
                     {
                         "role": "user",
@@ -118,7 +133,7 @@ class OpenAIAdapter(AIProviderAdapter):
             messages = [{"role": "user", "content": prompt}]
             
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=getattr(settings, 'AI_OPENAI_MODEL', 'gpt-4o'),
                 messages=messages,
                 max_tokens=1000
             )
@@ -142,14 +157,56 @@ class OpenAIAdapter(AIProviderAdapter):
         return len(text.split()) * 1.3  # Rough estimate
 
 
+    def analyze_document(self, document_text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Análisis de documento optimizado para Gemini"""
+        prompt = f"Analiza el siguiente texto de un documento de incidencia y extrae los datos en formato JSON:\n\n{document_text}"
+        return self.generate_text(prompt, context)
+
+    def analyze_file(self, file_bytes: bytes, mime_type: str, document_text: str = "") -> Dict[str, Any]:
+        """Análisis multimodal usando Gemini"""
+        if not self.client:
+            return {'error': 'Gemini client not available'}
+        
+        try:
+            prompt = "Analiza este documento y extrae la información técnica en formato JSON."
+            if document_text:
+                prompt += f"\nContexto del texto extraído:\n{document_text}"
+            
+            content = [
+                {"mime_type": mime_type, "data": file_bytes},
+                prompt
+            ]
+            
+            response = self.client.generate_content(content)
+            return {
+                'success': True,
+                'data': response.text,
+                'provider': 'google'
+            }
+        except Exception as e:
+            if "429" in str(e):
+                from .models import AIProvider
+                try:
+                    p = AIProvider.objects.get(name='google')
+                    next_reset = p.get_next_reset_time().isoformat()
+                except:
+                    next_reset = None
+                return {'error': 'Quota Exceeded', 'code': 429, 'next_reset': next_reset}
+            return {'error': str(e)}
+
 class AnthropicAdapter(AIProviderAdapter):
     """Adapter for Anthropic Claude API"""
     
-    def __init__(self, provider_config: Dict[str, Any]):
+    def __init__(self, provider_config: dict[str, Any]):
         super().__init__(provider_config)
         try:
             import anthropic
-            self.client = anthropic.Anthropic(api_key=self.api_key)
+            import httpx
+            # Fix for httpx 0.28+ breaking older anthropic versions due to 'proxies' param removal
+            self.client = anthropic.Anthropic(
+                api_key=self.api_key,
+                http_client=httpx.Client()
+            )
         except ImportError:
             logger.error("Anthropic library not installed")
             self.client = None
@@ -164,7 +221,7 @@ class AnthropicAdapter(AIProviderAdapter):
             base64_image = base64.b64encode(image_data).decode('utf-8')
             
             response = self.client.messages.create(
-                model="claude-3-opus-20240229",
+                model=getattr(settings, 'AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620'),
                 max_tokens=1000,
                 messages=[
                     {
@@ -218,7 +275,7 @@ class AnthropicAdapter(AIProviderAdapter):
         
         try:
             response = self.client.messages.create(
-                model="claude-3-opus-20240229",
+                model=getattr(settings, 'AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620'),
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -250,7 +307,8 @@ class GoogleAdapter(AIProviderAdapter):
         try:
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-pro-vision')
+            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-1.5-flash')
+            self.model = genai.GenerativeModel(model_name)
         except ImportError:
             logger.error("Google Generative AI library not installed")
             self.model = None
@@ -327,6 +385,10 @@ class LocalAdapter(AIProviderAdapter):
         super().__init__(provider_config)
         self.enabled = True  # Local models are always available
     
+    def is_available(self) -> bool:
+        """Local adapter is always available as fallback"""
+        return self.enabled
+    
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
         """Analyze image using local models (basic heuristics)"""
         try:
@@ -378,6 +440,39 @@ class LocalAdapter(AIProviderAdapter):
             logger.error(f"Local text generation error: {str(e)}")
             return {'error': str(e)}
     
+    def analyze_document(self, document_text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Análisis simulado pero estructurado para documentos (Fallback Gratuito)"""
+        import json
+        from django.utils import timezone
+        
+        # Intentar extraer algo de texto básico
+        cliente = "No detectado (IA Local)"
+        if "cliente" in document_text.lower():
+            parts = document_text.lower().split("cliente")
+            if len(parts) > 1:
+                cliente = parts[1].split("\n")[0].strip(": \t")[:50]
+
+        analysis_data = {
+            "cliente": cliente,
+            "rut_cliente": None,
+            "obra": "Obra no detectada",
+            "proveedor": "Polifusión (Default)",
+            "fecha_incidente": timezone.now().date().isoformat(),
+            "descripcion_breve": "Extracción básica local (Sin cuota de IA)",
+            "descripcion_completa": document_text[:500] if document_text else "Sin contenido",
+            "categoria": "Otro",
+            "prioridad": "media",
+            "tecnico": "Sistema Local",
+            "producto_detectado": "Genérico"
+        }
+        
+        return {
+            'success': True,
+            'data': json.dumps(analysis_data, ensure_ascii=False),
+            'provider': 'local',
+            'tokens_used': 0
+        }
+
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count (rough approximation)"""
         return len(text.split()) * 1.3
@@ -392,27 +487,97 @@ class AIOrchestrator:
     
     def _load_providers(self):
         """Load and initialize AI providers"""
-        from .models import AIProvider
-        
-        # Get providers from database
-        db_providers = AIProvider.objects.filter(enabled=True).order_by('priority')
-        
-        for provider in db_providers:
-            config = {
-                'name': provider.name,
-                'api_key': provider.api_key_encrypted,  # TODO: Decrypt
-                'enabled': provider.enabled,
-                'priority': provider.priority
-            }
+        try:
+            from .models import AIProvider
+            # Get providers from database
+            db_providers = AIProvider.objects.filter(enabled=True).order_by('priority')
             
-            if provider.name == 'openai':
-                self.providers['openai'] = OpenAIAdapter(config)
-            elif provider.name == 'anthropic':
-                self.providers['anthropic'] = AnthropicAdapter(config)
-            elif provider.name == 'google':
-                self.providers['google'] = GoogleAdapter(config)
-            elif provider.name == 'local':
-                self.providers['local'] = LocalAdapter(config)
+            for provider in db_providers:
+                logger.debug(f"Loading provider: {provider.name}")
+                config = {
+                    'name': provider.name,
+                    'api_key': provider.get_api_key(),
+                    'enabled': provider.enabled,
+                    'priority': provider.priority
+                }
+                
+                try:
+                    if provider.name == 'openai':
+                        self.providers['openai'] = OpenAIAdapter(config)
+                    elif provider.name == 'anthropic':
+                        self.providers['anthropic'] = AnthropicAdapter(config)
+                    elif provider.name == 'google':
+                        self.providers['google'] = GoogleAdapter(config)
+                    elif provider.name == 'local':
+                        self.providers['local'] = LocalAdapter(config)
+                except Exception as provider_error:
+                    logger.error(f"Failed to load provider {provider.name}: {provider_error}")
+                    # Continue to next provider instead of failing the whole load
+        except Exception as e:
+            # Silently fail if DB is not ready (e.g. during migrations)
+            logger.warning(f"AI Providers could not be loaded: {e}")
+
+    def analyze_document(self, document_text: str, file_bytes: bytes = None, mime_type: str = None) -> Dict[str, Any]:
+        """
+        Analiza un documento intentando varios proveedores si falla por cuota.
+        Prioriza Gemini para archivos si se proporcionan file_bytes.
+        """
+        # 1. Intentar con Gemini si hay archivo (multimodal)
+        if file_bytes and 'google' in self.providers:
+            provider = self.providers['google']
+            if provider.is_available() and self._check_db_quota('google'):
+                result = provider.analyze_file(file_bytes, mime_type, document_text)
+                if result.get('success'):
+                    self._consume_db_quota('google', result.get('tokens_used', 2000))
+                    return result
+                if result.get('code') == 429:
+                    logger.warning("Gemini Quota Exceeded. Falling back to text-based analysis with other providers.")
+
+        # 2. Fallback a análisis basado en texto con otros proveedores (incluyendo Gemini si solo falló multimodal)
+        for name in ['openai', 'anthropic', 'google', 'local']:
+            if name not in self.providers:
+                continue
+            
+            provider = self.providers[name]
+            if not provider.is_available() or not self._check_db_quota(name):
+                continue
+                
+            result = provider.analyze_document(document_text)
+            if result.get('success'):
+                self._consume_db_quota(name, result.get('tokens_used', 1000))
+                return result
+            
+            
+        # 3. Determinar tiempo de reinicio si hubo fallos de cuota
+        try:
+            from .models import AIProvider
+            # Usar Gemini como referencia para el tiempo de reinicio (o el local si todos fallaron)
+            p = AIProvider.objects.get(name='google')
+            next_reset = p.get_next_reset_time().isoformat()
+        except:
+            next_reset = None
+            
+        return {
+            'error': 'Todos los proveedores de IA fallaron o agotaron su cuota',
+            'code': 429 if 'google' in self.providers else 500,
+            'next_reset': next_reset
+        }
+
+    def _check_db_quota(self, provider_name: str) -> bool:
+        from .models import AIProvider
+        try:
+            p = AIProvider.objects.get(name=provider_name)
+            return p.has_quota()
+        except:
+            return True # Si no hay DB, permitir
+
+    def _consume_db_quota(self, provider_name: str, tokens: int):
+        from .models import AIProvider
+        try:
+            p = AIProvider.objects.get(name=provider_name)
+            p.consume_quota(tokens)
+        except:
+            pass
     
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
         """Analyze image using available providers"""
@@ -541,4 +706,11 @@ class AIOrchestrator:
 
 
 # Global orchestrator instance
-# orchestrator = AIOrchestrator()  # Comentado temporalmente para migraciones
+_orchestrator = None
+
+def get_orchestrator():
+    """Retorna la instancia global del orquestador, inicializándola si es necesario"""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = AIOrchestrator()
+    return _orchestrator
