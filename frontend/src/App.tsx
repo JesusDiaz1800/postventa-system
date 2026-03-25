@@ -5,21 +5,24 @@ import { Toaster } from 'react-hot-toast';
 // PWA Components (keep eager - needed immediately)
 import PWAInstaller from './components/PWAInstaller';
 import PWAUpdate from './components/PWAUpdate';
-import OfflineIndicator from './components/OfflineIndicator';
+// OfflineIndicator removed
 import { PWAProvider } from './context/PWAContext'; // Import Provider
 
 // Core Components (keep eager - needed for layout)
 import { Header } from './components/Layout/Header';
 import { Sidebar } from './components/Sidebar';
-import { LoginIndustrial } from './components/LoginIndustrial';
+import Login from './pages/Login';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { Logo } from './components/Logo';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { FloatingAIChat } from './components/FloatingAIChat';
+
+// Lazy load global utilities
+const FloatingAIChat = lazy(() => import('./components/FloatingAIChat').then(module => ({ default: module.FloatingAIChat })));
+const GlobalSearch = lazy(() => import('./components/GlobalSearch').then(module => ({ default: module.GlobalSearch })));
 
 // Lazy load all pages for code-splitting
 
-const Incidents = lazy(() => import('./pages/Incidents.jsx'));
+const Incidents = lazy(() => import('./pages/IncidentsControl.jsx'));
 const CreateIncident = lazy(() => import('./pages/CreateIncident.jsx'));
 const AIPage = lazy(() => import('./pages/AIPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
@@ -30,14 +33,12 @@ const ClientQualityReportsPage = lazy(() => import('./pages/ClientQualityReports
 const InternalQualityReportsPage = lazy(() => import('./pages/InternalQualityReportsPage'));
 const SupplierReportsPage = lazy(() => import('./pages/SupplierReportsPage'));
 const Documents = lazy(() => import('./pages/Documents'));
-const Settings = lazy(() => import('./pages/Settings'));
 const VisitReportForm = lazy(() => import('./pages/VisitReportForm'));
 const QualityReportForm = lazy(() => import('./pages/QualityReportForm'));
 const SupplierReportForm = lazy(() => import('./pages/SupplierReportForm'));
 
 // Hooks
 import { useAuth } from './hooks/useAuth';
-import { useTheme } from './hooks/useTheme';
 
 // Utils
 import { brandConfig } from './config/brand';
@@ -70,10 +71,16 @@ const PageLoader = () => (
 
 function App() {
   const { user, isLoading, login, getUserDisplayName } = useAuth();
-  const { theme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth >= 1024);
   const navigate = useNavigate();
   const location = useLocation();
+  const scrollRef = useEffect(() => {
+    const mainContainer = document.getElementById('main-scroll-container');
+    if (mainContainer) {
+      mainContainer.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [location.pathname]);
+
   // Handle sidebar responsive behavior
   useEffect(() => {
     const handleResize = () => {
@@ -90,7 +97,7 @@ function App() {
 
   // Set document title
   useEffect(() => {
-    document.title = brandConfig.app.title;
+    document.title = "Postventa v1.0 - REFRESHED";
   }, []);
 
   // No forzar modo oscuro
@@ -107,18 +114,36 @@ function App() {
   }
 
   if (!user) {
-    return (
-      <ErrorBoundary>
-        <LoginIndustrial onSubmit={login} isLoading={isLoading} />
-      </ErrorBoundary>
-    );
+    return <Login onSubmit={login} isLoading={isLoading} />;
   }
+
+  const isDashboard = location.pathname === '/reports';
+  const isAI = location.pathname.startsWith('/ai');
 
   return (
     <PWAProvider>
-      <div className="min-h-screen bg-gray-50 text-gray-900">
+      <div className={`min-h-screen relative transition-colors duration-500 ${isDashboard ? 'bg-[#030014] text-white' : 'bg-slate-50/30 text-slate-900'}`}>
+        {/* Capas de Fondo Premium - Condicionales */}
+        {isDashboard ? (
+          <>
+            <div className="mesh-gradient-bg opacity-40" />
+            <div className="tech-grid-overlay opacity-20" />
+          </>
+        ) : (
+          <>
+            <div className="light-mesh-bg" />
+            <div className="absolute inset-0 bg-white/40 pointer-events-none backdrop-blur-[2px]" />
+          </>
+        )}
+
         <ErrorBoundary>
-          <div className="flex">
+          {/* Global Search Overlay - Ctrl+K */}
+          {/* GlobalSearch is now wrapped in Suspense and moved inside the flex container */}
+
+          <div className="flex relative z-10">
+            <Suspense fallback={null}>
+              <GlobalSearch />
+            </Suspense>
             <Sidebar
               currentPath={location.pathname}
               onNavigate={(path) => navigate(path)}
@@ -128,42 +153,49 @@ function App() {
               onClose={() => setIsSidebarOpen(false)}
             />
 
-            <div className={`flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out bg-gray-50 ${isSidebarOpen ? 'md:ml-72' : 'md:ml-0'}`}>
+            <div 
+              id="main-scroll-container"
+              className={`flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:ml-72' : 'md:ml-0'} ${isDashboard ? 'custom-scrollbar' : ''}`}
+            >
               <Header
                 onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)}
               />
 
-              <main className="flex-1 bg-transparent p-4 md:p-6 lg:p-8 relative z-0">
-                <Suspense fallback={<PageLoader />}>
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/reports" replace />} />
-                    <Route path="/incidents" element={<Incidents />} />
-                    <Route path="/incidents/new" element={<CreateIncident />} />
-                    <Route path="/incidents/:id/edit" element={<CreateIncident />} />
-                    <Route path="/incidents/:id" element={<Incidents />} />
-                    <Route path="/reports" element={<ReportsPage />} />
-                    <Route path="/users" element={<Users />} />
-                    <Route path="/visit-reports" element={<VisitReportsPage />} />
-                    <Route path="/quality-reports/client" element={<ClientQualityReportsPage />} />
-                    <Route path="/quality-reports/internal" element={<InternalQualityReportsPage />} />
-                    <Route path="/supplier-reports" element={<SupplierReportsPage />} />
-                    <Route path="/documents" element={<Documents />} />
-                    <Route path="/visit-report-form" element={<VisitReportForm />} />
-                    <Route path="/quality-report-form/:incidentId" element={<QualityReportForm />} />
-                    <Route path="/supplier-report-form/:incidentId" element={<SupplierReportForm />} />
-                    <Route path="/supplier-report-form" element={<SupplierReportForm />} />
-                    <Route path="/ai" element={<AIPage />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/audit" element={<AuditPage />} />
-                    <Route path="*" element={<Navigate to="/reports" replace />} />
-                  </Routes>
-                </Suspense>
+              <main className={`flex-1 relative z-0 transition-all duration-500 ${isAI ? 'p-0' : (isDashboard ? 'p-8 md:p-12 lg:p-14' : 'p-6 md:p-10 lg:p-12')}`}>
+                <div className={`relative z-10 ${isAI ? 'h-full' : ''}`}>
+                  <Suspense fallback={<PageLoader />}>
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/reports" replace />} />
+                      <Route path="/incidents" element={<Incidents />} />
+                      <Route path="/incidents/new" element={<CreateIncident />} />
+                      <Route path="/incidents/:id/edit" element={<CreateIncident />} />
+                      <Route path="/incidents/:id" element={<Incidents />} />
+                      <Route path="/reports" element={<ReportsPage />} />
+                      <Route path="/users" element={<Users />} />
+                      <Route path="/visit-reports" element={<VisitReportsPage />} />
+                      <Route path="/quality-reports/client" element={<ClientQualityReportsPage />} />
+                      <Route path="/quality-reports/internal" element={<InternalQualityReportsPage />} />
+                      <Route path="/supplier-reports" element={<SupplierReportsPage />} />
+                      <Route path="/documents" element={<Documents />} />
+                      <Route path="/visit-report-form" element={<VisitReportForm />} />
+                      <Route path="/visit-report-form/:id" element={<VisitReportForm />} />
+                      <Route path="/quality-report-form/:incidentId" element={<QualityReportForm />} />
+                      <Route path="/supplier-report-form/:incidentId" element={<SupplierReportForm />} />
+                      <Route path="/supplier-report-form" element={<SupplierReportForm />} />
+                      <Route path="/ai" element={<AIPage />} />
+                      <Route path="/audit" element={<AuditPage />} />
+                      <Route path="*" element={<Navigate to="/reports" replace />} />
+                    </Routes>
+                  </Suspense>
+                </div>
               </main>
             </div>
           </div>
         </ErrorBoundary>
 
-        <FloatingAIChat />
+        <Suspense fallback={null}>
+          <FloatingAIChat />
+        </Suspense>
 
         <Toaster
           position="top-right"
@@ -193,7 +225,7 @@ function App() {
 
         <PWAInstaller />
         <PWAUpdate />
-        <OfflineIndicator />
+
       </div>
     </PWAProvider>
   );
