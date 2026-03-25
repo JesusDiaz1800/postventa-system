@@ -1,17 +1,21 @@
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 
-// Desregistrar Service Workers y limpiar cachés para mejorar rendimiento en desarrollo
+// Registro de Service Worker para PWA
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    registrations.forEach((registration) => registration.unregister());
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('SW registrado con éxito:', registration.scope);
+      })
+      .catch(error => {
+        if (error.name === 'SecurityError') {
+          console.warn('PWA: No se pudo registrar el SW debido a un error de certificado SSL. Instala el certificado Root CA para habilitar la App.');
+        } else {
+          console.error('Fallo al registrar SW:', error);
+        }
+      });
   });
-  // Limpiar cachés antiguas del SW
-  if ('caches' in window) {
-    caches.keys().then((names) => {
-      names.forEach((name) => caches.delete(name));
-    });
-  }
 }
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

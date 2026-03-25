@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { api } from '../services/api';
 import {
   DocumentTextIcon,
@@ -8,20 +8,27 @@ import {
   ArrowLeftIcon,
   CheckIcon,
   XMarkIcon,
-  SparklesIcon
+  SparklesIcon,
+  BuildingOfficeIcon,
 } from '@heroicons/react/24/outline';
-import IncidentImagesViewer from '../components/IncidentImagesViewer';
 import RichTextEditor from '../components/RichTextEditor';
-import { useSAPServiceCall, useSAPCustomerSearch } from '../hooks/useSAPData';
+import { useSAPServiceCall, useSAPCustomerSearch, useSAPTechnicians } from '../hooks/useSAPData';
 import { useDebounce } from '../hooks/useDebounce';
 import { MagnifyingGlassIcon, CloudArrowDownIcon } from '@heroicons/react/24/outline';
-import { SAPAttachmentImage, SAPAttachmentFile } from '../components/SAPAttachment';
+
+
 
 const VisitReportForm = () => {
+  const { id } = useParams();
+  const isEditMode = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  const incidentId = searchParams.get('incident_id');
+  const incidentIdFromQuery = searchParams.get('incident_id');
+  const [incidentId, setIncidentId] = useState(incidentIdFromQuery);
+
+  // Flag para evitar recargas infinitas si detectamos incidentId desde el reporte cargado
+  const [hasSetIncidentIdFromReport, setHasSetIncidentIdFromReport] = useState(false);
   const reportType = searchParams.get('report_type') || 'cliente';
 
   // SAP Integration States
@@ -49,6 +56,7 @@ const VisitReportForm = () => {
     // Personal involucrado
     salesperson: '',
     technician: '',
+    technician_id: '',
     installer: '',
     installer_phone: '',
 
@@ -70,11 +78,21 @@ const VisitReportForm = () => {
     incident_detection_time: '',
     incident_immediate_actions: '',
 
-    // Datos de máquinas
+    // Datos de máquinas y Metadata SAP
     machine_data: {
       machines: [],
       machine_removal: false,
-      report_number: ''
+      report_number: '',
+      sap_metadata: {
+        is_mixed_material: false,
+        is_rescued_project: false,
+        patent_number: '',
+        is_project_finished: false,
+        critical_observation: '',
+        project_with_other_provider: '',
+        installation_level: 'NORMAL',
+        other_provider: ''
+      }
     },
 
     // Observaciones por sección
@@ -102,9 +120,17 @@ const VisitReportForm = () => {
     enabled: !!incidentId
   });
 
+  // Query para obtener datos del reporte existente (si es edición)
+  const { data: existingReport, isLoading: reportLoading } = useQuery({
+    queryKey: ['visitReport', id],
+    queryFn: () => api.get(`/documents/visit-reports/${id}/`).then(res => res.data),
+    enabled: isEditMode
+  });
+
   // SAP Queries
   const { data: sapCallData, isLoading: sapCallLoading, error: sapCallError } = useSAPServiceCall(searchSapCallId);
   const { data: sapCustomers, isLoading: sapCustomersLoading } = useSAPCustomerSearch(debouncedCustomerSearch);
+  const { data: sapTechnicians, isLoading: sapTechniciansLoading } = useSAPTechnicians('technician');
 
   // Efecto para cargar datos desde SAP
   useEffect(() => {
@@ -125,7 +151,9 @@ const VisitReportForm = () => {
         // 3. Detalles Visita
         visit_reason: sapCallData.problem_type || sapCallData.subject || prev.visit_reason,  // problemTyp
         visit_date: sapCallData.create_date ? sapCallData.create_date.split('T')[0] : prev.visit_date,
-        technician: sapCallData.technician || prev.technician,
+        // CORRECCIÓN: No sobrescribir técnico en edición si ya tiene valor
+        technician: (isEditMode && prev.technician) ? prev.technician : (sapCallData.technician || prev.technician),
+        technician_id: (isEditMode && prev.technician_id) ? prev.technician_id : (sapCallData.technician_code || prev.technician_id),
         address: sapCallData.address || prev.address,
         commune: sapCallData.commune || prev.commune,
         city: sapCallData.city || prev.city,
@@ -135,7 +163,8 @@ const VisitReportForm = () => {
         installer_phone: sapCallData.installer_phone || sapCallData.telephone || prev.installer_phone,
 
         // 5. Observaciones (Mapeo directo desde campos personalizados de SAP)
-        general_observations: sapCallData.general_observations || sapCallData.description || prev.general_observations,
+        // Eliminado sapCallData.description para evitar pre-cargar la descripción de la incidencia en observaciones generales
+        general_observations: sapCallData.general_observations || prev.general_observations,
         wall_observations: sapCallData.obs_muro || prev.wall_observations,
         matrix_observations: sapCallData.obs_matriz || prev.matrix_observations,
         slab_observations: sapCallData.obs_losa || prev.slab_observations,
@@ -146,75 +175,109 @@ const VisitReportForm = () => {
         // 6. Responsable (desde técnico de SAP)
         incident_responsible: sapCallData.technician || sapCallData.assignee || prev.incident_responsible,
 
+        // 7. Máquinas Vectoriales (Reverse Mapping de UDFs)
+        machine_data: (() => {
+          const machinesFromSap = [];
+          for (let i = 1; i <= 6; i++) {
+            const maq = sapCallData[`maq${i}`];
+            const ini = sapCallData[`ini${i}`];
+            const cor = sapCallData[`cor${i}`];
+            if (maq || ini || cor) {
+              machinesFromSap.push({ machine: maq || '', start: ini || '', cut: cor || '' });
+            }
+          }
+          return {
+            ...prev.machine_data,
+            machines: machinesFromSap.length > 0 ? machinesFromSap : prev.machine_data.machines,
+            machine_removal: sapCallData.retiro_maq === 'Si' ? true : (sapCallData.retiro_maq === 'No' ? false : prev.machine_data.machine_removal)
+          };
+        })(),
+
         // Mantener otros campos
       }));
 
-      // Precargar descripciones de imágenes con nombres de archivo limpios
-      if (sapCallData.attachments && sapCallData.attachments.length > 0) {
-        const descriptions = {};
-        sapCallData.attachments.forEach(att => {
-          if (att.is_image) {
-            // Limpiar nombre del archivo: remover extensión, guiones bajos, números de versión
-            const cleanName = att.filename
-              .replace(/\.[^/.]+$/, '')  // Remover extensión
-              .replace(/_/g, ' ')          // Reemplazar _ con espacios
-              .replace(/-/g, ' ')          // Reemplazar - con espacios
-              .replace(/\s*\(\d+\)\s*$/, '') // Remover sufijos como (1), (2)
-              .trim();
-            descriptions[att.filename] = cleanName;
-          }
-        });
-        setImageDescriptions(descriptions);
-      }
       //alert(`✅ Datos cargados desde SAP: Llamada ${sapCallData.call_id}`);
     }
   }, [sapCallData]);
 
-  // Query para obtener imágenes de la incidencia
-  const { data: incidentImages, isLoading: imagesLoading } = useQuery({
-    queryKey: ['incidentImages', incidentId],
-    queryFn: () => api.get(`/incidents/${incidentId}/images/list/`).then(res => res.data),
-    enabled: !!incidentId
-  });
 
-  // Cargar datos de la incidencia al formulario
+  // Efecto para cargar datos del reporte existente (Modo Edición)
+  useEffect(() => {
+    if (existingReport) {
+      setFormData(prev => ({
+        ...prev,
+        ...existingReport,
+        // Asegurar que las fechas estén en formato YYYY-MM-DD
+        visit_date: existingReport.visit_date ? existingReport.visit_date.split('T')[0] : prev.visit_date,
+      }));
+      // Si no teníamos incidentId (modo edición directo desde URL), recuperarlo del reporte
+      if (!incidentId && existingReport?.related_incident?.id && !hasSetIncidentIdFromReport) {
+        setIncidentId(existingReport.related_incident.id);
+        setHasSetIncidentIdFromReport(true);
+      }
+      // Si el reporte tiene un SAP Call ID, disparar la búsqueda
+      if (existingReport.sap_call_id) {
+        setSearchSapCallId(existingReport.sap_call_id);
+      }
+    }
+  }, [existingReport, incidentId, hasSetIncidentIdFromReport]);
+
+
+
+
+  // Cargar datos de la incidencia al formulario (Optimizado para NUEVOS y EDICIÓN)
   useEffect(() => {
     if (incident) {
-      // Generar número de orden automáticamente vinculado a la incidencia
+      // MAGIA SILENCIOSA: Disparar la sincronización SAP en background automáticamente
+      // si la incidencia ya vino enlazada a un SAP DocNum desde el Backend (solo si no tenemos ya uno).
+      if (!isEditMode) {
+        if (incident.sap_doc_num) {
+          setSapCallIdInput(incident.sap_doc_num.toString());
+          setSearchSapCallId(incident.sap_doc_num);
+        } else if (incident.sap_call_id) {
+          setSapCallIdInput(incident.sap_call_id.toString());
+          setSearchSapCallId(incident.sap_call_id);
+        }
+      }
+
+      // Generar número de orden automáticamente vinculado a la incidencia (solo si no es edición)
       const generateOrderNumber = async () => {
+        if (isEditMode) return;
         try {
           // Pasar incident_id para vincular el código del reporte al de la incidencia
           const response = await api.get(`/documents/generate-order-number/?incident_id=${incident.id}`);
           const orderNumber = response.data.order_number;
 
-          // Si la incidencia tiene un ID de llamada SAP, cargarlo automáticamente
-          if (incident.sap_call_id) {
-            setSearchSapCallId(incident.sap_call_id);
-          }
-
           setFormData(prev => ({
             ...prev,
-            // Información del proyecto/cliente (from incident)
-            project_name: incident.obra || '',
-            client_name: incident.cliente || '',
-            client_rut: incident.cliente_rut || '',
-            address: incident.direccion_cliente || '',
-            commune: incident.comuna || '',
-            city: incident.ciudad || '',
-            visit_reason: '01-Visita Técnica',
+            // Información del proyecto/cliente (del incidente si están vacíos)
+            project_name: prev.project_name || incident.obra || '',
+            client_name: prev.client_name || incident.cliente || '',
+            client_rut: prev.client_rut || incident.cliente_rut || '',
+            address: prev.address || incident.direccion_cliente || '',
+            commune: prev.commune || incident.comuna || '',
+            city: prev.city || incident.ciudad || '',
+            visit_reason: prev.visit_reason || '01-Visita Técnica',
 
-            // Personal
-            installer: incident.installer_name || incident.contact_name || '',
-            installer_phone: incident.installer_phone || incident.contact_phone || '',
+            // Personal (del incidente si están vacíos)
+            salesperson: prev.salesperson || incident.salesperson || '',
+            technician: prev.technician || (
+              typeof incident.responsable === 'object'
+                ? (incident.responsable?.full_name || incident.responsable?.name || '')
+                : (incident.responsable || '')
+            ),
+            technician_id: prev.technician_id || incident.technician_id || '',
+            installer: prev.installer || incident.installer_name || incident.contact_name || '',
+            installer_phone: prev.installer_phone || incident.installer_phone || incident.contact_phone || '',
 
-            // Información del producto (from incident)
-            product_category: incident.categoria?.name || incident.categoria || '',
-            product_subcategory: incident.subcategoria || '',
-            product_sku: incident.sku || '',
-            product_lot: incident.lote || '',
-            product_provider: incident.provider || '',
+            // Información del producto (del incidente si están vacíos)
+            product_category: prev.product_category || incident.categoria?.name || incident.categoria || '',
+            product_subcategory: prev.product_subcategory || incident.subcategoria || '',
+            product_sku: prev.product_sku || incident.sku || '',
+            product_lot: prev.product_lot || incident.lote || '',
+            product_provider: prev.product_provider || incident.provider || '',
 
-            // Información de la incidencia (from incident)
+            // Información de la incidencia (SIEMPRE del incidente)
             incident_code: incident.code || '',
             incident_description: incident.descripcion || '',
             incident_priority: incident.prioridad || '',
@@ -225,8 +288,8 @@ const VisitReportForm = () => {
             incident_detection_time: incident.hora_deteccion || '',
             incident_immediate_actions: incident.acciones_inmediatas || '',
 
-            // Número de orden generado automáticamente
-            order_number: orderNumber
+            // Número de orden generado si es nuevo
+            order_number: isEditMode ? prev.order_number : (orderNumber || prev.order_number)
           }));
         } catch (error) {
           console.error('Error generando número de orden:', error);
@@ -238,6 +301,13 @@ const VisitReportForm = () => {
             client_name: incident.cliente || '',
             client_rut: incident.cliente_rut || '',
             address: incident.direccion_cliente || '',
+
+            // Personal
+            salesperson: incident.salesperson || '',
+            technician: typeof incident.responsable === 'object'
+              ? (incident.responsable?.full_name || incident.responsable?.name || '')
+              : (incident.responsable || ''),
+
             visit_reason: '01-Visita Técnica',
 
             // Información del producto (from incident)
@@ -262,11 +332,13 @@ const VisitReportForm = () => {
       };
 
       generateOrderNumber();
-
-      // Cargar estado de documentos
+    }
+    
+    // Independiente del modo edición, siempre queremos el estado de documentos si hay incidencia
+    if (incident) {
       checkDocumentStatus();
     }
-  }, [incident]);
+  }, [incident, isEditMode]);
 
   // Mutación para crear reporte
   const createReportMutation = useMutation({
@@ -284,6 +356,7 @@ const VisitReportForm = () => {
       // Mostrar mensaje de éxito
       alert('✅ Reporte de visita creado exitosamente. El PDF se ha generado automáticamente.');
 
+      window.scrollTo(0, 0);
       navigate('/visit-reports');
     },
     onError: (error) => {
@@ -418,7 +491,14 @@ const VisitReportForm = () => {
         formDataToSend.append('image_descriptions', JSON.stringify(imageDescriptions));
       }
 
-      await createReportMutation.mutateAsync(formDataToSend);
+      if (isEditMode) {
+        await api.patch(`/documents/visit-reports/${id}/`, formDataToSend);
+        alert('✅ Reporte de visita actualizado exitosamente. El PDF se ha regenerado.');
+        window.scrollTo(0, 0);
+        navigate('/visit-reports');
+      } else {
+        await createReportMutation.mutateAsync(formDataToSend);
+      }
     } catch (error) {
       console.error('Error submitting form:', error);
     } finally {
@@ -435,167 +515,105 @@ const VisitReportForm = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/visit-reports')}
-          className="flex items-center text-blue-600 hover:text-blue-800 mb-4"
-        >
-          <ArrowLeftIcon className="h-5 w-5 mr-2" />
-          Volver a Reportes de Visita
-        </button>
-
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg p-6 text-white">
-          <h1 className="text-2xl font-bold mb-2">
-            📋 Reporte de Visita - {reportType === 'cliente' ? 'Para Cliente' : 'Interno'}
-          </h1>
-          <p className="text-blue-100">
-            {incident ? `Incidencia: ${incident.code} - ${incident.cliente}` : 'Cargando...'}
-          </p>
-        </div>
-
-        {/* Estado de documentos */}
-        {documentStatus && (
-          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h3 className="text-sm font-medium text-blue-900 mb-2">Estado de Documentos de la Incidencia</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <div className={`px-2 py-1 rounded ${documentStatus.visit_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                Reporte de Visita: {documentStatus.visit_report ? 'Existe' : 'No existe'}
-              </div>
-              <div className={`px-2 py-1 rounded ${documentStatus.supplier_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                Reporte de Proveedor: {documentStatus.supplier_report ? 'Existe' : 'No existe'}
-              </div>
-              <div className={`px-2 py-1 rounded ${documentStatus.lab_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                Reporte de Laboratorio: {documentStatus.lab_report ? 'Existe' : 'No existe'}
-              </div>
-              <div className={`px-2 py-1 rounded ${documentStatus.quality_report_cliente ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                Reporte de Calidad: {documentStatus.quality_report_cliente ? 'Existe' : 'No existe'}
-              </div>
-            </div>
-            {documentStatus.visit_report && reportType === 'visit' && (
-              <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded text-red-800 text-sm">
-                ⚠️ Esta incidencia ya tiene un reporte de visita. No se puede crear otro.
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Visualizador de imágenes adjuntas */}
-        {incidentImages && incidentImages.length > 0 && (
-          <div className="mt-4">
-            <IncidentImagesViewer
-              incidentId={incidentId}
-              images={incidentImages}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* SAP Integration Section */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8 border-l-4 border-green-500">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-          <CloudArrowDownIcon className="h-6 w-6 mr-2 text-green-600" />
-          Integración SAP (Opcional)
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Búsqueda por ID de Llamada */}
+    <div className="max-w-6xl mx-auto p-6">
+      {/* Header - Industrial Premium */}
+      <div className="relative mb-8 pt-6">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 via-indigo-600/5 to-purple-600/5 rounded-3xl blur-3xl -z-10"></div>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Buscar por ID Llamada de Servicio
-            </label>
-            <div className="flex">
-              <input
-                type="number"
-                value={sapCallIdInput}
-                onChange={(e) => setSapCallIdInput(e.target.value)}
-                placeholder="Ej: 26533"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-              <button
-                type="button"
-                onClick={() => setSearchSapCallId(sapCallIdInput)}
-                className="px-4 py-2 bg-green-600 text-white rounded-r-md hover:bg-green-700 flex items-center"
-                disabled={!sapCallIdInput || sapCallLoading}
-              >
-                {sapCallLoading ? '...' : <MagnifyingGlassIcon className="h-5 w-5" />}
-              </button>
-            </div>
-            {sapCallError && (
-              <p className="text-sm text-red-600 mt-1">No se encontró la llamada en SAP.</p>
-            )}
-            {sapCallData && (
-              <div className="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded">
-                ✓ Llamada encontrada: {sapCallData.subject} ({sapCallData.status === -3 ? 'Cerrada' : 'Abierta'})
-              </div>
-            )}
-          </div>
+            <button
+              onClick={() => navigate('/visit-reports')}
+              className="group flex items-center gap-2 px-4 py-2 rounded-xl bg-white/50 hover:bg-white text-slate-500 hover:text-blue-600 border border-transparent hover:border-blue-100 transition-all duration-300 mb-4 shadow-sm"
+            >
+              <ArrowLeftIcon className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+              <span className="text-xs font-bold uppercase tracking-wider">Volver a Reportes</span>
+            </button>
 
-          {/* Búsqueda de Cliente */}
-          <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Buscar Cliente en SAP
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={customerSearchInput}
-                onChange={(e) => setCustomerSearchInput(e.target.value)}
-                placeholder="Escribe nombre o RUT (mín. 3 caracteres)..."
-                className="w-full px-3 py-2 pl-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-2.5" />
-            </div>
-
-            {/* Resultados de búsqueda cliente */}
-            {sapCustomers && sapCustomers.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
-                {sapCustomers.map((customer) => (
-                  <button
-                    key={customer.card_code}
-                    type="button"
-                    className="w-full text-left px-4 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                    onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        client_name: customer.card_name,
-                        client_rut: customer.card_code,
-                      }));
-                      setCustomerSearchInput(''); // Limpiar búsqueda
-                    }}
-                  >
-                    <div className="font-medium text-gray-900">{customer.card_name}</div>
-                    <div className="text-xs text-gray-500">{customer.card_code}</div>
-                  </button>
-                ))}
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-lg shadow-blue-500/30">
+                <DocumentTextIcon className="w-8 h-8 text-white" />
               </div>
-            )}
-            {debouncedCustomerSearch.length >= 3 && sapCustomersLoading && (
-              <p className="text-sm text-gray-500 mt-1">Buscando...</p>
-            )}
+              <div>
+                <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase flex items-center">
+                  Reporte de Visita
+                  <span className="ml-3 px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] rounded-lg border border-indigo-100 align-middle">
+                    {reportType === 'cliente' ? 'Cliente' : 'Interno'}
+                  </span>
+                  {(incident?.sap_doc_num || incident?.sap_call_id) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sapId = incident?.sap_doc_num || incident?.sap_call_id;
+                        setSearchSapCallId(null);
+                        setTimeout(() => setSearchSapCallId(sapId), 100);
+                      }}
+                      className="ml-4 flex items-center gap-1 px-3 py-1 text-xs font-bold bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 rounded-lg transition-colors"
+                      title="Forzar actualización desde SAP"
+                    >
+                      <CloudArrowDownIcon className={`w-4 h-4 ${sapCallLoading ? 'animate-bounce' : ''}`} />
+                      Sync SAP
+                    </button>
+                  )}
+                </h1>
+                <p className="text-slate-500 font-medium text-sm mt-1">
+                  {incident ? `Incidencia: ${incident.code} - ${incident.cliente}` : 'Cargando datos de incidencia...'}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Información Básica */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-            <DocumentTextIcon className="h-5 w-5 mr-2" />
-            Información Básica
-          </h2>
+      {/* Estado de documentos */}
+      {documentStatus && (
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h3 className="text-sm font-medium text-blue-900 mb-2">Estado de Documentos de la Incidencia</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div className={`px-2 py-1 rounded ${documentStatus.visit_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+              Reporte de Visita: {documentStatus.visit_report ? 'Existe' : 'No existe'}
+            </div>
+            <div className={`px-2 py-1 rounded ${documentStatus.supplier_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+              Reporte de Proveedor: {documentStatus.supplier_report ? 'Existe' : 'No existe'}
+            </div>
+            <div className={`px-2 py-1 rounded ${documentStatus.lab_report ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+              Reporte de Laboratorio: {documentStatus.lab_report ? 'Existe' : 'No existe'}
+            </div>
+            <div className={`px-2 py-1 rounded ${documentStatus.quality_report_cliente ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+              Reporte de Calidad: {documentStatus.quality_report_cliente ? 'Existe' : 'No existe'}
+            </div>
+          </div>
+          {documentStatus.visit_report && reportType === 'visit' && (
+            <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded text-red-800 text-sm">
+              ⚠️ Esta incidencia ya tiene un reporte de visita. No se puede crear otro.
+            </div>
+          )}
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+
+
+      {/* Formulario Principal */}
+      <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Información Básica - Glass Card */}
+        <div className="bg-white/60 backdrop-blur-2xl border border-white/60 rounded-3xl p-6 md:p-8 space-y-6 shadow-xl shadow-slate-200/50">
+          <div className="flex items-center gap-4 border-b border-slate-200/50 pb-4">
+            <div className="p-2 bg-blue-50 rounded-xl border border-blue-100">
+              <DocumentTextIcon className="w-5 h-5 text-blue-600" />
+            </div>
+            <h2 className="text-slate-800 font-black text-sm uppercase tracking-widest">Información Básica</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
                 Número de Orden
               </label>
               <input
                 type="text"
                 value={formData.order_number}
                 onChange={(e) => handleInputChange('order_number', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                className="w-full bg-slate-50/50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium"
                 required
               />
             </div>
@@ -615,13 +633,16 @@ const VisitReportForm = () => {
           </div>
         </div>
 
-        {/* Información del Proyecto/Cliente */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Información del Proyecto y Cliente
-          </h2>
+        {/* Información del Proyecto/Cliente - Glass Card */}
+        <div className="bg-white/60 backdrop-blur-2xl border border-white/60 rounded-3xl p-6 md:p-8 space-y-6 shadow-xl shadow-slate-200/50">
+          <div className="flex items-center gap-4 border-b border-slate-200/50 pb-4">
+            <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100">
+              <BuildingOfficeIcon className="w-5 h-5 text-indigo-600" />
+            </div>
+            <h2 className="text-slate-800 font-black text-sm uppercase tracking-widest">Ubicación y Detalles del Proyecto</h2>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Nombre del Proyecto
@@ -647,7 +668,7 @@ const VisitReportForm = () => {
                   </div>
                   <input
                     type="text"
-                    value={searchSapCallId || formData.sap_call_id}
+                    value={incident?.sap_doc_num || searchSapCallId || formData.sap_call_id}
                     readOnly
                     className="w-full pl-10 px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700 font-medium focus:outline-none"
                   />
@@ -699,7 +720,7 @@ const VisitReportForm = () => {
               />
             </div>
 
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Dirección
               </label>
@@ -750,6 +771,7 @@ const VisitReportForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
               />
             </div>
+
           </div>
         </div>
 
@@ -763,7 +785,7 @@ const VisitReportForm = () => {
             <span className="ml-2 text-sm text-blue-600 bg-blue-100 px-2 py-1 rounded-full">Precargada</span>
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Categoría
@@ -836,7 +858,7 @@ const VisitReportForm = () => {
             Personal Involucrado
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Vendedor
@@ -852,15 +874,30 @@ const VisitReportForm = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Técnico
+                Técnico (SAP)
               </label>
-              <input
-                type="text"
-                value={formData.technician}
-                onChange={(e) => handleInputChange('technician', e.target.value)}
+              <select
+                value={formData.technician_id || ''}
+                onChange={(e) => {
+                  const techId = e.target.value;
+                  const techName = sapTechnicians?.find(t => t.id.toString() === techId)?.name || '';
+                  setFormData(prev => ({
+                    ...prev,
+                    technician_id: techId,
+                    technician: techName
+                  }));
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
                 required
-              />
+              >
+                <option value="">Seleccione Técnico...</option>
+                {sapTechnicians?.map(tech => (
+                  <option key={tech.id} value={tech.id}>
+                    {tech.name} (id: {tech.id})
+                  </option>
+                ))}
+              </select>
+              {sapTechniciansLoading && <p className="text-[10px] text-blue-500 animate-pulse mt-1">Cargando técnicos de SAP...</p>}
             </div>
 
             <div>
@@ -906,6 +943,7 @@ const VisitReportForm = () => {
             </div>
           </div>
         </div>
+
 
         {/* Datos de Máquinas */}
         <div className="bg-white rounded-lg shadow-md p-6">
@@ -1006,13 +1044,171 @@ const VisitReportForm = () => {
           </div>
         </div>
 
-        {/* Observaciones */}
+        {/* Métricas e Información de Obra */}
+        <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-md p-6 border-l-4 border-purple-500">
+          <h2 className="text-xl font-semibold text-purple-900 mb-4 flex items-center">
+            <SparklesIcon className="h-6 w-6 mr-2 text-purple-600" />
+            Desempeño Técnico y Métricas
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="flex flex-col space-y-4 bg-white p-4 rounded-xl border border-purple-100 shadow-sm">
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.machine_data.sap_metadata?.is_mixed_material || false}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      machine_data: {
+                        ...prev.machine_data,
+                        sap_metadata: { ...prev.machine_data.sap_metadata, is_mixed_material: e.target.checked }
+                      }
+                    }));
+                  }}
+                  className="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                />
+                <span className="text-sm font-medium text-gray-700">Material Mezclado</span>
+              </label>
+
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.machine_data.sap_metadata?.is_rescued_project || false}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      machine_data: {
+                        ...prev.machine_data,
+                        sap_metadata: { ...prev.machine_data.sap_metadata, is_rescued_project: e.target.checked }
+                      }
+                    }));
+                  }}
+                  className="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                />
+                <span className="text-sm font-medium text-gray-700">Obra Rescatada (No Nueva)</span>
+              </label>
+
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.machine_data.sap_metadata?.is_project_finished || false}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      machine_data: {
+                        ...prev.machine_data,
+                        sap_metadata: { ...prev.machine_data.sap_metadata, is_project_finished: e.target.checked }
+                      }
+                    }));
+                  }}
+                  className="w-5 h-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                />
+                <span className="text-sm font-medium text-gray-700">Obra Finalizada</span>
+              </label>
+            </div>
+
+            <div className="space-y-4 md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nivel de Instalación
+                  </label>
+                  <select
+                    value={formData.machine_data.sap_metadata?.installation_level || 'NORMAL'}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        machine_data: {
+                          ...prev.machine_data,
+                          sap_metadata: { ...prev.machine_data.sap_metadata, installation_level: e.target.value }
+                        }
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-purple-200 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="NORMAL">Normal</option>
+                    <option value="DEFICIENTE">Deficiente</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    N° Patente Vehículo
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.machine_data.sap_metadata?.patent_number || ''}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        machine_data: {
+                          ...prev.machine_data,
+                          sap_metadata: { ...prev.machine_data.sap_metadata, patent_number: e.target.value.toUpperCase() }
+                        }
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-purple-200 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 uppercase"
+                    placeholder="XXYY12"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Obra c/ Otro Proveedor
+                  </label>
+                  <select
+                    value={formData.machine_data.sap_metadata?.project_with_other_provider || ''}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        machine_data: {
+                          ...prev.machine_data,
+                          sap_metadata: { ...prev.machine_data.sap_metadata, project_with_other_provider: e.target.value }
+                        }
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-purple-200 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Seleccione...</option>
+                    <option value="SI">Sí</option>
+                    <option value="NO">No</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nombre Otro Proveedor
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.machine_data.sap_metadata?.other_provider || ''}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        machine_data: {
+                          ...prev.machine_data,
+                          sap_metadata: { ...prev.machine_data.sap_metadata, other_provider: e.target.value }
+                        }
+                      }));
+                    }}
+                    disabled={formData.machine_data.sap_metadata?.project_with_other_provider !== 'SI'}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 ${formData.machine_data.sap_metadata?.project_with_other_provider !== 'SI' ? 'bg-gray-100 border-gray-200 text-gray-400' : 'border-purple-200 bg-white'}`}
+                    placeholder="Ej. TIGRE, TUPEMESA..."
+                  />
+                </div>
+            </div>
+          </div>
+      </div>
+    </div>
+
+    {/* Observaciones */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
             Observaciones
           </h2>
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Observaciones Muro/Tabique
@@ -1020,8 +1216,8 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.wall_observations}
                 onChange={(e) => handleInputChange('wall_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones sobre muros y tabiques..."
               />
             </div>
@@ -1033,8 +1229,8 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.matrix_observations}
                 onChange={(e) => handleInputChange('matrix_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones sobre la matriz principal..."
               />
             </div>
@@ -1046,8 +1242,8 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.slab_observations}
                 onChange={(e) => handleInputChange('slab_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones sobre la losa..."
               />
             </div>
@@ -1059,8 +1255,8 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.storage_observations}
                 onChange={(e) => handleInputChange('storage_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones sobre el almacenaje..."
               />
             </div>
@@ -1072,8 +1268,8 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.pre_assembled_observations}
                 onChange={(e) => handleInputChange('pre_assembled_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones sobre pre armados..."
               />
             </div>
@@ -1085,21 +1281,21 @@ const VisitReportForm = () => {
               <textarea
                 value={formData.exterior_observations}
                 onChange={(e) => handleInputChange('exterior_observations', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={4}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Describa las observaciones exteriores..."
               />
             </div>
 
-            <div>
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Observaciones Generales
               </label>
               <textarea
                 value={formData.general_observations}
                 onChange={(e) => handleInputChange('general_observations', e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                rows={5}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50/50 shadow-inner"
                 placeholder="Observaciones generales de la visita (U_NX_GENE en SAP)..."
               />
             </div>
@@ -1115,49 +1311,8 @@ const VisitReportForm = () => {
           </h2>
 
           <div className="space-y-6">
-            {/* Imágenes Precargadas de SAP */}
-            {sapCallData && sapCallData.attachments && sapCallData.attachments.filter(a => a.is_image).length > 0 && (
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-200">
-                <h3 className="text-lg font-semibold text-purple-900 mb-3 flex items-center">
-                  <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                  </svg>
-                  Imágenes Precargadas de SAP ({sapCallData.attachments.filter(a => a.is_image).length})
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {sapCallData.attachments.filter(att => att.is_image).map((att) => (
-                    <div key={att.id} className="bg-white rounded-lg p-3 shadow-sm border border-purple-100">
-                      <div className="mb-2">
-                        <SAPAttachmentImage
-                          atcEntry={att.atc_entry}
-                          line={att.line}
-                          filename={att.filename}
-                          className="w-full h-32 object-cover rounded-md border border-gray-200"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          Descripción para el PDF:
-                        </label>
-                        <input
-                          type="text"
-                          value={imageDescriptions[att.filename] || ''}
-                          onChange={(e) => setImageDescriptions(prev => ({
-                            ...prev,
-                            [att.filename]: e.target.value
-                          }))}
-                          placeholder="Descripción de la imagen..."
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 text-xs text-purple-700 bg-purple-100 p-2 rounded">
-                  💡 Estas imágenes se importarán automáticamente al generar el reporte.
-                </div>
-              </div>
-            )}
+
+
 
             {/* Subida Manual de Imágenes Adicionales */}
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
@@ -1228,14 +1383,8 @@ const VisitReportForm = () => {
               )}
             </div>
 
-            {/* Resumen de imágenes */}
-            {((sapCallData?.attachments?.filter(a => a.is_image).length || 0) + images.length) > 0 && (
-              <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
-                📊 <strong>Total de imágenes:</strong>{' '}
-                {sapCallData?.attachments?.filter(a => a.is_image).length || 0} de SAP + {images.length} adicionales
-                = <strong>{(sapCallData?.attachments?.filter(a => a.is_image).length || 0) + images.length}</strong> imágenes para el PDF
-              </div>
-            )}
+
+
           </div>
         </div>
 
