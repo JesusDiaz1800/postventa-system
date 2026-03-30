@@ -141,13 +141,15 @@ const Incidents = () => {
     if (!selectedIncident) return;
     setIsClosing(true);
     try {
-      // Usar endpoint especializado de cierre para disparar sincronización SAP y lógica de negocio
-      await incidentsAPI.close(selectedIncident.id, {
-        stage: formData.stage,
-        closure_summary: formData.closure_summary,
-        technician_code: selectedIncident.technician_code
-        // Opcional: closure_attachment si se implementa carga en este modal
-      });
+      // Usar FormData para soportar carga de archivos adjuntos si existen
+      const payload = new FormData();
+      payload.append('stage', formData.stage);
+      payload.append('closure_summary', formData.closure_summary);
+      if (formData.closure_attachment) {
+        payload.append('closure_attachment', formData.closure_attachment);
+      }
+      
+      await incidentsAPI.close(selectedIncident.id, payload);
       showSuccess('Incidencia cerrada correctamente');
       queryClient.invalidateQueries(['incidents-search']);
       setActiveModal(null);
@@ -181,6 +183,7 @@ const Incidents = () => {
       'en_progreso': { bg: 'bg-indigo-50', text: 'text-indigo-600', dot: 'bg-indigo-500', label: 'En Progreso' },
       'escalado': { bg: 'bg-amber-50', text: 'text-amber-600', dot: 'bg-amber-500', label: 'Escalado' },
       'cerrado': { bg: 'bg-emerald-50', text: 'text-emerald-600', dot: 'bg-emerald-500', label: 'Cerrado' },
+      'cancelada': { bg: 'bg-slate-100', text: 'text-slate-500', dot: 'bg-slate-400', label: 'Cancelada' },
     }[estado?.toLowerCase()] || { bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-500', label: estado };
 
     return (
@@ -301,7 +304,11 @@ const Incidents = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {incidents?.length > 0 ? incidents.map((inc) => (
-                <tr key={inc.id} onClick={() => handleViewDetail(inc)} className="group cursor-pointer hover:bg-indigo-50/20 transition-all">
+                <tr 
+                  key={inc.id} 
+                  onClick={() => handleViewDetail(inc)} 
+                  className="group cursor-pointer hover:bg-indigo-50/20 transition-all"
+                >
                   <td className="px-10 py-6">
                     <span className="text-lg font-black text-indigo-600 group-hover:text-indigo-800 transition-colors uppercase tracking-tight">{inc.code}</span>
                   </td>
@@ -344,7 +351,7 @@ const Incidents = () => {
                         </button>
                       )}
 
-                      {inc.estado !== 'cerrado' ? (
+                      {inc.estado !== 'cerrado' && inc.estado !== 'cancelada' ? (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleAction(inc, 'close', e); }}
                           className="w-12 h-12 flex items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
@@ -353,7 +360,7 @@ const Incidents = () => {
                           <CheckCircleIcon className="w-6 h-6" />
                         </button>
                       ) : (
-                        canReopenIncidents() && (
+                        inc.estado !== 'cancelada' && canReopenIncidents() && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleAction(inc, 'reopen', e); }}
                             className="w-12 h-12 flex items-center justify-center rounded-2xl bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white transition-all shadow-sm"
@@ -364,11 +371,11 @@ const Incidents = () => {
                         )
                       )}
 
-                      {(user?.role === 'admin' || user?.role === 'administrador') && (
+                      {(user?.role === 'admin' || user?.role === 'administrador' || user?.role === 'coordinador') && inc.estado !== 'cancelada' && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleAction(inc, 'delete', e); }}
                           className="w-12 h-12 flex items-center justify-center rounded-2xl bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm"
-                          title="Eliminar Registro"
+                          title="Cancelar Incidencia"
                         >
                           <TrashIcon className="w-6 h-6" />
                         </button>
@@ -414,30 +421,25 @@ const Incidents = () => {
         )}
 
         {activeModal === 'close' && selectedIncident && (
-          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/50 backdrop-blur-md">
-            <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl max-w-2xl w-full">
-              <h3 className="text-2xl font-black text-slate-900 mb-6 uppercase tracking-tight text-center border-b border-slate-100 pb-4">CIERRE FORMAL DE CASO {selectedIncident.code}</h3>
-              <IncidentClosureForm
-                incident={selectedIncident}
-                onSubmit={handleClosureSubmit}
-                onCancel={() => setActiveModal(null)}
-                isClosing={isClosing}
-              />
-            </div>
-          </div>
+          <IncidentClosureForm
+            incident={selectedIncident}
+            onSubmit={handleClosureSubmit}
+            onCancel={() => setActiveModal(null)}
+            isClosing={isClosing}
+          />
         )}
 
         {activeModal === 'delete' && selectedIncident && (
           <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/50 backdrop-blur-md">
             <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl max-w-md w-full text-center border border-white">
-              <div className="w-24 h-24 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-8">
-                <ExclamationCircleIcon className="w-12 h-12" />
+              <div className="w-24 h-24 bg-slate-50 text-slate-500 rounded-full flex items-center justify-center mx-auto mb-8">
+                <XMarkIcon className="w-12 h-12" />
               </div>
-              <h3 className="text-3xl font-black text-slate-900 mb-4 uppercase tracking-tighter">ELIMINAR REGISTRO</h3>
-              <p className="text-sm text-slate-600 mb-10 leading-relaxed">¿Está seguro de borrar permanentemente el expediente <span className="font-bold text-rose-600">{selectedIncident.code}</span>?</p>
+              <h3 className="text-3xl font-black text-slate-900 mb-4 uppercase tracking-tighter">CANCELAR INCIDENCIA</h3>
+              <p className="text-sm text-slate-600 mb-10 leading-relaxed">¿Confirmas que deseas cancelar permanentemente el expediente <span className="font-bold text-slate-900">{selectedIncident.code}</span>?</p>
               <div className="flex gap-4">
-                <button onClick={() => setActiveModal(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">CANCELAR</button>
-                <button onClick={handleDeleteConfirm} className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black text-xs border-b-4 border-rose-700 active:border-b-0 transition-all uppercase tracking-widest">ELIMINAR</button>
+                <button onClick={() => setActiveModal(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase tracking-widest">REGRESAR</button>
+                <button onClick={handleDeleteConfirm} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs border-b-4 border-slate-700 active:border-b-0 transition-all uppercase tracking-widest">CANCELAR AHORA</button>
               </div>
             </div>
           </div>

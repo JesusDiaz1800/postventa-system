@@ -300,33 +300,52 @@ class AnthropicAdapter(AIProviderAdapter):
 
 
 class GoogleAdapter(AIProviderAdapter):
-    """Adapter for Google Gemini API"""
+    """Adapter for Google GenAI SDK (v2025 Standard)"""
     
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-1.5-flash')
-            self.model = genai.GenerativeModel(model_name)
+            from google import genai
+            self.client = genai.Client(api_key=self.api_key)
+            self.model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash-exp')
         except ImportError:
-            logger.error("Google Generative AI library not installed")
-            self.model = None
+            logger.error("Google GenAI SDK not installed")
+            self.client = None
     
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
         """Analyze image using Google Gemini API"""
-        if not self.model:
+        if not self.client:
             return {'error': 'Google Gemini client not available'}
         
         try:
             import io
             from PIL import Image
+            from google.genai import types
             
+            # Optimization: Resize image to max 1024px
             image = Image.open(io.BytesIO(image_data))
+            if max(image.size) > 1024:
+                image.thumbnail((1024, 1024))
             
-            prompt = "Analiza esta imagen de un producto industrial (tubería, accesorio, llave) y proporciona: 1) Una descripción detallada de lo que ves, 2) Tres posibles causas técnicas del problema observado, ordenadas por probabilidad, 3) Recomendaciones de inspección adicional. Responde en español y en formato JSON."
+            # Optimization: Compact prompt to save tokens
+            prompt = """
+            Rol: Auditor Calidad Industrial. Tarea: Análisis técnico imagen. Formato: JSON.
+            JSON Schema:
+            {
+                "description": "Descripción técnica (materiales, anomalías)",
+                "possible_causes": ["Causa 1", "Causa 2", "Causa 3"],
+                "recommendations": ["Acción 1", "Acción 2", "Norma"]
+            }
+            Restricciones: Sin saludos. Vocabulario técnico preciso.
+            """
             
-            response = self.model.generate_content([prompt, image])
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[prompt, image],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
+            )
             
             content = response.text
             tokens_used = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
@@ -349,16 +368,25 @@ class GoogleAdapter(AIProviderAdapter):
             }
             
         except Exception as e:
+            # Check for Quota Error (429) via message string or attribute
+            error_msg = str(e).lower()
+            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
+                 logger.warning("Gemini Quota Exceeded (429).")
+                 return {'error': 'Quota Exceeded', 'code': 429}
+                 
             logger.error(f"Google Gemini image analysis error: {str(e)}")
             return {'error': str(e)}
     
     def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Generate text using Google Gemini API"""
-        if not self.model:
+        if not self.client:
             return {'error': 'Google Gemini client not available'}
         
         try:
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
             content = response.text
             tokens_used = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
             
@@ -370,6 +398,11 @@ class GoogleAdapter(AIProviderAdapter):
             }
             
         except Exception as e:
+            # Check for Quota Error (429)
+            error_msg = str(e).lower()
+            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
+                 return {'error': 'Quota Exceeded', 'code': 429}
+
             logger.error(f"Google Gemini text generation error: {str(e)}")
             return {'error': str(e)}
     
@@ -582,6 +615,7 @@ class AIOrchestrator:
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
         """Analyze image using available providers"""
         start_time = time.time()
+        quota_warning = None
         
         # Try providers in priority order
         for provider_name, provider in self.providers.items():
@@ -595,11 +629,14 @@ class AIOrchestrator:
                     db_provider = AIProvider.objects.get(name=provider_name)
                     if not db_provider.has_quota():
                         logger.warning(f"Provider {provider_name} quota exceeded")
+                        if not quota_warning:
+                            quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
                         continue
                 except AIProvider.DoesNotExist:
                     continue
             
             try:
+                logger.info(f"Attempting analysis with provider: {provider_name}")
                 result = provider.analyze_image(image_data, image_type)
                 
                 if result.get('success'):
@@ -612,13 +649,31 @@ class AIOrchestrator:
                         try:
                             db_provider = AIProvider.objects.get(name=provider_name)
                             db_provider.consume_quota(result['tokens_used'])
+                            logger.info(f"Analysis successful with {provider_name}. Tokens: {result['tokens_used']}")
                         except AIProvider.DoesNotExist:
                             pass
                     
+                    # Inject warning if we are in local mode but had quota failures
+                    if provider_name == 'local' and quota_warning:
+                        if 'data' in result and isinstance(result['data'], dict):
+                            result['data']['warning'] = quota_warning
+                            # Also append to description for visibility
+                            if 'description' in result['data']:
+                                result['data']['description'] += f"\n\n[{quota_warning}]"
+                    
                     return result
                 
+                # Handle Explicit Quota Error from Adapter
+                elif result.get('code') == 429:
+                    logger.warning(f"Provider {provider_name} returned Quota Exceeded (429)")
+                    if not quota_warning:
+                        quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
+                
+                else:
+                    logger.error(f"Provider {provider_name} returned error: {result.get('error')}")
+                
             except Exception as e:
-                logger.error(f"Provider {provider_name} failed: {str(e)}")
+                logger.error(f"Provider {provider_name} failed with exception: {str(e)}", exc_info=True)
                 continue
         
         # If all providers failed, return error
@@ -630,6 +685,7 @@ class AIOrchestrator:
     def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Generate text using available providers"""
         start_time = time.time()
+        quota_warning = None
         
         # Try providers in priority order
         for provider_name, provider in self.providers.items():
@@ -643,6 +699,8 @@ class AIOrchestrator:
                     db_provider = AIProvider.objects.get(name=provider_name)
                     if not db_provider.has_quota():
                         logger.warning(f"Provider {provider_name} quota exceeded")
+                        if not quota_warning:
+                            quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
                         continue
                 except AIProvider.DoesNotExist:
                     continue
@@ -662,8 +720,19 @@ class AIOrchestrator:
                             db_provider.consume_quota(result['tokens_used'])
                         except AIProvider.DoesNotExist:
                             pass
+
+                    # Inject warning if we are in local mode but had quota failures
+                    if provider_name == 'local' and quota_warning:
+                        if 'text' in result:
+                            result['text'] += f"\n\n[{quota_warning}]"
                     
                     return result
+                
+                # Handle Explicit Quota Error from Adapter
+                elif result.get('code') == 429:
+                    logger.warning(f"Provider {provider_name} returned Quota Exceeded (429)")
+                    if not quota_warning:
+                        quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
                 
             except Exception as e:
                 logger.error(f"Provider {provider_name} failed: {str(e)}")

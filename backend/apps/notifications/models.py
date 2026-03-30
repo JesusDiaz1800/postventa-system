@@ -216,9 +216,26 @@ class NotificationPreference(models.Model):
 
     # Weekend preferences
     weekend_notifications = models.BooleanField(default=False)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def should_notify(self, notification_type, importance=False):
+        """
+        Determina si se debe notificar al usuario basado en sus preferencias.
+        """
+        if not self.web_enabled and not self.email_enabled:
+            return False
+            
+        type_enabled = getattr(self, notification_type, True)
+        if not type_enabled:
+            return False
+            
+        if self.priority_threshold == 'urgent_only' and not importance:
+            return False
+        if self.priority_threshold == 'high_up' and not importance:
+            return False
+            
+        return True
 
 
 # Backwards compatibility: some parts of the project expect the plural name

@@ -298,17 +298,17 @@ const InternalQualityReportsPage = () => {
             <div className="flex items-center gap-3 relative z-10">
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="inline-flex items-center px-3 py-2 bg-white border border-slate-200 text-slate-600 font-semibold rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm text-xs"
+                className="px-6 py-4 bg-white hover:bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 border border-slate-200 shadow-sm"
               >
-                <DocumentArrowUpIcon className="h-4 w-4 mr-1.5 text-indigo-500" />
-                Adjuntar
+                <DocumentArrowUpIcon className="h-5 w-5 text-indigo-500" />
+                ADJUNTAR
               </button>
               <button
                 onClick={handleCreateReportClick}
-                className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow-sm shadow-indigo-500/30 hover:bg-indigo-700 hover:shadow-indigo-500/40 hover:-translate-y-0.5 transition-all"
+                className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-200 transition-all flex items-center gap-3"
               >
-                <PlusIcon className="h-4 w-4 mr-1.5" />
-                Nuevo Reporte
+                <PlusIcon className="h-5 w-5 text-indigo-200" />
+                NUEVO REPORTE
               </button>
             </div>
           </div>
@@ -362,13 +362,13 @@ const InternalQualityReportsPage = () => {
             <div className="overflow-x-visible scroll-horizontal-sticky min-h-[400px]">
               <table className="min-w-full">
                 <thead>
-                  <tr className="border-b border-gray-200/50 bg-gray-50/20">
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest w-64">Reporte</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Incidencia</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Cliente / Obra</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Estado</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-gray-400 uppercase tracking-widest">Fecha</th>
-                    <th className="px-6 py-4 text-right text-[11px] font-bold text-gray-400 uppercase tracking-widest">Acciones</th>
+                  <tr className="bg-slate-50/50 border-b border-slate-200">
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest w-64">Reporte</th>
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Incidencia</th>
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Cliente / Obra</th>
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest text-center">Estado</th>
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">Fecha</th>
+                    <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest text-right">Gestión</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100/50">
@@ -399,51 +399,51 @@ const InternalQualityReportsPage = () => {
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed'
-                          ? 'bg-gray-100 text-gray-600 border-gray-200'
+                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-black uppercase tracking-tight border ${report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed'
+                          ? 'bg-slate-100 text-slate-600 border-slate-200'
                           : report.status === 'escalated'
                             ? 'bg-purple-50 text-purple-700 border-purple-100'
                             : 'bg-emerald-50 text-emerald-700 border-emerald-100'
                           }`}>
-                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? <CheckCircleIcon className="w-3.5 h-3.5 mr-1" /> :
-                            report.status === 'escalated' ? <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1" /> :
-                              <ClockIcon className="w-3.5 h-3.5 mr-1" />}
-                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? 'Cerrado' :
-                            report.status === 'escalated' ? 'Escalado' :
-                              'Listo'}
+                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? <CheckCircleIcon className="w-3.5 h-3.5 mr-1.5" /> :
+                            report.status === 'escalated' ? <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5 mr-1.5" /> :
+                              <ClockIcon className="w-3.5 h-3.5 mr-1.5" />}
+                          {report.incident?.estado === 'cerrado' || report.status === 'final' || report.status === 'closed' ? 'CERRADO' :
+                            report.status === 'escalated' ? 'ESCALADO' :
+                              'LISTO'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-bold">
                         {new Date(report.created_at).toLocaleDateString('es-CL')}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end gap-3">
                           <button
                             onClick={() => handleOpenDocumentWrapper(report)}
-                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                            title="Ver Detalle"
+                            className="w-12 h-12 flex items-center justify-center rounded-2xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm"
+                            title="Explorar Documento"
                           >
-                            <EyeIcon className="h-4 w-4" />
+                            <EyeIcon className="w-6 h-6" />
                           </button>
 
                           {report.incident?.estado !== 'cerrado' && (
                             <button
                               onClick={() => handleEscalate(report)}
-                              className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                              className="w-12 h-12 flex items-center justify-center rounded-2xl bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white transition-all shadow-sm"
                               title="Escalar a Cliente"
                             >
-                              <ArrowPathIcon className="h-4 w-4" />
+                              <ArrowTopRightOnSquareIcon className="w-6 h-6" />
                             </button>
                           )}
 
                           {report.incident?.estado !== 'cerrado' && (
                             <button
                               onClick={() => handleEscalateToSupplierAction(report)}
-                              className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                              className="w-12 h-12 flex items-center justify-center rounded-2xl bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white transition-all shadow-sm"
                               title="Escalar a Proveedor"
                             >
-                              <PaperAirplaneIcon className="h-4 w-4" />
+                              <PaperAirplaneIcon className="w-6 h-6" />
                             </button>
                           )}
 
@@ -454,19 +454,19 @@ const InternalQualityReportsPage = () => {
                                 setClosureData({ stage: 'calidad', reason: '', closure_summary: '', closure_attachment: null });
                                 setShowIncidentClosure(true);
                               }}
-                              className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                              className="w-12 h-12 flex items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
                               title="Cerrar Incidencia"
                             >
-                              <CheckCircleIcon className="h-4 w-4" />
+                              <CheckCircleIcon className="w-6 h-6" />
                             </button>
                           )}
 
                           <button
                             onClick={() => handleDelete(report.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            title="Eliminar"
+                            className="w-12 h-12 flex items-center justify-center rounded-2xl bg-rose-50 text-rose-500 hover:bg-rose-500 hover:text-white transition-all shadow-sm"
+                            title="Eliminar Registro"
                           >
-                            <TrashIcon className="h-4 w-4" />
+                            <TrashIcon className="w-6 h-6" />
                           </button>
                         </div>
                       </td>

@@ -8,6 +8,8 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 import logging
+from apps.core.thread_local import get_current_country
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +21,19 @@ class DocumentAttachmentService:
         self.attachments_folder = os.path.join(self.shared_folder, 'attachments')
         self.ensure_directories()
     
-    def ensure_directories(self):
+    def ensure_directories(self, country=None):
         """Crear directorios necesarios si no existen"""
+        if not country:
+            country = get_current_country()
+            
         directories = [
             self.attachments_folder,
-            os.path.join(self.attachments_folder, 'visit_reports'),
-            os.path.join(self.attachments_folder, 'lab_reports'),
-            os.path.join(self.attachments_folder, 'supplier_reports'),
+            os.path.join(self.attachments_folder, country),
+            os.path.join(self.attachments_folder, country, 'visit_reports'),
+            os.path.join(self.attachments_folder, country, 'lab_reports'),
+            os.path.join(self.attachments_folder, country, 'supplier_reports'),
         ]
+
         
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
@@ -57,8 +64,12 @@ class DocumentAttachmentService:
             }.get(document_type, 'general')
             
             # Crear ruta completa
-            folder_path = os.path.join(self.attachments_folder, type_folder, str(document_id))
+            country = get_current_country()
+            self.ensure_directories(country)
+            
+            folder_path = os.path.join(self.attachments_folder, country, type_folder, str(document_id))
             os.makedirs(folder_path, exist_ok=True)
+
             
             file_path = os.path.join(folder_path, unique_filename)
             
@@ -88,14 +99,23 @@ class DocumentAttachmentService:
             raise
     
     def get_attachment_path(self, document_type, document_id, filename):
-        """Obtener ruta de un archivo adjunto"""
+        """Obtener ruta de un archivo adjunto con fallback regional"""
         type_folder = {
             'visit_report': 'visit_reports',
             'lab_report': 'lab_reports',
             'supplier_report': 'supplier_reports'
         }.get(document_type, 'general')
         
+        country = get_current_country()
+        
+        # Intentar ruta regionalizada
+        regional_path = os.path.join(self.attachments_folder, country, type_folder, str(document_id), filename)
+        if os.path.exists(regional_path):
+            return regional_path
+            
+        # Fallback a ruta legacy
         return os.path.join(self.attachments_folder, type_folder, str(document_id), filename)
+
     
     def list_attachments(self, document_type, document_id):
         """Listar archivos adjuntos de un documento"""
@@ -106,9 +126,17 @@ class DocumentAttachmentService:
                 'supplier_report': 'supplier_reports'
             }.get(document_type, 'general')
             
-            folder_path = os.path.join(self.attachments_folder, type_folder, str(document_id))
+            # Intentar primero ruta regionalizada
+            country = get_current_country()
+            folder_path = os.path.join(self.attachments_folder, country, type_folder, str(document_id))
+            
+            # Si no existe, intentar ruta legacy
+            if not os.path.exists(folder_path):
+                folder_path = os.path.join(self.attachments_folder, type_folder, str(document_id))
+
             
             if not os.path.exists(folder_path):
+
                 return []
             
             attachments = []

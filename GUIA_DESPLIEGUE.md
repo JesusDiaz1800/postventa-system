@@ -8,17 +8,17 @@
 - Node.js 18+ (instalado en sistema o portable).
 - Carpeta compartida para documentos: `C:\Users\jdiaz\Desktop\postventa-system\backend\documents`.
 
-## 2. Iniciar el Sistema (Modo Producción Manual)
+## 2. Iniciar el Sistema (Modo Producción)
 Ejecutar el script principal:
-`EJECUTAR_PRUEBAS.bat`
+`INICIAR_PM2.bat`
 
-Este script:
-1.  Detiene procesos anteriores.
-2.  Inicia el **Backend** en puerto 8000.
-    *   Conecta a BD SQL Server en `192.168.1.144`.
-    *   Usa autenticación SQL (`postventa_user`).
-3.  Inicia el **Frontend** en puerto 5173 (modo dev por ahora).
-4.  Abre el navegador automáticamente.
+O con parámetros: `INICIAR_PM2.bat start` | `stop` | `restart` | `status` | `logs` | `monit`
+
+Este script (usa PM2 como gestor de procesos):
+1.  Verifica/renueva certificados SSL automáticamente.
+2.  Inicia el **Backend** (Django + Daphne) en puerto 8000.
+3.  Inicia el **Frontend** (Vite) en puerto 5173 (HTTPS).
+4.  Requiere: Node.js con PM2 instalado (`npm install -g pm2`).
 
 ## 3. Credenciales
 - **Usuario:** `jdiaz`

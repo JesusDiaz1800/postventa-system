@@ -15,7 +15,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from apps.incidents.models import Incident
 from apps.documents.models import Document
+from apps.core.thread_local import get_current_country
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +90,10 @@ def upload_incident_attachment(request, incident_id):
         is_public = request.data.get('is_public', 'false').lower() == 'true'
         
         # Crear directorio si no existe
-        incident_dir = os.path.join(settings.SHARED_DOCUMENTS_PATH, 'incident_attachments', f'incident_{incident_id}')
+        country = get_current_country()
+        incident_dir = os.path.join(settings.SHARED_DOCUMENTS_PATH, country, 'incident_attachments', f'incident_{incident_id}')
         os.makedirs(incident_dir, exist_ok=True)
+
         
         # Guardar archivo
         file_path = os.path.join(incident_dir, file.name)
@@ -147,10 +151,24 @@ def download_incident_attachment(request, incident_id, attachment_id):
         )
         
         if not os.path.exists(document.file_path):
-            return Response(
-                {'error': 'Archivo no encontrado'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+            # Fallback regional: Reconstruir ruta con país actual si el guardado en DB no fue absoluto/regionalizado
+            country = get_current_country()
+            filename = os.path.basename(document.file_path)
+            fallback_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, country, 'incident_attachments', f'incident_{incident_id}', filename)
+            
+            if os.path.exists(fallback_path):
+                document.file_path = fallback_path
+            else:
+                # Segundo fallback: Ruta legacy (sin país)
+                legacy_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, 'incident_attachments', f'incident_{incident_id}', filename)
+                if os.path.exists(legacy_path):
+                    document.file_path = legacy_path
+                else:
+                    return Response(
+                        {'error': 'Archivo no encontrado'}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
         
         response = FileResponse(
             open(document.file_path, 'rb'),
@@ -185,10 +203,24 @@ def view_incident_attachment(request, incident_id, attachment_id):
         )
         
         if not os.path.exists(document.file_path):
-            return Response(
-                {'error': 'Archivo no encontrado'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+            # Fallback regional
+            country = get_current_country()
+            filename = os.path.basename(document.file_path)
+            fallback_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, country, 'incident_attachments', f'incident_{incident_id}', filename)
+            
+            if os.path.exists(fallback_path):
+                document.file_path = fallback_path
+            else:
+                # Segundo fallback: Ruta legacy
+                legacy_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, 'incident_attachments', f'incident_{incident_id}', filename)
+                if os.path.exists(legacy_path):
+                    document.file_path = legacy_path
+                else:
+                    return Response(
+                        {'error': 'Archivo no encontrado'}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
         
         # Determinar el tipo de contenido
         content_type = 'application/octet-stream'

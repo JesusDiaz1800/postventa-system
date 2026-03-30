@@ -1,13 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
 
-/**
- * Hook para buscar clientes en SAP
- * @param {string} query - Texto de búsqueda (nombre o RUT)
- */
 export const useSAPCustomerSearch = (query) => {
+    const countryCode = localStorage.getItem('country_code') || 'CL';
     return useQuery({
-        queryKey: ['sap-customers', query],
+        queryKey: ['sap-customers', query, countryCode],
         queryFn: async () => {
             if (!query || query.length < 3) return [];
             const response = await api.get(`/sap/customers/search/?q=${query}`);
@@ -20,17 +17,17 @@ export const useSAPCustomerSearch = (query) => {
 };
 
 /**
- * Hook para obtener una llamada de servicio de SAP por ID
- * @param {string|number} callId - ID de la llamada de servicio
+ * Hook para obtener una llamada de servicio de SAP por DocNum
+ * @param {string|number} docNum - DocNum de la llamada de servicio
  */
-export const useSAPServiceCall = (callId) => {
+export const useSAPServiceCall = (docNum) => {
     return useQuery({
-        queryKey: ['sap-service-call', callId],
+        queryKey: ['sap-service-call', docNum],
         queryFn: async () => {
-            const response = await api.get(`/sap/service-calls/${callId}/`);
+            const response = await api.get(`/sap/service-calls/${docNum}/`);
             return response.data;
         },
-        enabled: !!callId && String(callId).length > 0,
+        enabled: !!docNum && String(docNum).length > 0,
         retry: false,
         staleTime: 60000 // 1 min
     });
@@ -65,5 +62,55 @@ export const useSAPRecentCalls = (customerCode = null) => {
             return response.data.results;
         },
         staleTime: 60000 // 1 min
+    });
+};
+
+/**
+ * Hook para obtener vendedores activos de SAP
+ */
+export const useSAPSalesEmployees = () => {
+    const countryCode = localStorage.getItem('country_code') || 'CL';
+    return useQuery({
+        queryKey: ['sap-sales-employees', countryCode],
+        queryFn: async () => {
+            const response = await api.get('/sap/sales-employees/');
+            return response.data;
+        },
+        staleTime: 3600000 // 1 hora
+    });
+};
+
+/**
+ * Hook para obtener detalles completos del cliente SAP
+ * Incluye: vendedor, direcciones, proyectos/obras
+ * @param {string} cardCode - Código del cliente (CardCode)
+ */
+export const useSAPCustomerDetails = (cardCode) => {
+    return useQuery({
+        queryKey: ['sap-customer-details', cardCode],
+        queryFn: async () => {
+            if (!cardCode) return null;
+            const response = await api.get(`/sap/customer-details/${cardCode}/`);
+            return response.data;
+        },
+        enabled: !!cardCode,
+        staleTime: 3600000 // 1 hora
+    });
+};
+
+/**
+ * Hook para obtener técnicos de SAP (EmpID)
+ * @param {string} role - (Opcional) Filtrar por rol (ej. 'technician')
+ */
+export const useSAPTechnicians = (role = null) => {
+    const countryCode = localStorage.getItem('country_code') || 'CL';
+    return useQuery({
+        queryKey: ['sap-technicians', countryCode, role],
+        queryFn: async () => {
+            const url = role ? `/sap/technicians/?role=${role}` : '/sap/technicians/';
+            const response = await api.get(url);
+            return response.data;
+        },
+        staleTime: 3600000 // 1 hora
     });
 };

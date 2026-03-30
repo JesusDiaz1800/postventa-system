@@ -136,6 +136,34 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text="Imagen de la firma digital del usuario"
     )
     
+    # SAP Credentials for Service Layer
+    sap_user = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Usuario de SAP Service Layer para transacciones"
+    )
+    
+    sap_password = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Contraseña de SAP Service Layer (se almacena para el login automático)"
+    )
+    
+    # Granular Permissions Overrides
+    permissions_override = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Sobrescritura de permisos específicos para este usuario"
+    )
+    
+    pages_override = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Sobrescritura de páginas accesibles para este usuario"
+    )
+    
     # Custom manager
     objects = UserManager()
     
@@ -239,4 +267,38 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Get list of pages this user can access"""
         from .permissions import get_accessible_pages
         return get_accessible_pages(self)
-    # ADVERTENCIA: Revisa los tipos de datos y relaciones para compatibilidad total con SQL Server. Evita campos no soportados y usa ForeignKey/ManyToMany donde sea necesario.
+
+
+class RolePermission(models.Model):
+    """
+    Model to store dynamic permissions for each role.
+    Replaces hardcoded ROLE_PERMISSIONS in permissions.py
+    """
+    role = models.CharField(
+        max_length=50, 
+        unique=True,
+        help_text='Rol del usuario (clave única)'
+    )
+    
+    # Dictionary of boolean permissions: { 'can_manage_users': True, ... }
+    permissions = models.JSONField(
+        default=dict,
+        help_text='Diccionario de permisos (acciones)'
+    )
+    
+    # List of accessible pages: ['dashboard', 'users', ...]
+    accessible_pages = models.JSONField(
+        default=list,
+        help_text='Lista de páginas accesibles'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Permisos para {self.role}"
+    
+    class Meta:
+        db_table = 'role_permissions'
+        verbose_name = 'Permiso de Rol'
+        verbose_name_plural = 'Permisos de Roles'

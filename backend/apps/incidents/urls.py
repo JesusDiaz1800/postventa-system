@@ -1,7 +1,13 @@
 from django.urls import path
-from . import views, attachment_views, views_escalation
+from . import views, export_views, attachment_views, views_escalation
 
 urlpatterns = [
+    # Global Search (Must be first to avoid conflicts)
+    path('global-search/', views.global_search, name='global-search'),
+
+    # Export endpoint (Must be before <int:pk> patterns to avoid conflict)
+    path('export/', export_views.ExportIncidentsView.as_view(), name='export-incidents'),
+
     # Main incident views
     path('', views.IncidentListCreateView.as_view(), name='incident-list-create'),
     path('<int:pk>/', views.IncidentRetrieveUpdateDestroyView.as_view(), name='incident-detail'),
@@ -16,6 +22,8 @@ urlpatterns = [
     path('<int:incident_id>/images/', views.upload_incident_image, name='incident-upload-image'),
     path('<int:incident_id>/images/list/', views.list_incident_images, name='incident-list-images'),
     path('<int:incident_id>/images/<int:image_id>/', views.view_incident_image, name='incident-view-image'),
+    path('<int:incident_id>/images/<int:image_id>/view/', views.view_incident_image, name='incident-view-image-suffix'),
+    path('<int:incident_id>/images/<int:image_id>/delete/', views.delete_incident_image, name='incident-delete-image'),
     path('images/<int:image_id>/analyze/', views.analyze_image, name='incident-analyze-image'),
 
     # Lab reports
@@ -30,6 +38,7 @@ urlpatterns = [
     path('<int:incident_id>/attachments/<int:attachment_id>/', attachment_views.get_incident_attachment_info, name='get-incident-attachment'),
     path('<int:incident_id>/attachments/<int:attachment_id>/delete/', attachment_views.delete_incident_attachment, name='delete-incident-attachment'),
     path('<int:incident_id>/attachments/<int:attachment_id>/download/', attachment_views.download_incident_attachment, name='download-attachment'),
+    path('<int:incident_id>/attachments/<int:attachment_id>/view/', attachment_views.view_incident_attachment, name='view-incident-attachment'),
 
     # Escalation views from views_escalation.py
     path('<int:incident_id>/escalate/quality/', views_escalation.escalate_to_quality, name='escalate-to-quality'),

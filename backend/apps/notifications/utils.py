@@ -32,8 +32,8 @@ def send_notification(user, title, message, notification_type, category=None,
         # Verificar preferencias del usuario
         try:
             preferences = NotificationPreferences.objects.get(user=user)
-            if not preferences.should_notify():
-                # No enviar si estamos en horario silencioso
+            if not preferences.should_notify(notification_type, is_important):
+                # No enviar si el usuario lo tiene deshabilitado
                 return notification
         except NotificationPreferences.DoesNotExist:
             # Si no hay preferencias, enviar por defecto

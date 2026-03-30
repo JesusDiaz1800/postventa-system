@@ -22,10 +22,10 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-default-key-for-developmen
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver,*').split(',')
 
 if not DEBUG:
-    # Production Security Settings
-    SECURE_SSL_REDIRECT = False # Set to True if using HTTPS
-    SESSION_COOKIE_SECURE = False # Set to True if using HTTPS
-    CSRF_COOKIE_SECURE = False # Set to True if using HTTPS
+    # Production Security Settings - Configurable via Env
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'
+    CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False') == 'True'
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
@@ -74,11 +74,13 @@ LOCAL_APPS = [
 ]
 
 
-INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
+INSTALLED_APPS = ['daphne'] + DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 # --- Middleware ---
 MIDDLEWARE = [
+    'apps.core.middleware.TenantMiddleware', # Contexto de País (Tenant) - DEBE IR PRIMERO
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -86,7 +88,6 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # 'apps.audit.navigation_middleware.NavigationAuditMiddleware', # Desactivado para evitar logs basura
     # 'apps.audit.middleware.AuditMiddleware', # Desactivado: Causa logs duplicados y genéricos. Usamos signals.py
@@ -153,6 +154,7 @@ def _build_database_config_from_env():
             'PASSWORD': db_password,
             'HOST': host,
             'PORT': os.getenv('DB_PORT', ''),
+            'CONN_MAX_AGE': 600, # Mantener conexiones vivas por 10 min
             'OPTIONS': {
                 'driver': driver,
                 'extra_params': extra_params or os.getenv('DB_EXTRA_PARAMS', 'Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=yes;')
@@ -166,45 +168,146 @@ def _build_database_config_from_env():
         'PASSWORD': os.getenv('DB_PASSWORD'),
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': os.getenv('DB_PORT', ''),
+        'CONN_MAX_AGE': 600,
         'OPTIONS': {
             'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
             'extra_params': os.getenv('DB_EXTRA_PARAMS', 'Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=yes;')
         },
     }
 
+# --- SAP Service Layer Configuration ---
+# Configurado para TESTPOLIFUSION (Pruebas). 
+# Para Producción, cambiar SAP_SL_COMPANY_DB a 'PRDPOLIFUSION' vía variables de entorno.
+SAP_SL_BASE_URL = os.getenv('SAP_SL_BASE_URL', 'https://192.168.1.237:50000/b1s/v1')
+SAP_SL_USER = os.getenv('SAP_SL_USER', 'ccalidad')
+SAP_SL_PASSWORD = os.getenv('SAP_SL_PASSWORD')
+
+# --- SAP Service Layer PE ---
+SAP_SL_COMPANY_DB_PE = os.getenv('SAP_SL_COMPANY_DB_PE', 'PRDPOLPERU')
+SAP_SL_USER_PE = os.getenv('SAP_SL_USER_PE', 'ccalidad')
+SAP_SL_PASSWORD_PE = os.getenv('SAP_SL_PASSWORD_PE')
+SAP_SL_SERIES_PE = int(os.getenv('SAP_SL_SERIES_PE', 36))
+SAP_SL_ASSIGNEE_NAME_PE = os.getenv('SAP_SL_ASSIGNEE_NAME_PE', 'PERCY LUEY') # Nombre del Responsable
+
+# --- SAP Service Layer CO ---
+SAP_SL_COMPANY_DB_CO = os.getenv('SAP_SL_COMPANY_DB_CO', 'PRDPOLCOLOMBIA')
+SAP_SL_USER_CO = os.getenv('SAP_SL_USER_CO', 'ccalidad')
+SAP_SL_PASSWORD_CO = os.getenv('SAP_SL_PASSWORD_CO')
+
 DATABASES = {
     'default': _build_database_config_from_env(),
     'sap_db': {
         'ENGINE': 'mssql',
-        'NAME': 'PRDPOLIFUSION',  # Base de datos de PRODUCCIÓN
+        'NAME': 'TESTPOLIFUSION',  # Base de datos de PRUEBAS / QA
         'USER': 'ccalidad',
-        'PASSWORD': 'Plf2025**',
+        'PASSWORD': os.getenv('SAP_DB_PASSWORD', 'Plf2025**'),
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': '',
         'OPTIONS': {
             'driver': 'ODBC Driver 13 for SQL Server',
             'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'  # READ ONLY
         },
-    }
+    },
+    'sap_db_pe': {
+        'ENGINE': 'mssql',
+        'NAME': os.getenv('SAP_SL_COMPANY_DB_PE', 'TSTPOLPERU'),
+        'USER': os.getenv('SAP_DB_USER_PE', os.getenv('SAP_SL_USER_PE', 'ccalidad')),
+        'PASSWORD': os.getenv('SAP_DB_PASSWORD_PE', os.getenv('SAP_SL_PASSWORD_PE', os.getenv('SAP_DB_PASSWORD', 'Plf2025**'))),
+        'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
+        'PORT': '',
+        'OPTIONS': {
+            'driver': 'ODBC Driver 13 for SQL Server',
+            'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'
+        },
+    },
+    'sap_db_co': {
+        'ENGINE': 'mssql',
+        'NAME': os.getenv('SAP_SL_COMPANY_DB_CO', 'TSTPOLFCOLOMBIA'),
+        'USER': os.getenv('SAP_DB_USER_CO', os.getenv('SAP_SL_USER_CO', 'ccalidad')),
+        'PASSWORD': os.getenv('SAP_DB_PASSWORD_CO', os.getenv('SAP_SL_PASSWORD_CO', os.getenv('SAP_DB_PASSWORD', 'Plf2025**'))),
+        'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
+        'PORT': '',
+        'OPTIONS': {
+            'driver': 'ODBC Driver 13 for SQL Server',
+            'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'
+        },
+    },
+    # App Databases (Isolation)
+    'default_pe': {
+        'ENGINE': 'mssql',
+        'NAME': 'POSTVENTA_PE',
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
+        'PORT': os.getenv('DB_PORT', ''),
+        'OPTIONS': {
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
+            'extra_params': os.getenv('DB_EXTRA_PARAMS', 'Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=yes;')
+        },
+    },
+    'default_co': {
+        'ENGINE': 'mssql',
+        'NAME': 'POSTVENTA_CO',
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
+        'PORT': os.getenv('DB_PORT', ''),
+        'OPTIONS': {
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
+            'extra_params': os.getenv('DB_EXTRA_PARAMS', 'Trusted_Connection=yes;Encrypt=yes;TrustServerCertificate=yes;')
+        },
+    },
 }
 
-DATABASE_ROUTERS = ['apps.sap_integration.routers.SapRouter']
+# Override names for PE/CO app databases (Removed as we defined them above)
+# DATABASES['default_pe']['NAME'] = 'POSTVENTA_PE'
+# DATABASES['default_co']['NAME'] = 'POSTVENTA_CO' 
+
+DATABASE_ROUTERS = ['apps.core.routers.DynamicTenantRouter'] # Replaces SapRouter
 
 # --- Caching, Channels ---
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
+# Usar Redis para todo en Producción para asegurar consistencia entre workers
+if not DEBUG:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
+        }
     }
-}
-CHANNEL_LAYERS = {
-    "default": { "BACKEND": "channels.layers.InMemoryChannelLayer" },
-}
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            },
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+        }
+    }
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
 
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'redis://{REDIS_HOST}:{REDIS_PORT}/0')
+# --- CELERY EMERGENCY FAILSAFE ---
+# Si Redis no está disponible, usamos el broker en memoria y ejecución síncrona
+# Esto evita errores de conexión y errores 500.
+CELERY_BROKER_URL = 'memory://'
+CELERY_TASK_ALWAYS_EAGER = True # Forzado a True para estabilidad en Windows (evita WinError 10061)
+CELERY_TASK_EAGER_PROPAGATES = True
 
 # --- Email Configuration (Office 365) ---
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -232,6 +335,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# --- Upload Limits ---
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
+
 
 # --- Static and Media ---
 STATIC_URL = '/static/'
@@ -310,6 +418,7 @@ LOGGING = {
     },
     'loggers': {
         'django': {'handlers': ['console', 'file'], 'level': 'INFO', 'propagate': False},
+        'apps': {'handlers': ['console', 'file'], 'level': 'DEBUG', 'propagate': False},
     },
 }
 
@@ -321,7 +430,9 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 # --- AI Model Configurations ---
 AI_OPENAI_MODEL = os.getenv('AI_OPENAI_MODEL', 'gpt-4o')
 AI_ANTHROPIC_MODEL = os.getenv('AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
-AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-1.5-flash')
+AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-flash-latest')
+
+
 
 # Suppress Google API key warning
 import warnings
@@ -329,3 +440,9 @@ warnings.filterwarnings('ignore', message='.*GOOGLE_API_KEY.*')
 warnings.filterwarnings('ignore', message='.*GEMINI_API_KEY.*')
 
 os.makedirs(os.path.join(BASE_DIR, 'logs'), exist_ok=True)
+
+# --- Authentication Backends ---
+AUTHENTICATION_BACKENDS = [
+    'apps.users.backends.MultikBackend', # Custom: Username or Email support
+    'django.contrib.auth.backends.ModelBackend', # Default fallback
+]

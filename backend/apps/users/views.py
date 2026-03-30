@@ -3,37 +3,45 @@ User management views for admin functionality
 """
 
 from rest_framework import generics, status, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.hashers import make_password
 from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User
-from .serializers import UserSerializer, UserCreateSerializer, UserUpdateSerializer, LoginSerializer
-from .permissions import get_user_permissions, get_accessible_pages, RoleBasedPermission
+from .models import User, RolePermission
+from .serializers import UserSerializer, UserCreateSerializer, UserUpdateSerializer, LoginSerializer, RolePermissionSerializer
+from .permissions import RoleBasedPermission, IsAdminOrSupervisor
+
+# ... (omitted existing code)
+
+
+
+
+class RolePermissionListView(generics.ListAPIView):
+    """
+    List all role permissions
+    """
+    queryset = RolePermission.objects.all()
+    serializer_class = RolePermissionSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrSupervisor]
+    pagination_class = None
+
+
+class RolePermissionDetailView(generics.RetrieveUpdateAPIView):
+    """
+    Retrieve or update permissions for a specific role
+    """
+    queryset = RolePermission.objects.all()
+    serializer_class = RolePermissionSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrSupervisor]
+    lookup_field = 'role'
+
+from .permissions import get_user_permissions, get_accessible_pages
 import logging
 
 logger = logging.getLogger(__name__)
-
-class IsAdminOrSupervisor(permissions.BasePermission):
-    """
-    Custom permission to only allow admins and supervisors to manage users
-    """
-    def has_permission(self, request, view):
-        try:
-            if not request.user or not request.user.is_authenticated:
-                return False
-            
-            # Verificar si el usuario tiene permisos para gestionar usuarios
-            from .permissions import has_permission
-            return has_permission(request.user, 'can_manage_users')
-        except Exception as e:
-            logger.error(f"Error checking permissions: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return False
 
 class UserListCreateView(generics.ListCreateAPIView):
     """
@@ -312,42 +320,19 @@ def toggle_user_status(request, user_id):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminOrSupervisor])
-def reset_user_password(request, user_id):
-    """
-    Reset user password to default
-    """
-    try:
-        user = User.objects.get(id=user_id)
-        default_password = 'Polifusion2024!'
-        
-        user.set_password(default_password)
-        user.save()
-        
-        return Response({
-            'message': 'Contraseña restablecida exitosamente',
-            'new_password': default_password
-        })
-    except User.DoesNotExist:
-        return Response(
-            {'error': 'Usuario no encontrado'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Exception as e:
-        logger.error(f"Error resetting user password: {e}")
-        return Response(
-            {'error': 'Error al restablecer la contraseña'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def login_view(request):
     """
     User login endpoint (Instrumented for Debugging)
     """
+    print(f"\n>>> DEBUG LOGIN: {request.data.get('username')} | Suffix: {request.data.get('username', '').split('.')[-1]}")
+    print(f">>> HEADERS: X-Country-Code={request.headers.get('X-Country-Code')}")
+    
     logger.info("--- LOGIN ATTEMPT STARTED ---")
     try:
         # Log basic request info (sanitize password)
@@ -365,20 +350,9 @@ def login_view(request):
             username = serializer.validated_data['username']
             password = serializer.validated_data['password']
             
-            # Intentar autenticación con username primero
-            logger.debug(f"Authenticating with username: {username}")
+            # Custom authentication (using MultikBackend for Username/Email support)
+            logger.debug(f"Authenticating user: {username}")
             user = authenticate(request, username=username, password=password)
-            
-            # Si no funciona, intentar con email
-            if user is None:
-                logger.debug("Username auth failed. Trying email lookup.")
-                try:
-                    user_obj = User.objects.get(email=username)
-                    logger.debug(f"Found user by email: {user_obj.username}")
-                    user = authenticate(request, username=user_obj.username, password=password)
-                except User.DoesNotExist:
-                    logger.debug("Email lookup failed or user does not exist.")
-                    pass
             
             if user is not None:
                 logger.info(f"Authentication successful for user: {user.username} (ID: {user.id})")
@@ -465,7 +439,8 @@ def login_view(request):
         
         return Response({
             'success': False,
-            'error': 'Error interno del servidor (Check logs)'
+            'error': f'DEBUG ERROR: {str(e)}', # Exposing error for debugging
+            'trace': str(type(e))
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

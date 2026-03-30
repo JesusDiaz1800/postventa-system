@@ -8,6 +8,7 @@ from .models import (
 )
 from apps.incidents.serializers import IncidentListSerializer
 from apps.users.serializers import UserSerializer
+from apps.sap_integration.master_data_service import MasterDataService
 
 # ==================== SERIALIZERS EXISTENTES ====================
 
@@ -113,6 +114,11 @@ class VisitReportSerializer(serializers.ModelSerializer):
     related_incident_id = serializers.IntegerField(write_only=True)
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     attachments = DocumentAttachmentSerializer(many=True, read_only=True)
+    visit_reason_display = serializers.SerializerMethodField()
+    def get_visit_reason_display(self, obj):
+        if not obj.visit_reason:
+            return ""
+        return MasterDataService.get_problem_type_name(obj.visit_reason)
     
     class Meta:
         model = VisitReport
@@ -120,14 +126,14 @@ class VisitReportSerializer(serializers.ModelSerializer):
             'id', 'report_number', 'order_number', 'visit_date',
             'related_incident', 'related_incident_id', 'project_name', 
             'project_id', 'client_name', 'client_rut', 'address',
-            'construction_company', 'salesperson', 'technician', 
+            'construction_company', 'salesperson', 'technician', 'technician_id',
             'installer', 'installer_phone', 'commune', 'city',
             'visit_reason', 'machine_data', 'wall_observations',
             'matrix_observations', 'slab_observations', 'storage_observations',
             'pre_assembled_observations', 'exterior_observations', 
             'general_observations', 'status', 'created_by_name',
             'created_at', 'updated_at', 'technician_signature',
-            'installer_signature', 'attachments', 'sap_call_id'
+            'installer_signature', 'attachments', 'sap_call_id', 'visit_reason_display'
         ]
         read_only_fields = ['report_number', 'created_by', 'created_at', 'updated_at']
 
@@ -147,6 +153,10 @@ class VisitReportListSerializer(serializers.ModelSerializer):
     download_url = serializers.SerializerMethodField()
     has_document = serializers.SerializerMethodField()
     attachment_count = serializers.SerializerMethodField()
+    visit_reason_display = serializers.SerializerMethodField()
+
+    def get_visit_reason_display(self, obj):
+        return MasterDataService.get_problem_type_name(obj.visit_reason)
     
     def get_download_url(self, obj):
         """Genera URL de descarga para el archivo del reporte"""
@@ -188,7 +198,7 @@ class VisitReportListSerializer(serializers.ModelSerializer):
             'salesperson', 'status', 'created_by_name', 'created_at',
             'incident_code', 'provider', 'categoria', 'subcategoria',
             'download_url', 'has_document', 'pdf_path', 'escalated_to_quality',
-            'attachment_count'
+            'attachment_count', 'visit_reason_display'
         ]
 
 class VisitReportCreateSerializer(serializers.ModelSerializer):
@@ -199,11 +209,11 @@ class VisitReportCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = VisitReport
         fields = [
-            'report_number', 'order_number', 'visit_date', 'related_incident_id', 'project_name',
+            'id', 'report_number', 'order_number', 'visit_date', 'related_incident_id', 'project_name',
             'project_id', 'client_name', 'client_rut', 'address',
-            'construction_company', 'salesperson', 'technician',
+            'construction_company', 'salesperson', 'technician', 'technician_id',
             'installer', 'installer_phone', 'commune', 'city',
-            'visit_reason', 'machine_data', 'wall_observations',
+            'visit_reason', 'machine_data', 'materials_data', 'wall_observations',
             'matrix_observations', 'slab_observations', 'storage_observations',
             'pre_assembled_observations', 'exterior_observations',
             'general_observations', 'status', 'sap_call_id'
@@ -220,12 +230,14 @@ class VisitReportCreateSerializer(serializers.ModelSerializer):
             'salesperson': {'required': False, 'allow_blank': True},
             'sap_call_id': {'required': False, 'allow_null': True},
             'technician': {'required': False, 'allow_blank': True},
+            'technician_id': {'required': False, 'allow_null': True},
             'installer': {'required': False, 'allow_blank': True},
             'installer_phone': {'required': False, 'allow_blank': True},
             'commune': {'required': False, 'allow_blank': True},
             'city': {'required': False, 'allow_blank': True},
             'visit_reason': {'required': False, 'allow_blank': True},
             'machine_data': {'required': False, 'allow_null': True},
+            'materials_data': {'required': False, 'allow_null': True},
             'wall_observations': {'required': False, 'allow_blank': True},
             'matrix_observations': {'required': False, 'allow_blank': True},
             'slab_observations': {'required': False, 'allow_blank': True},
@@ -394,11 +406,8 @@ class SupplierReportListSerializer(serializers.ModelSerializer):
         return None
     
     def get_download_url(self, obj):
-        if obj.pdf_path:
-            import os
-            filename = os.path.basename(obj.pdf_path)
-            return f'/api/documents/open/supplier-reports/{obj.related_incident.id}/{filename}'
-        return None
+        # Usar la vista específica que tiene lógica de fallback robusta
+        return f'/api/documents/supplier-reports/{obj.id}/download/'
     
     def get_has_document(self, obj):
         return bool(obj.pdf_path)

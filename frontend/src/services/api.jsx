@@ -24,43 +24,61 @@ export const API_ORIGIN = (() => {
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 30000, // 30 seconds timeout for production stability
+  headers: {}, // Removed default Content-Type: application/json
 });
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    // Try to get token from multiple sources
+    // Skip auth header for login and token refresh endpoints
+    // (sending an expired token causes DRF to reject with 401 before the view runs)
+    const url = config.url || '';
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/token/refresh');
+
     let token = null;
 
-    // 1. Try postventa_auth
-    const authData = localStorage.getItem('postventa_auth');
-    if (authData) {
-      try {
-        const parsed = JSON.parse(authData);
-        token = parsed.token || parsed.access_token || parsed.access;
-      } catch (error) {
-        console.warn('Error parsing auth data:', error);
-        // Limpiar datos corruptos
-        localStorage.removeItem('postventa_auth');
+    if (!isAuthEndpoint) {
+      // 1. Try sessionStorage first (Standard active memory block)
+      const sessionAuth = sessionStorage.getItem('postventa_auth');
+      if (sessionAuth) {
+        try {
+          const parsed = JSON.parse(sessionAuth);
+          token = parsed.token || parsed.access_token || parsed.access;
+        } catch (error) {
+          sessionStorage.removeItem('postventa_auth');
+        }
+      }
+      if (!token) {
+        token = sessionStorage.getItem('access_token');
+      }
+
+      // 2. Try localStorage as last resort (Legacy/Persistent memory block)
+      if (!token) {
+        const localAuthRaw = localStorage.getItem('postventa_auth');
+        if (localAuthRaw) {
+          try {
+            const parsed = JSON.parse(localAuthRaw);
+            token = parsed.token || parsed.access_token || parsed.access;
+          } catch (error) {
+            localStorage.removeItem('postventa_auth');
+          }
+        }
+      }
+      if (!token) {
+        token = localStorage.getItem('access_token');
+      }
+
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
     }
 
-    // 2. Fallback to access_token for backward compatibility
-    if (!token) {
-      token = localStorage.getItem('access_token');
-    }
+    // NEW: Inject Country Context Header
+    const countryCode = localStorage.getItem('country_code') || 'CL';
+    config.headers['X-Country-Code'] = countryCode;
 
-    // 3. Try sessionStorage as last resort
-    if (!token) {
-      token = sessionStorage.getItem('access_token');
-    }
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    } else {
+    if (!token && !isAuthEndpoint) {
       // Solo mostrar advertencia para rutas que requieren autenticación
       const authRoutes = ['/incidents/', '/users/', '/documents/', '/reports/', '/notifications/'];
       const needsAuth = authRoutes.some(route => config.url?.includes(route));
@@ -77,10 +95,22 @@ api.interceptors.request.use(
       console.debug('[HTTP]', config.method?.toUpperCase(), config.url, token ? '🔑' : '❌');
     }
 
-    // IMPORTANTE: Si se está enviando FormData (para archivos), eliminar Content-Type
-    // para que axios lo establezca automáticamente como multipart/form-data con boundary
-    if (config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
+    // Establecer Content-Type: application/json por defecto si NO es FormData
+    if (!(config.data instanceof FormData)) {
+      config.headers['Content-Type'] = 'application/json';
+    } else {
+      // Si es FormData, nos aseguramos de que no haya Content-Type previo
+      // para que Axios/Navegador pongan el multipart/form-data con boundary correcto
+      if (typeof config.headers.delete === 'function') {
+        config.headers.delete('Content-Type');
+      } else {
+        delete config.headers['Content-Type'];
+      }
+      config.headers['Content-Type'] = undefined;
+
+      if (debug) {
+        console.debug('[HTTP] FormData detected, Content-Type removed to allow auto-boundary', config.headers);
+      }
     }
 
     return config;
@@ -109,8 +139,20 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const url = originalRequest.url || '';
+      // Don't try to refresh token if the error comes from the login endpoint itself
+      // Check for both relative and absolute paths, and specific login endpoint
+      if (url.includes('/login') || url.includes('token/refresh')) {
+        return Promise.reject(error);
+      }
+
       originalRequest._retry = true;
       console.warn('🔄 Token expirado, intentando refresh...');
+
+      // Cleanup de caches huérfanos antes del refresh de seguridad
+      localStorage.removeItem('postventa_auth');
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
 
       try {
         const refreshToken = localStorage.getItem('refresh_token');
@@ -146,10 +188,13 @@ api.interceptors.response.use(
         }
       } catch (refreshError) {
         console.error('❌ Token refresh failed:', refreshError);
-        // Clear all auth data
+        // Clear all persistent & volatile auth data
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('postventa_auth');
+        sessionStorage.removeItem('access_token');
+        sessionStorage.removeItem('refresh_token');
+        sessionStorage.removeItem('postventa_auth');
         sessionStorage.removeItem('app_initialized');
         delete api.defaults.headers.common['Authorization'];
 
@@ -181,19 +226,16 @@ export const incidentsAPI = {
   uploadImage: (incidentId, image) => {
     const formData = new FormData();
     formData.append('image', image);
-    return api.post(`/incidents/${incidentId}/images/`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post(`/incidents/${incidentId}/images/`, formData);
   },
   analyzeImage: (imageId) => api.post(`/incidents/images/${imageId}/analyze/`),
   updateStatus: (incidentId, data) => api.post(`/incidents/${incidentId}/status/`, data),
   close: (incidentId, data) => api.post(`/incidents/${incidentId}/close/`, data),
   reopen: (incidentId) => api.post(`/incidents/${incidentId}/reopen/`),
-  dashboard: () => api.get('/incidents/dashboard/'),
-  uploadAttachment: (incidentId, formData) => api.post(`/documents/incident-attachments/${incidentId}/upload/`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  dashboard: (params) => api.get('/incidents/dashboard/', { params }),
+  uploadAttachment: (incidentId, formData) => api.post(`/documents/incident-attachments/${incidentId}/upload/`, formData),
   fixEscalation: (incidentId) => api.post(`/incidents/${incidentId}/fix-escalation/`),
+  export: (params) => api.get('/incidents/export/', { params, responseType: 'blob' }),
 };
 
 export const documentsAPI = {
@@ -225,9 +267,7 @@ export const aiAPI = {
   analyzeImage: (image) => {
     const formData = new FormData();
     formData.append('image', image);
-    return api.post('/ai/analyze-image/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    return api.post('/ai/analyze-image/', formData);
   },
   generateReport: (data) => api.post('/ai/generate-report/', data),
   generateText: (data) => api.post('/ai/generate-text/', data),
@@ -246,15 +286,23 @@ export const aiAgentsAPI = {
   // Main agent query endpoint - sends query and gets intelligent response
   query: (queryData) => api.post('/ai-agents/query/', queryData),
 
-  // Analyze image with agent (multi-step reasoning with context)
-  analyzeImage: (image, query = 'Analiza esta imagen técnicamente') => {
+  // Analyze image(s) with agent (multi-step reasoning with context)
+  analyzeImage: (input, query = 'Analiza esta imagen técnicamente', provider = null) => {
     const formData = new FormData();
-    formData.append('image', image);
     formData.append('query', query);
-    return api.post('/ai-agents/analyze-image/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    if (provider) formData.append('provider', provider);
+
+    if (Array.isArray(input)) {
+      input.forEach(file => formData.append('image', file)); // Use 'image' to match backend analyze_real_image expectation or 'images' if handled as list
+    } else {
+      formData.append('image', input);
+    }
+
+    return api.post('/ai-agents/analyze-image/', formData);
   },
+
+  // Generate professional report
+  generateReport: (data) => api.post('/ai-agents/generate-report/', data),
 
   // Get agent system status
   status: () => api.get('/ai-agents/status/'),
@@ -267,9 +315,7 @@ export const usersAPI = {
   update: (id, data) => {
     // Check if data is FormData (for file uploads like digital_signature)
     if (data instanceof FormData) {
-      return api.put(`/users/${id}/`, data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      return api.put(`/users/${id}/`, data);
     }
     return api.put(`/users/${id}/`, data);
   },
@@ -280,22 +326,6 @@ export const usersAPI = {
   changePassword: (id, data) => api.post(`/users/${id}/reset-password/`, data), // Alias for compatibility
   changeOwnPassword: (data) => api.post('/users/change-password/', data),
   getPermissions: () => api.get('/users/permissions/'),
-};
-
-export const workflowsAPI = {
-  list: () => api.get('/workflows/'),
-  create: (data) => api.post('/workflows/', data),
-  get: (id) => api.get(`/workflows/${id}/`),
-  update: (id, data) => api.put(`/workflows/${id}/`, data),
-  delete: (id) => api.delete(`/workflows/${id}/`),
-  states: (workflowId) => api.get(`/workflows/${workflowId}/states/`),
-  createState: (workflowId, data) => api.post(`/workflows/${workflowId}/states/`, data),
-  transitions: (workflowId) => api.get(`/workflows/${workflowId}/transitions/`),
-  createTransition: (workflowId, data) => api.post(`/workflows/${workflowId}/transitions/`, data),
-  applyToIncident: (incidentId, data) => api.post(`/workflows/incidents/${incidentId}/apply/`, data),
-  transitionIncident: (incidentId, data) => api.post(`/workflows/incidents/${incidentId}/transition/`, data),
-  incidentStatus: (incidentId) => api.get(`/workflows/incidents/${incidentId}/status/`),
-  dashboard: () => api.get('/workflows/dashboard/'),
 };
 
 export const auditAPI = {

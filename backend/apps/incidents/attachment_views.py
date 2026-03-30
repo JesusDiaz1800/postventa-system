@@ -18,6 +18,7 @@ import logging
 
 from .models import Incident, IncidentAttachment
 from .serializers import IncidentAttachmentSerializer, IncidentAttachmentCreateSerializer
+from apps.core.thread_local import get_current_country
 
 logger = logging.getLogger(__name__)
 
@@ -56,25 +57,28 @@ def upload_incident_attachment(request, incident_id):
         mime_type = file.content_type or mimetypes.guess_type(file.name)[0]
         file_type = determine_file_type(mime_type)
         
-        # Crear directorio para adjuntos de la incidencia
-        incident_folder = os.path.join(settings.SHARED_DOCUMENTS_PATH, 'incident_attachments', str(incident_id))
+        # Crear directorio regional para adjuntos de la incidencia
+        country = get_current_country()
+        relative_folder = os.path.join(country, 'incident_attachments', str(incident_id))
+        incident_folder = os.path.join(settings.SHARED_DOCUMENTS_PATH, relative_folder)
         os.makedirs(incident_folder, exist_ok=True)
         
         # Generar nombre único para el archivo
         file_extension = os.path.splitext(file.name)[1]
         unique_filename = f"{incident.code}_{file.name}_{request.user.id}_{file.size}{file_extension}"
-        file_path = os.path.join(incident_folder, unique_filename)
+        file_path_abs = os.path.join(incident_folder, unique_filename)
+        file_path_rel = os.path.join(relative_folder, unique_filename)
         
-        # Guardar archivo
-        with open(file_path, 'wb') as destination:
+        # Guardar archivo físicamente
+        with open(file_path_abs, 'wb') as destination:
             for chunk in file.chunks():
                 destination.write(chunk)
         
-        # Crear registro en la base de datos
+        # Crear registro en la base de datos con ruta relativa regionalizada
         attachment = IncidentAttachment.objects.create(
             incident=incident,
             file_name=file.name,
-            file_path=file_path,
+            file_path=file_path_rel.replace('\\', '/'), # Guardamos ruta relativa con separador estándar
             file_size=file.size,
             file_type=file_type,
             mime_type=mime_type,
@@ -138,14 +142,17 @@ def download_incident_attachment(request, incident_id, attachment_id):
         incident = Incident.objects.get(id=incident_id)
         attachment = IncidentAttachment.objects.get(id=attachment_id, incident=incident)
         
-        if not os.path.exists(attachment.file_path):
+        # Reconstruir ruta absoluta de forma segura
+        file_path_abs = os.path.normpath(os.path.join(settings.SHARED_DOCUMENTS_PATH, attachment.file_path))
+        
+        if not os.path.exists(file_path_abs):
             return Response(
                 {'error': 'Archivo no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
         response = FileResponse(
-            open(attachment.file_path, 'rb'),
+            open(file_path_abs, 'rb'),
             content_type=attachment.mime_type
         )
         response['Content-Disposition'] = f'attachment; filename="{attachment.file_name}"'
@@ -172,14 +179,17 @@ def view_incident_attachment(request, incident_id, attachment_id):
         incident = Incident.objects.get(id=incident_id)
         attachment = IncidentAttachment.objects.get(id=attachment_id, incident=incident)
         
-        if not os.path.exists(attachment.file_path):
+        # Reconstruir ruta absoluta de forma segura
+        file_path_abs = os.path.normpath(os.path.join(settings.SHARED_DOCUMENTS_PATH, attachment.file_path))
+        
+        if not os.path.exists(file_path_abs):
             return Response(
                 {'error': 'Archivo no encontrado'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
         response = FileResponse(
-            open(attachment.file_path, 'rb'),
+            open(file_path_abs, 'rb'),
             content_type=attachment.mime_type
         )
         response['Content-Disposition'] = f'inline; filename="{attachment.file_name}"'
@@ -214,8 +224,9 @@ def delete_incident_attachment(request, incident_id, attachment_id):
             )
         
         # Eliminar archivo físico
-        if os.path.exists(attachment.file_path):
-            os.remove(attachment.file_path)
+        file_path_abs = os.path.normpath(os.path.join(settings.SHARED_DOCUMENTS_PATH, attachment.file_path))
+        if os.path.exists(file_path_abs):
+            os.remove(file_path_abs)
         
         # Eliminar registro de la base de datos
         attachment.delete()

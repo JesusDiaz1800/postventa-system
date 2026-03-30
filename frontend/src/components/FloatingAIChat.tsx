@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
     XMarkIcon,
     PaperAirplaneIcon,
@@ -6,179 +7,96 @@ import {
     SparklesIcon,
     ArrowPathIcon,
     PhotoIcon,
-    UserCircleIcon,
-    ChatBubbleOvalLeftEllipsisIcon
+    ChatBubbleOvalLeftEllipsisIcon,
+    ArrowsPointingOutIcon,
+    CpuChipIcon,
+    TrashIcon
 } from '@heroicons/react/24/outline';
-import { useNotifications } from '../hooks/useNotifications';
-import { api, aiAgentsAPI } from '../services/api';
-import { formatAnalysisResult } from '../utils/aiUtils';
-
-interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: string;
-    metadata?: {
-        confidence?: number;
-        reasoning?: string;
-        imagePreview?: string;
-        sources?: string[];
-    };
-}
-
-const STORAGE_KEY = 'ai_floating_chat_history';
+import { useAIChat } from '../hooks/useAIChat';
 
 export function FloatingAIChat() {
+    const location = useLocation();
+    const navigate = useNavigate();
+
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [inputValue, setInputValue] = useState('');
-    const [isProcessing, setIsProcessing] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
-    const [selectedImage, setSelectedImage] = useState<File | null>(null);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [inputValue, setInputValue] = useState('');
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const [filePreviews, setFilePreviews] = useState<string[]>([]);
+
+    // Use Shared Hook
+    const { messages, isLoading, sendMessage, refreshHistory, provider, setProvider } = useAIChat();
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const { showError } = useNotifications();
 
+    // Refresh history when opening
     useEffect(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                setMessages(JSON.parse(stored));
-            } else {
-                setMessages([{
-                    id: 'welcome',
-                    role: 'assistant',
-                    content: '¡Hola! Soy tu asistente de Polifusión. ¿En qué puedo ayudarte hoy?',
-                    timestamp: new Date().toISOString()
-                }]);
-            }
-        } catch (e) {
-            console.error('Error loading chat history:', e);
+        if (isOpen && !isMinimized) {
+            refreshHistory();
+            setUnreadCount(0);
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-    }, []);
+    }, [isOpen, isMinimized, refreshHistory]);
 
-    useEffect(() => {
-        if (messages.length > 0) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-50)));
-        }
-    }, [messages]);
-
+    // Simple scroll to bottom
     useEffect(() => {
         if (isOpen && !isMinimized) {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages, isOpen, isMinimized]);
 
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            if (file.size > 10 * 1024 * 1024) {
-                showError('La imagen no debe superar los 10MB');
-                return;
-            }
-            setSelectedImage(file);
-            const reader = new FileReader();
-            reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-            reader.readAsDataURL(file);
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            const newFiles = Array.from(e.target.files);
+            const combined = [...selectedFiles, ...newFiles].slice(0, 5);
+            setSelectedFiles(combined);
+
+            Promise.all(newFiles.map(f => new Promise<string>(r => {
+                const reader = new FileReader();
+                reader.onload = (ev) => r(ev.target!.result as string);
+                reader.readAsDataURL(f);
+            }))).then(previews => setFilePreviews(previews));
         }
     };
 
-    const clearImage = () => {
-        setSelectedImage(null);
-        setImagePreview(null);
+    const clearFiles = () => {
+        setSelectedFiles([]);
+        setFilePreviews([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleSend = async () => {
-        if ((!inputValue.trim() && !selectedImage) || isProcessing) return;
+        if ((!inputValue.trim() && selectedFiles.length === 0) || isLoading) return;
 
-        const userMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'user',
-            content: inputValue.trim() || '[Imagen adjunta]',
-            timestamp: new Date().toISOString(),
-            metadata: selectedImage ? { imagePreview: imagePreview || undefined } : undefined
-        };
-
-        setMessages(prev => [...prev, userMessage]);
+        await sendMessage(inputValue, selectedFiles);
         setInputValue('');
-        setIsProcessing(true);
-
-        try {
-            let responseData;
-            if (selectedImage) {
-                const formData = new FormData();
-                formData.append('image', selectedImage);
-                formData.append('query', inputValue || 'Analiza esta imagen');
-
-                const result = await api.post('/ai/analyze-image/', formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                });
-
-                responseData = {
-                    response: result.data.response || result.data.analysis || 'Análisis completado',
-                    confidence: result.data.confidence,
-                    reasoning: result.data.reasoning
-                };
-            } else {
-                const result = await aiAgentsAPI.query({ query: userMessage.content });
-                responseData = result.data;
-            }
-
-            let responseContent = typeof responseData.response === 'string'
-                ? responseData.response
-                : JSON.stringify(responseData.response || responseData.error || 'Sin respuesta', null, 2);
-
-            responseContent = formatAnalysisResult(responseContent);
-
-            const assistantMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: responseContent,
-                timestamp: new Date().toISOString(),
-                metadata: {
-                    confidence: responseData.confidence,
-                    reasoning: responseData.reasoning,
-                    sources: responseData.sources
-                }
-            };
-
-            setMessages(prev => [...prev, assistantMessage]);
-            if (!isOpen && !isMinimized) setUnreadCount(prev => prev + 1);
-            clearImage();
-
-        } catch (error: any) {
-            const errorMsg: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: `Error del sistema: ${error.response?.data?.error || error.message || 'Conexión interrumpida'}`,
-                timestamp: new Date().toISOString()
-            };
-            setMessages(prev => [...prev, errorMsg]);
-        } finally {
-            setIsProcessing(false);
-        }
+        clearFiles();
     };
 
-    const handleKeyPress = (e: React.KeyboardEvent) => {
+    const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
         }
     };
 
+    // Hide on AI Page
+    if (location.pathname === '/ai') return null;
+
     if (!isOpen) {
         return (
             <button
-                onClick={() => { setIsOpen(true); setIsMinimized(false); setUnreadCount(0); }}
-                className="fixed bottom-6 right-6 w-14 h-14 bg-purple-600 rounded-full shadow-lg flex items-center justify-center text-white hover:bg-purple-700 hover:scale-110 transition-all z-50 group"
+                onClick={() => { setIsOpen(true); setIsMinimized(false); }}
+                className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-[1.5rem] shadow-[0_10px_30px_rgba(79,70,229,0.4)] flex items-center justify-center text-white hover:scale-110 transition-all duration-300 z-50 group animate-fadeIn"
             >
-                <ChatBubbleOvalLeftEllipsisIcon className="w-8 h-8" />
+                <div className="relative">
+                    <ChatBubbleOvalLeftEllipsisIcon className="w-9 h-9" />
+                    <div className="absolute -inset-2 bg-white/20 rounded-full blur opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold border-2 border-white">
+                    <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-lg text-xs flex items-center justify-center font-black border-2 border-[#0B0F19]">
                         {unreadCount}
                     </span>
                 )}
@@ -188,16 +106,16 @@ export function FloatingAIChat() {
 
     if (isMinimized) {
         return (
-            <div className="fixed bottom-6 right-6 w-64 bg-white border border-gray-200 rounded-xl z-50 overflow-hidden shadow-xl">
-                <div className="p-3 bg-purple-600 flex items-center justify-between">
-                    <span className="text-white text-sm font-bold flex items-center gap-2">
-                        <SparklesIcon className="w-4 h-4" /> Asistente IA
+            <div className="fixed bottom-6 right-6 w-72 bg-[#0B0F19]/90 border border-white/10 rounded-2xl z-50 overflow-hidden shadow-2xl backdrop-blur-xl animate-scaleIn">
+                <div className="p-4 bg-white/5 flex items-center justify-between">
+                    <span className="text-white text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                        <SparklesIcon className="w-4 h-4 text-indigo-400" /> Asistente IA
                     </span>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setIsMinimized(false)} className="text-purple-100 hover:text-white transition-colors">
-                            <ArrowPathIcon className="w-4 h-4" />
+                        <button onClick={() => setIsMinimized(false)} className="text-white/40 hover:text-white transition-colors p-1.5 bg-white/5 rounded-lg">
+                            <ArrowsPointingOutIcon className="w-4 h-4" />
                         </button>
-                        <button onClick={() => setIsOpen(false)} className="text-purple-100 hover:text-white transition-colors">
+                        <button onClick={() => setIsOpen(false)} className="text-white/40 hover:text-white transition-colors p-1.5 bg-white/5 rounded-lg">
                             <XMarkIcon className="w-4 h-4" />
                         </button>
                     </div>
@@ -207,121 +125,163 @@ export function FloatingAIChat() {
     }
 
     return (
-        <div className="fixed bottom-6 right-6 w-[380px] h-[580px] max-h-[80vh] bg-white border border-gray-200 z-50 flex flex-col rounded-2xl overflow-hidden shadow-2xl animate-scale-in">
+        <div className="fixed bottom-6 right-6 w-[400px] h-[650px] max-h-[85vh] bg-[#0B0F19]/95 border border-white/10 z-50 flex flex-col rounded-[2.5rem] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.6)] animate-slideInRight backdrop-blur-3xl font-sans">
             {/* Header */}
-            <div className="px-5 py-4 bg-purple-600 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+            <div className="px-6 py-5 bg-white/5 flex items-center justify-between flex-shrink-0 border-b border-white/5">
+                <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-[1.2rem] bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                         <SparklesIcon className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                        <h3 className="text-white font-bold text-sm">Asistente Polifusión</h3>
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                            <p className="text-purple-100 text-[10px] uppercase font-bold tracking-wider">Online</p>
+                        <h3 className="text-white font-black text-sm tracking-tighter uppercase">Asistente <span className="text-indigo-500">IA</span></h3>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
+                            <p className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em] -mt-0.5">Asistente Virtual</p>
                         </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setIsMinimized(true)} className="p-1.5 text-purple-100 hover:text-white transition-colors hover:bg-white/10 rounded-lg">
+                    {/* Mini Provider Toggle */}
+                    <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5 mr-2">
+                        <button 
+                            onClick={() => setProvider('Gemini')}
+                            className={`p-1 rounded-md transition-all ${provider === 'Gemini' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-white/20'}`}
+                            title="Usar Gemini (Nube)"
+                        >
+                            <SparklesIcon className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                            onClick={() => setProvider('Ollama')}
+                            className={`p-1 rounded-md transition-all ${provider === 'Ollama' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'text-white/20'}`}
+                            title="Usar Ollama (Local)"
+                        >
+                            <CpuChipIcon className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+
+                    <button onClick={() => navigate('/ai')} className="p-2 hover:bg-white/5 rounded-lg text-white/40 hover:text-white transition-colors" title="Expandir">
+                        <ArrowsPointingOutIcon className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setIsMinimized(true)} className="p-2 text-white/30 hover:text-white transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/5">
                         <MinusIcon className="w-5 h-5" />
                     </button>
-                    <button onClick={() => setIsOpen(false)} className="p-1.5 text-purple-100 hover:text-white transition-colors hover:bg-white/10 rounded-lg">
+                    <button onClick={() => setIsOpen(false)} className="p-2 text-white/30 hover:text-red-400 transition-all hover:bg-white/5 rounded-xl border border-transparent hover:border-white/5">
                         <XMarkIcon className="w-5 h-5" />
                     </button>
                 </div>
             </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-[radial-gradient(circle_at_50%_0%,rgba(79,70,229,0.05)_0%,transparent_50%)] custom-scrollbar">
                 {messages.map((msg) => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] space-y-1 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                            <div className={`inline-block px-4 py-3 rounded-2xl shadow-sm text-sm ${msg.role === 'user'
-                                ? 'bg-blue-600 text-white rounded-tr-none'
-                                : 'bg-white text-gray-800 border border-gray-100 rounded-tl-none'
-                                }`}>
-                                {msg.metadata?.imagePreview && (
-                                    <div className="mb-2">
-                                        <img src={msg.metadata.imagePreview} alt="Adjunto" className="w-full h-auto max-h-40 object-cover rounded-lg" />
-                                    </div>
-                                )}
-                                <div className="leading-relaxed whitespace-pre-wrap">
-                                    {msg.content}
-                                </div>
-                                {msg.role === 'assistant' && msg.metadata?.sources && msg.metadata.sources.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-gray-100">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Fuentes:</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {msg.metadata.sources.map((source, idx) => (
-                                                <span key={idx} className="text-[9px] px-2 py-0.5 bg-gray-50 text-gray-500 rounded border border-gray-100">
-                                                    {source.split(' - ')[0]}
-                                                </span>
-                                            ))}
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
+                        <div className={`max-w-[85%] rounded-3xl px-4 py-3.5 text-sm shadow-xl ${msg.role === 'user'
+                            ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 border border-white/10 text-white rounded-br-none shadow-indigo-500/10'
+                            : 'bg-white/5 border border-white/5 text-slate-300 rounded-bl-none'
+                            }`}>
+
+                            {/* Images */}
+                            {msg.metadata?.imagePreviews && msg.metadata.imagePreviews.length > 0 && (
+                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                    {msg.metadata.imagePreviews.map((src, i) => (
+                                        <div key={i} className="aspect-square rounded-xl overflow-hidden border border-white/10">
+                                            <img src={src} alt="Adjunto" className="w-full h-full object-cover" />
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                            <p className="text-[10px] text-gray-400 px-1">
-                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Text */}
+                            <p className="whitespace-pre-wrap leading-relaxed font-medium">
+                                {msg.content.replace(/\*\*/g, '')}
                             </p>
+
+                            {/* Sources Tags */}
+                            {msg.metadata?.sources && msg.metadata.sources.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {msg.metadata.sources.map((source, idx) => (
+                                        <span key={idx} className="text-[7px] bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/20 font-bold uppercase tracking-wider">
+                                            {source.replace(' (NotebookLM)', '')}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Assistant Branding Mini */}
+                            {msg.role === 'assistant' && msg.id !== 'welcome' && (
+                                <div className="mt-3 flex items-center gap-2 pt-2 border-t border-white/5 opacity-50">
+                                    <CpuChipIcon className="w-3 h-3 text-indigo-400" />
+                                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400">AI Engine</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}
-                {isProcessing && (
+
+                {isLoading && (
                     <div className="flex justify-start">
-                        <div className="bg-white border border-gray-100 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm">
+                        <div className="bg-white/5 border border-white/5 px-5 py-4 rounded-3xl rounded-bl-none flex items-center gap-3">
                             <div className="flex gap-1.5">
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '200ms' }}></div>
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '400ms' }}></div>
+                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
+                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-150" />
+                                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce delay-300" />
                             </div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-400">Analizando</span>
                         </div>
                     </div>
                 )}
-                <div ref={messagesEndRef} />
+
+                <div ref={messagesEndRef} className="h-2" />
             </div>
 
-            {/* Input Area */}
-            <div className="p-4 bg-white border-t border-gray-100 flex-shrink-0 space-y-3">
-                {imagePreview && (
-                    <div className="relative inline-block border border-gray-200 p-1 rounded-lg bg-gray-50">
-                        <img src={imagePreview} alt="Preview" className="h-16 rounded cursor-pointer" />
-                        <button onClick={clearImage} className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-md">
-                            <XMarkIcon className="w-4 h-4" />
-                        </button>
+            {/* Input Container */}
+            <div className="p-6 bg-[#0B0F19] border-t border-white/5 flex-shrink-0 space-y-4">
+                {/* Image Selection Previews */}
+                {filePreviews.length > 0 && (
+                    <div className="flex gap-3 px-1">
+                        {filePreviews.map((src, i) => (
+                            <div key={i} className="relative w-14 h-14 rounded-xl border border-indigo-500/50 overflow-hidden group shadow-lg">
+                                <img src={src} alt="Preview" className="w-full h-full object-cover" />
+                                <button onClick={clearFiles} className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                    <TrashIcon className="w-5 h-5 text-white" />
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-end gap-3">
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-2.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                        className={`p-4 rounded-2xl transition-all border shrink-0 ${selectedFiles.length > 0 ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-400' : 'bg-white/5 border-white/5 text-white/30 hover:bg-white/10 hover:text-white'}`}
                     >
                         <PhotoIcon className="w-6 h-6" />
                     </button>
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
+                    <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
 
-                    <div className="flex-1">
+                    <div className="flex-1 bg-white/5 rounded-2xl border border-white/5 focus-within:border-indigo-500/30 transition-all flex items-center pr-2">
                         <textarea
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={handleKeyPress}
-                            placeholder="Escribe un mensaje..."
-                            className="w-full px-4 py-3 bg-gray-100 border-none focus:ring-2 focus:ring-blue-500 rounded-xl text-sm text-gray-900 placeholder-gray-500 resize-none transition-all scrollbar-hide"
+                            onKeyDown={handleKeyDown}
+                            placeholder="Consultar..."
+                            className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-white placeholder-white/20 resize-none py-3.5 px-4 custom-scrollbar leading-relaxed font-bold"
                             rows={1}
-                            style={{ minHeight: '44px', maxHeight: '120px' }}
+                            style={{ minHeight: '52px', maxHeight: '120px' }}
                         />
+                        <button
+                            onClick={handleSend}
+                            disabled={isLoading || (!inputValue.trim() && selectedFiles.length === 0)}
+                            className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-900/40 hover:bg-indigo-500 disabled:opacity-25 transition-all active:scale-95 shrink-0"
+                        >
+                            <PaperAirplaneIcon className="w-5 h-5 -rotate-45" />
+                        </button>
                     </div>
-
-                    <button
-                        onClick={handleSend}
-                        disabled={(!inputValue.trim() && !selectedImage) || isProcessing}
-                        className="p-3 bg-purple-600 text-white rounded-xl shadow-md hover:bg-purple-700 disabled:opacity-50 transition-all transform active:scale-95"
-                    >
-                        <PaperAirplaneIcon className="w-5 h-5" />
-                    </button>
                 </div>
+
+                <p className="text-[9px] text-white/10 font-bold uppercase tracking-[0.3em] text-center pt-2">
+                    Asistente IA Industrial Premium v1.0
+                </p>
             </div>
         </div>
     );

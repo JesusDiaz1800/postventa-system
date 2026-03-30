@@ -45,30 +45,10 @@ export function useAuth() {
 
   const queryClient = useQueryClient();
 
-  // Load auth state from localStorage on mount
+  // NO auto-restaurar sesión desde localStorage
+  // El usuario debe hacer login explícitamente cada vez
   useEffect(() => {
-    const loadAuthState = () => {
-      try {
-        const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-        if (stored) {
-          const { user, token } = JSON.parse(stored);
-          if (user && token) {
-            setAuthState({
-              user,
-              token,
-              isAuthenticated: true,
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Error loading auth state:', error);
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadAuthState();
+    setIsLoading(false);
   }, []);
 
   // Save auth state to localStorage
@@ -112,6 +92,19 @@ export function useAuth() {
       return response.data;
     },
     onSuccess: (data) => {
+      // Detección Automática de País basada en el usuario
+      let detectedCountry = 'CL'; // Default Chile
+      const lowerUsername = data.user.username.toLowerCase();
+
+      if (lowerUsername.endsWith('.pe')) {
+        detectedCountry = 'PE';
+      } else if (lowerUsername.endsWith('.co')) {
+        detectedCountry = 'CO';
+      }
+
+      // Forzar actualización inmediata del país
+      localStorage.setItem('country_code', detectedCountry);
+
       saveAuthState(data.user, data.access);
       // Guardar refresh token si está disponible
       if (data.refresh) {
@@ -126,6 +119,9 @@ export function useAuth() {
       }
 
       toast.success(`¡Bienvenido, ${data.user.username}!`);
+
+      // Pequeño delay para asegurar que el header se actualice en api.js antes de siguientes peticiones
+      // Opcional: forzar recarga si el país cambió drásticamente, pero api.js lee localStorage encada request
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Error al iniciar sesión');
@@ -155,6 +151,9 @@ export function useAuth() {
       clearAuthState();
       // Limpiar sessionStorage también
       sessionStorage.removeItem('app_initialized');
+      // LIMPIEZA CRÍTICA: Borrar país para no afectar próxima sesión
+      localStorage.removeItem('country_code');
+
       toast.success('Sesión cerrada correctamente');
       // Forzar recarga de página para limpiar todo el estado
       setTimeout(() => {

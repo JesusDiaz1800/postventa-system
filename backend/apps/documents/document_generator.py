@@ -24,6 +24,9 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from .templates_professional import ProfessionalTemplateGenerator
+from apps.core.thread_local import get_current_country
+from apps.sap_integration.master_data_service import MasterDataService
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +41,16 @@ class DocumentGenerator:
         self.temp_path = os.path.join(base_path, 'temp')
         self._ensure_directories()
     
-    def _ensure_directories(self):
+    def _ensure_directories(self, country: Optional[str] = None):
         """Ensure all required directories exist"""
-        for path in [self.templates_path, self.documents_path, self.temp_path]:
+        dirs = [self.templates_path, self.documents_path, self.temp_path]
+        if country:
+            dirs.append(os.path.join(self.documents_path, country))
+            dirs.append(os.path.join(self.temp_path, country))
+        
+        for path in dirs:
             os.makedirs(path, exist_ok=True)
+
     
     def generate_document(self, template_name: str, incident_data: Dict, 
                          document_type: str = 'cliente_informe') -> Dict:
@@ -75,12 +84,17 @@ class DocumentGenerator:
             # Render template
             template.render(context)
             
+            # Prepare country context for regional storage
+            country = get_current_country()
+            self._ensure_directories(country)
+            
             # Generate document filename
             doc_filename = self._generate_filename(incident_data, document_type)
-            doc_path = os.path.join(self.documents_path, doc_filename)
+            doc_path = os.path.join(self.documents_path, country, doc_filename)
             
             # Save document
             template.save(doc_path)
+
             
             # Convert to PDF
             pdf_path = self._convert_to_pdf(doc_path)
@@ -100,6 +114,23 @@ class DocumentGenerator:
             
         except Exception as e:
             logger.error(f"Error generating document: {e}")
+            
+            # REGISTRO EN AUDITORÍA PARA DIAGNÓSTICO
+            try:
+                from apps.audit.models import AuditLog
+                # Intentamos obtener el usuario actual si es posible, aunque este servicio suele ser agnóstico
+                AuditLog.objects.create(
+                    action='pdf_error',
+                    description=f"Fallo al generar documento {document_type} usando plantilla {template_name}.",
+                    details={
+                        'error': str(e),
+                        'template': template_name,
+                        'type': document_type,
+                        'incident_id': incident_data.get('id')
+                    }
+                )
+            except: pass
+
             return {
                 'success': False,
                 'error': str(e),
@@ -263,6 +294,7 @@ class DocumentGenerator:
             'CONTENIDO': incident_data.get('contenido', 'No especificado'),
             'FECHA': incident_data.get('fecha', 'No especificada'),
             'AUTOR': incident_data.get('autor', 'No especificado'),
+            'MOTIVO_VISITA': MasterDataService.get_problem_type_name(incident_data.get('visit_reason')),
         }
         
         # Add AI-generated content if available
@@ -435,12 +467,17 @@ class DocumentGenerator:
             # Render template
             template.render(context)
             
+            # Prepare country context for regional storage
+            country = get_current_country()
+            self._ensure_directories(country)
+            
             # Generate document filename
             doc_filename = self._generate_polifusion_filename(incident_data)
-            doc_path = os.path.join(self.documents_path, doc_filename)
+            doc_path = os.path.join(self.documents_path, country, doc_filename)
             
             # Save document
             template.save(doc_path)
+
             
             # Convert to PDF
             pdf_path = self._convert_to_pdf(doc_path)
@@ -576,6 +613,7 @@ class DocumentGenerator:
             'VENDEDOR': visit_data.get('vendedor', ''),
             'TECNICO': visit_data.get('tecnico', ''),
             'FECHA_VISITA': visit_data.get('fecha_visita', now.strftime('%d/%m/%Y')),
+            'MOTIVO_VISITA': MasterDataService.get_problem_type_name(visit_data.get('visit_reason')),
             
             # Personal presente
             'PERSONAL_INFO': visit_data.get('personal_info', ''),
@@ -765,12 +803,17 @@ class DocumentGenerator:
             # Render template
             template.render(context)
             
+            # Prepare country context for regional storage
+            country = get_current_country()
+            self._ensure_directories(country)
+            
             # Generate document filename
             doc_filename = self._generate_polifusion_incident_filename(incident_data)
-            doc_path = os.path.join(self.documents_path, doc_filename)
+            doc_path = os.path.join(self.documents_path, country, doc_filename)
             
             # Save document
             template.save(doc_path)
+
             
             # Convert to PDF
             pdf_path = self._convert_to_pdf(doc_path)
@@ -811,12 +854,17 @@ class DocumentGenerator:
             # Render template
             template.render(context)
             
+            # Prepare country context for regional storage
+            country = get_current_country()
+            self._ensure_directories(country)
+            
             # Generate document filename
             doc_filename = self._generate_polifusion_visit_filename(visit_data)
-            doc_path = os.path.join(self.documents_path, doc_filename)
+            doc_path = os.path.join(self.documents_path, country, doc_filename)
             
             # Save document
             template.save(doc_path)
+
             
             # Convert to PDF
             pdf_path = self._convert_to_pdf(doc_path)

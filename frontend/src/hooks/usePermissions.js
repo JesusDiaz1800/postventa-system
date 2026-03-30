@@ -18,7 +18,7 @@ export const usePermissions = () => {
   const permissions = actualData?.permissions || {};
   const accessiblePages = actualData?.accessible_pages || [];
   const user = actualData?.user || null;
-  
+
 
   const hasPermission = (permission) => {
     return permissions[permission] === true;
@@ -37,6 +37,8 @@ export const usePermissions = () => {
   const canExportData = () => hasPermission('can_export_data');
   const canViewAuditLogs = () => hasPermission('can_view_audit_logs');
   const canManageSystemSettings = () => hasPermission('can_manage_system_settings');
+  const canViewSupplierReports = () => hasPermission('can_view_supplier_reports');
+  const canReopenIncidents = () => hasPermission('can_reopen_incidents');
 
   return {
     user,
@@ -56,6 +58,8 @@ export const usePermissions = () => {
     canExportData,
     canViewAuditLogs,
     canManageSystemSettings,
+    canViewSupplierReports,
+    canReopenIncidents,
   };
 };
 
@@ -64,7 +68,7 @@ export const usePermissions = () => {
  */
 export const usePageAccess = (pageName) => {
   const { canAccessPage, isLoading } = usePermissions();
-  
+
   return {
     canAccess: canAccessPage(pageName),
     isLoading,
@@ -76,7 +80,7 @@ export const usePageAccess = (pageName) => {
  */
 export const usePermission = (permissionName) => {
   const { hasPermission, isLoading } = usePermissions();
-  
+
   return {
     hasPermission: hasPermission(permissionName),
     isLoading,

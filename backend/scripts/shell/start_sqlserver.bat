@@ -13,8 +13,8 @@ echo Servidor: NB-JDIAZ25\SQLEXPRESS
 echo Base de datos: postventa_system
 echo.
 
-REM Iniciar servidor Django
-echo Iniciando servidor Django...
-python manage.py runserver 8000
+REM Iniciar servidor con Daphne (ASGI + WebSocket)
+echo Iniciando servidor Daphne (ASGI + WebSocket)...
+python -m daphne -b 0.0.0.0 -p 8000 postventa_system.asgi:application
 
 pause

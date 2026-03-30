@@ -41,29 +41,46 @@ class QueryAuthMiddleware(BaseMiddleware):
     """Middleware para autenticación por token en query params"""
     async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
         try:
-            # Obtener token de los query params
+            # Obtener token y pais de los query params de forma segura
+            from urllib.parse import parse_qs
             query_string = scope.get('query_string', b'').decode()
-            query_params = dict(param.split('=') for param in query_string.split('&') if param)
-            token = query_params.get('token')
+            query_params = parse_qs(query_string)
+            
+            country_list = query_params.get('country', [])
+            country_code = country_list[0].upper() if country_list else 'CL'
+            if country_code not in ['CL', 'PE', 'CO']:
+                country_code = 'CL'
+            scope['country_code'] = country_code
+            
+            token_list = query_params.get('token', [])
+            token = token_list[0] if token_list else None
 
             if token:
-                # Autenticar usuario por token
-                user = await database_sync_to_async(self.get_user_from_token)(token)
+                # Autenticar usuario por token inyectando el país
+                user = await database_sync_to_async(self.get_user_from_token)(token, country_code)
                 if user:
                     scope['user'] = user
                 else:
-                    scope['user'] = None
+                    from django.contrib.auth.models import AnonymousUser
+                    scope['user'] = AnonymousUser()
+            else:
+                from django.contrib.auth.models import AnonymousUser
+                scope['user'] = AnonymousUser()
             
             return await super().__call__(scope, receive, send)
             
         except Exception as e:
             print(f'Error en QueryAuthMiddleware: {str(e)}')
-            scope['user'] = None
+            from django.contrib.auth.models import AnonymousUser
+            scope['user'] = AnonymousUser()
             return await super().__call__(scope, receive, send)
     
-    def get_user_from_token(self, token: str) -> User:
-        """Obtener usuario a partir del token JWT"""
+    def get_user_from_token(self, token: str, country_code: str):
+        """Obtener usuario a partir del token JWT sincronizado al país"""
         try:
+            from apps.core.thread_local import set_current_country
+            set_current_country(country_code)
+            
             from rest_framework_simplejwt.tokens import AccessToken
             from django.contrib.auth import get_user_model
             

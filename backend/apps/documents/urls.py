@@ -89,6 +89,8 @@ urlpatterns = [
     # ==================== GENERAL ATTACHMENTS ====================
     path('upload-attachment/', views_attachment.upload_attachment, name='upload-attachment'),
     path('attachments/incident/<int:incident_id>/', views_attachment.list_attachments_by_incident, name='list-attachments-by-incident'),
+    path('attachments/v2/incident/<int:incident_id>/', views_attachment.list_attachments_by_incident, name='list-attachments-by-incident-v2'),
+    path('attachments/incident/<int:incident_id>/upload/', views_attachment.upload_attachment, name='upload-attachment-by-incident'),
     path('attachments/incident/<int:incident_id>/<int:attachment_id>/download/', views_attachment.download_attachment, name='download-attachment'),
     path('attachments/incident/<int:incident_id>/<int:attachment_id>/view/', views_attachment.view_attachment, name='view-attachment'),
     path('attachments/incident/<int:incident_id>/<int:attachment_id>/delete/', views_attachment.delete_attachment, name='delete-attachment'),

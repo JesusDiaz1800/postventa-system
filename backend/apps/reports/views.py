@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from apps.incidents.models import Incident
 from apps.documents.models import VisitReport, SupplierReport, LabReport, QualityReport
 from apps.users.models import User
+from django.db.models.functions import TruncMonth, TruncDay
 
 logger = logging.getLogger(__name__)
 
@@ -67,26 +68,25 @@ def reports_dashboard(request):
         resolved_incidents = incidents_queryset.filter(estado='cerrado').count()
         pending_incidents = incidents_queryset.filter(estado__in=['abierto', 'en_progreso']).count()
         
-        # Average resolution time (in days) - Simplified
+        # Average resolution time (en días) - OPTIMIZADO: Agregación en BD
         try:
-            resolved_with_dates = incidents_queryset.filter(
+            from django.db.models import F, ExpressionWrapper, DurationField
+            # Nota: SQL Server maneja las deltas de fecha de forma particular,
+            # pero Django MSSQL Backend traduce esto correctamente entre datetime2 y duration.
+            avg_metrics = incidents_queryset.filter(
                 estado='cerrado',
                 fecha_cierre__isnull=False
-            )
-            if resolved_with_dates.exists():
-                # Calculate average resolution time manually
-                total_days = 0
-                count = 0
-                for incident in resolved_with_dates:
-                    if incident.fecha_cierre and incident.created_at:
-                        delta = incident.fecha_cierre - incident.created_at
-                        total_days += delta.days
-                        count += 1
-                avg_resolution_days = total_days / count if count > 0 else 0
-            else:
-                avg_resolution_days = 0
+            ).annotate(
+                latency=ExpressionWrapper(
+                    F('fecha_cierre') - F('created_at__date'), 
+                    output_field=DurationField()
+                )
+            ).aggregate(avg_latency=Avg('latency'))
+            
+            delta = avg_metrics.get('avg_latency')
+            avg_resolution_days = delta.days if delta else 0
         except Exception as e:
-            logger.error(f"Error calculating average resolution time: {e}")
+            logger.error(f"Error calculando tiempo promedio de resolución (SQL): {e}")
             avg_resolution_days = 0
         
         # Incidents by status
@@ -118,24 +118,23 @@ def reports_dashboard(request):
             logger.error(f"Error getting incidents by provider: {e}")
             incidents_by_provider = []
         
-        # Incidents by month (last 12 months)
+        # Incidents by month (last 12 months) - OPTIMIZADO
         try:
-            monthly_data = []
-            for i in range(12):
-                month_start = timezone.now().replace(day=1) - timedelta(days=30*i)
-                month_end = month_start.replace(day=1) + timedelta(days=32)
-                month_end = month_end.replace(day=1) - timedelta(days=1)
-                
-                month_count = incidents_queryset.filter(
-                    created_at__date__range=[month_start.date(), month_end.date()]
-                ).count()
-                
-                monthly_data.append({
-                    'month': month_start.strftime('%Y-%m'),
-                    'count': month_count
-                })
-            
-            monthly_data.reverse()
+            twelve_months_ago = timezone.now().replace(day=1) - timedelta(days=365)
+            monthly_data_raw = incidents_queryset.filter(
+                created_at__gte=twelve_months_ago
+            ).annotate(
+                month=TruncMonth('created_at')
+            ).values('month').annotate(
+                count=Count('id')
+            ).order_by('month')
+
+            monthly_data = [
+                {
+                    'month': item['month'].strftime('%Y-%m') if item['month'] else 'N/A',
+                    'count': item['count']
+                } for item in monthly_data_raw
+            ]
         except Exception as e:
             logger.error(f"Error getting monthly data: {e}")
             monthly_data = []
@@ -149,25 +148,41 @@ def reports_dashboard(request):
             logger.error(f"Error getting top SKUs: {e}")
             top_skus = []
         
-        # Resolution trend (last 30 days)
+        # Resolution trend (last 30 days) - OPTIMIZADO
         try:
-            resolution_trend = []
-            for i in range(30):
-                date = timezone.now().date() - timedelta(days=i)
-                created_count = incidents_queryset.filter(
-                    created_at__date=date
-                ).count()
-                resolved_count = incidents_queryset.filter(
-                    fecha_cierre=date
-                ).count()
-                
-                resolution_trend.append({
-                    'date': date.strftime('%Y-%m-%d'),
-                    'created': created_count,
-                    'resolved': resolved_count
-                })
+            thirty_days_ago = timezone.now().date() - timedelta(days=30)
             
-            resolution_trend.reverse()
+            # Creados por día
+            created_trend = incidents_queryset.filter(
+                created_at__date__gte=thirty_days_ago
+            ).annotate(
+                day=TruncDay('created_at')
+            ).values('day').annotate(
+                count=Count('id')
+            ).order_by('day')
+            
+            # Cerrados por día
+            resolved_trend_raw = incidents_queryset.filter(
+                estado='cerrado',
+                fecha_cierre__gte=thirty_days_ago
+            ).values('fecha_cierre').annotate(
+                count=Count('id')
+            ).order_by('fecha_cierre')
+            
+            # Mapear datos para el frontend
+            trend_map = {}
+            for item in created_trend:
+                d = item['day'].strftime('%Y-%m-%d')
+                trend_map[d] = {'date': d, 'created': item['count'], 'resolved': 0}
+            
+            for item in resolved_trend_raw:
+                d = item['fecha_cierre'].strftime('%Y-%m-%d') if hasattr(item['fecha_cierre'], 'strftime') else str(item['fecha_cierre'])
+                if d in trend_map:
+                    trend_map[d]['resolved'] = item['count']
+                else:
+                    trend_map[d] = {'date': d, 'created': 0, 'resolved': item['count']}
+            
+            resolution_trend = sorted(trend_map.values(), key=lambda x: x['date'])
         except Exception as e:
             logger.error(f"Error getting resolution trend: {e}")
             resolution_trend = []

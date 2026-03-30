@@ -4,7 +4,7 @@ User serializers for API
 
 from rest_framework import serializers
 from django.contrib.auth.hashers import make_password
-from .models import User
+from .models import User, RolePermission
 
 class UserSerializer(serializers.ModelSerializer):
     """
@@ -20,7 +20,8 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
             'role', 'role_display', 'is_active', 'is_staff', 'is_superuser',
             'date_joined', 'last_login', 'created_at', 'updated_at',
-            'phone', 'department', 'digital_signature', 'accessible_pages'
+            'phone', 'department', 'digital_signature', 'accessible_pages',
+            'sap_user', 'permissions_override', 'pages_override'
         ]
         read_only_fields = [
             'id', 'date_joined', 'last_login', 'created_at', 'updated_at',
@@ -31,8 +32,35 @@ class UserSerializer(serializers.ModelSerializer):
         return f"{obj.first_name} {obj.last_name}".strip()
 
     def get_accessible_pages(self, obj):
-        from .permissions import get_accessible_pages
-        return get_accessible_pages(obj)
+        try:
+            from .permissions import get_accessible_pages
+            return get_accessible_pages(obj)
+        except ImportError:
+            return []
+        except Exception as e:
+            # Fallback for safety
+            return []
+
+
+class RolePermissionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for managing role permissions
+    """
+    role_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = RolePermission
+        fields = ['id', 'role', 'role_display', 'permissions', 'accessible_pages', 'updated_at']
+        read_only_fields = ['id', 'updated_at']
+        
+    def get_role_display(self, obj):
+        # Helper to get display name from User.ROLE_CHOICES
+        # We need to find the choice label for the stored role key
+        for code, label in User.ROLE_CHOICES:
+            if code == obj.role:
+                return label
+        return obj.role
+
     
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -78,7 +106,8 @@ class UserCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'username', 'email', 'first_name', 'last_name', 'role',
-            'is_active', 'phone', 'department', 'password', 'password_confirm'
+            'is_active', 'phone', 'department', 'password', 'password_confirm',
+            'sap_user', 'sap_password', 'permissions_override', 'pages_override'
         ]
     
     def validate(self, attrs):
@@ -119,6 +148,24 @@ class UserCreateSerializer(serializers.ModelSerializer):
         
         logger.info(f"Email validation passed: {value}")
         return value
+
+    def validate_permissions_override(self, value):
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+        return value
+
+    def validate_pages_override(self, value):
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+        return value
     
     def create(self, validated_data):
         import logging
@@ -151,13 +198,15 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=False)
     digital_signature = serializers.ImageField(required=False, allow_null=True)
+    sap_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     
     class Meta:
         model = User
         fields = [
             'username', 'email', 'first_name', 'last_name', 'role',
             'is_active', 'phone', 'department', 'password', 'password_confirm',
-            'digital_signature'
+            'digital_signature', 'sap_user', 'sap_password',
+            'permissions_override', 'pages_override'
         ]
     
     def validate(self, attrs):
@@ -195,15 +244,41 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             if User.objects.filter(email=value).exists():
                 raise serializers.ValidationError("Este email ya está registrado")
         return value
+
+    def validate_permissions_override(self, value):
+        """Handle JSON strings from FormData"""
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Formato JSON inválido para permisos")
+        return value
+
+    def validate_pages_override(self, value):
+        """Handle JSON strings from FormData"""
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("Formato JSON inválido para páginas")
+        return value
     
     def update(self, instance, validated_data):
         # Handle password update
-        if 'password' in validated_data:
+        if 'password' in validated_data and validated_data['password']:
             password = validated_data.pop('password')
             instance.set_password(password)
-        
+        elif 'password' in validated_data:
+            validated_data.pop('password')
+            
         # Remove password_confirm from validated_data
         validated_data.pop('password_confirm', None)
+        
+        # Protect sap_password from being wiped out if sent blank form data
+        if 'sap_password' in validated_data and not validated_data['sap_password']:
+            validated_data.pop('sap_password')
         
         # Update other fields
         for attr, value in validated_data.items():

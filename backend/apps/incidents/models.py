@@ -6,8 +6,9 @@ from apps.users.models import User
 
 class Category(models.Model):
     """Model for product categories"""
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    sap_problem_type_id = models.IntegerField(blank=True, null=True, help_text="ID del Tipo de Problema en SAP (OSCL.problemType)")
 
     def __str__(self):
         return self.name
@@ -20,9 +21,11 @@ class Category(models.Model):
 
 class Responsible(models.Model):
     """Model for responsible technicians"""
-    name = models.CharField(max_length=100, unique=True)
-    email = models.EmailField(blank=True)
+    name = models.CharField(max_length=100)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
     active = models.BooleanField(default=True)
+    sap_technician_id = models.IntegerField(blank=True, null=True, help_text="ID del técnico en SAP (OHEM.empID)")
 
     def __str__(self):
         return self.name
@@ -43,6 +46,7 @@ class Incident(models.Model):
         ('calidad', 'En Calidad'),
         ('proveedor', 'En Proveedor'),
         ('cerrado', 'Cerrado'),
+        ('cancelada', 'Cancelada'),
     ]
     
     # Etapa en la que se cerró la incidencia
@@ -80,16 +84,23 @@ class Incident(models.Model):
     # Client and project information
     provider = models.CharField(
         max_length=200,
+        null=True,
+        blank=True,
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='Proveedor del producto'
     )
     
     obra = models.CharField(
         max_length=200,
+        null=True,
+        blank=True,
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='Obra o proyecto'
     )
     
     cliente = models.CharField(
         max_length=200,
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='Nombre del cliente'
     )
     
@@ -102,8 +113,23 @@ class Incident(models.Model):
     )
     
     direccion_cliente = models.TextField(
+        null=True,
         blank=True,
         help_text='Dirección del cliente'
+    )
+
+    comuna = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text='Comuna del cliente u obra'
+    )
+    
+    ciudad = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text='Ciudad del cliente u obra'
     )
 
     # SAP Integration Fields
@@ -128,7 +154,19 @@ class Incident(models.Model):
         blank=True,
         null=True,
         default='',
-        help_text='Vendedor asignado (U_NX_VENDEDOR)'
+        help_text='Vendedor asignado (Nombre)'
+    )
+
+    salesperson_code = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text='Código del vendedor en SAP (SlpCode)'
+    )
+
+    technician_code = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text='Código del técnico responsable en SAP (EmpID)'
     )
 
     sap_call_id = models.IntegerField(
@@ -137,11 +175,19 @@ class Incident(models.Model):
         db_index=True,
         help_text='ID de Llamada de Servicio en SAP'
     )
+
+    sap_doc_num = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='DocNum oficial de Llamada de Servicio en SAP'
+    )
     
     # Product information
     sku = models.CharField(
         max_length=100,
         default='N/A',
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='SKU del producto'
     )
     
@@ -176,6 +222,7 @@ class Incident(models.Model):
     )
     
     fecha_deteccion = models.DateField(
+        db_index=True,  # ÍNDICE para ordenamiento por fecha
         help_text='Fecha de detección del problema'
     )
     
@@ -266,12 +313,14 @@ class Incident(models.Model):
     )
     
     escalation_reason = models.TextField(
+        null=True,
         blank=True,
         help_text='Razón del escalamiento'
     )
     
     # Registro de evolución/acciones posteriores (del PDF)
     acciones_posteriores = models.TextField(
+        null=True,
         blank=True,
         help_text='Registro de evolución/acciones posteriores'
     )
@@ -447,7 +496,7 @@ class Incident(models.Model):
         
         return base_code
     
-    def close(self, user, stage='incidencia', summary='', attachment_path=''):
+    def close(self, user, stage, summary, attachment_path=None, technician_code=None):
         """
         Close the incident with required summary
         
@@ -456,6 +505,7 @@ class Incident(models.Model):
             stage: Stage where incident is being closed (incidencia, reporte_visita, calidad, proveedor)
             summary: Required closure summary (actions, conclusions, decisions)
             attachment_path: Optional path to closure attachment
+            technician_code: Optional technician code for SAP update
         """
         self.estado = 'cerrado'
         self.closed_by = user
@@ -509,6 +559,85 @@ class Incident(models.Model):
         if self.sla_due_date and timezone.now() > self.sla_due_date:
             self.sla_breached = True
         
+        # --- SINCRONIZACIÓN CON SAP SERVICE LAYER ---
+        if self.sap_call_id:
+            try:
+                from apps.sap_integration.sap_transaction_service import SAPTransactionService
+                sap_service = SAPTransactionService(request_user=user)
+                # === Sincronizar resolución en SAP ===
+                from apps.sap_integration.sap_query_service import SAPQueryService
+                
+                # 1. Resolver el CallID Interno (DocEntry) a partir del DocNum guardado
+                internal_call_id = self.sap_call_id
+                try:
+                    q_srv = SAPQueryService()
+                    sc_data = q_srv.get_service_call(self.sap_call_id)
+                    if sc_data and 'call_id' in sc_data:
+                        internal_call_id = sc_data['call_id']
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"No se pudo resolver el CallID interno para DocNum {self.sap_call_id}: {e}")
+
+                # 2. Generar Fecha de Visita requerida por Transaction Notification en PE/CO
+                visit_date_str = timezone.now().strftime('%Y-%m-%d')
+                
+                # 3. Enviar PATCH de Cierre con los datos combinados a SAP Service Layer
+                sap_res = sap_service.close_service_call(
+                    internal_call_id, 
+                    self.closure_summary,
+                    visit_date=visit_date_str,
+                    technician_code=technician_code or self.technician_code
+                )
+                
+                if sap_res.get('success'):
+                    from apps.incidents.models import IncidentTimeline
+                    IncidentTimeline.objects.create(
+                        incident=self,
+                        action='updated',
+                        description=f"Resolución sincronizada en SAP (Status: Cerrado, CallID: {internal_call_id}).",
+                        metadata={'sap_doc_num': self.sap_doc_num, 'sap_call_id_interno': internal_call_id}
+                    )
+                else:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    err_msg = sap_res.get('error', 'Error desconocido')
+                    logger.error(f"Error sincronizando cierre en SAP para {self.code}: {err_msg}")
+                    
+                    # REGISTRO EN AUDITORÍA PARA EL USUARIO
+                    try:
+                        from apps.audit.models import AuditLog
+                        AuditLog.objects.create(
+                            user=user if hasattr(user, 'pk') else None,
+                            action='sap_sync_error',
+                            description=f"Fallo al cerrar Folio SAP {self.sap_doc_num or self.sap_call_id} para incidencia {self.code}.",
+                            details={
+                                'error': err_msg,
+                                'incident_code': self.code,
+                                'sap_call_id': self.sap_call_id,
+                                'sap_doc_num': self.sap_doc_num
+                            }
+                        )
+                    except Exception as audit_err:
+                        logger.error(f"No se pudo crear log de auditoría para error SAP: {audit_err}")
+
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                err_msg = str(e)
+                logger.error(f"Excepción al sincronizar cierre en SAP para {self.code}: {err_msg}")
+                
+                # REGISTRO EN AUDITORÍA PARA EL USUARIO (EXCEPCIÓN)
+                try:
+                    from apps.audit.models import AuditLog
+                    AuditLog.objects.create(
+                        user=user if hasattr(user, 'pk') else None,
+                        action='sap_sync_error',
+                        description=f"Excepción crítica sincronizando SAP para {self.code}.",
+                        details={'error': err_msg, 'incident_code': self.code}
+                    )
+                except: pass
+
         self.save()
     
     def get_photos_list(self):
@@ -670,6 +799,7 @@ class IncidentTimeline(models.Model):
         ('updated', 'Actualizado'),
         ('assigned', 'Asignado'),
         ('status_changed', 'Estado Cambiado'),
+        ('cancelled', 'Cancelada'),
         ('image_uploaded', 'Imagen Subida'),
         ('document_generated', 'Documento Generado'),
         ('lab_report_added', 'Reporte de Lab Agregado'),

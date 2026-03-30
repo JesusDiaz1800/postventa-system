@@ -31,6 +31,45 @@ def search_sap_customers(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def get_sales_employees(request):
+    """Obtener lista de vendedores de SAP"""
+    employees = sap_service.get_sales_employees()
+    return Response(employees)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_technicians(request):
+    """Obtener lista de técnicos/empleados de SAP"""
+    from apps.core.thread_local import get_current_country
+    import logging
+    logger = logging.getLogger(__name__)
+    country = get_current_country()
+    
+    # Soporta filtrar por rol técnico oficial (?role=technician)
+    role = request.query_params.get('role')
+    only_technical_role = (role == 'technician')
+    
+    technicians = sap_service.get_technicians(only_technical_role=only_technical_role)
+    
+    logger.info(f"[API] get_technicians for {country} (role={role}): Found {len(technicians)} results")
+    return Response(technicians)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_customer_details(request, card_code):
+    """Obtener detalles completos del cliente incluyendo vendedor, direcciones y proyectos"""
+    details = sap_service.get_customer_full_details(card_code)
+    
+    if not details:
+        return Response(
+            {'error': 'Cliente no encontrado en SAP'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    return Response(details)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_sap_customer(request, card_code):
     """Obtener detalles completos de un cliente por su código"""
     customer = sap_service.get_customer_by_code(card_code)
@@ -45,9 +84,9 @@ def get_sap_customer(request, card_code):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def get_sap_service_call(request, call_id):
-    """Obtener detalles de una llamada de servicio por su ID"""
-    call = sap_service.get_service_call(call_id)
+def get_sap_service_call(request, doc_num):
+    """Obtener detalles de una llamada de servicio por su DocNum"""
+    call = sap_service.get_service_call(doc_num)
     
     if not call:
         return Response(
@@ -55,7 +94,7 @@ def get_sap_service_call(request, call_id):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    call['attachments'] = sap_service.get_attachments(call_id)
+    call['attachments'] = sap_service.get_attachments(call['call_id'])
     return Response(call)
     
 @api_view(['GET'])

@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 import logging
 
-from .services.writing_assistant import writing_assistant
+from .ai_services.writing_assistant import writing_assistant
 
 logger = logging.getLogger(__name__)
 

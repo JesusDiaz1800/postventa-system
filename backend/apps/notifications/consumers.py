@@ -5,6 +5,19 @@ from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from .models import Notification, NotificationPreferences
+from apps.core.thread_local import set_current_country
+
+def tenant_sync_to_async(func):
+    """
+    Asegura que el contexto ThreadLocal (Base de Datos / País) se propague
+    adentro del pool de hilos asíncronos de ASGI de forma paramétrica.
+    """
+    @database_sync_to_async
+    def wrapper(self, *args, **kwargs):
+        country_code = self.scope.get('country_code', 'CL')
+        set_current_country(country_code)
+        return func(self, *args, **kwargs)
+    return wrapper
 
 User = get_user_model()
 
@@ -233,7 +246,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             'count': unread_count
         }))
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def get_unread_count(self):
         """Obtener conteo de notificaciones no leídas"""
         try:
@@ -242,7 +255,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al obtener conteo no leídas: {str(e)}')
             return 0
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def get_recent_notifications(self, limit=10, page=1, filter_type=None):
         """Obtener notificaciones recientes con paginación y filtros"""
         try:
@@ -275,7 +288,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al obtener notificaciones: {str(e)}')
             return []
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def get_total_notifications_count(self, filter_type=None):
         """Obtener conteo total de notificaciones según filtro"""
         try:
@@ -291,7 +304,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al obtener conteo total: {str(e)}')
             return 0
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def get_important_notifications(self):
         """Obtener notificaciones importantes"""
         try:
@@ -316,7 +329,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al obtener notificaciones importantes: {str(e)}')
             return []
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def mark_notification_as_read(self, notification_id):
         """Marcar notificación como leída"""
         try:
@@ -330,7 +343,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al marcar como leída: {str(e)}')
             return False
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def mark_all_as_read(self):
         """Marcar todas las notificaciones como leídas"""
         try:
@@ -343,7 +356,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             print(f'Error al marcar todas como leídas: {str(e)}')
             return False
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def mark_notification_as_important(self, notification_id, important=True):
         """Marcar notificación como importante o no importante"""
         try:
@@ -488,7 +501,7 @@ class NotificationBroadcastConsumer(AsyncWebsocketConsumer):
             'timestamp': timezone.now().isoformat()
         }))
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def subscribe_to_categories(self, categories):
         """Suscribir usuario a categorías de notificaciones"""
         try:
@@ -503,7 +516,7 @@ class NotificationBroadcastConsumer(AsyncWebsocketConsumer):
             print(f'Error al suscribir a categorías: {str(e)}')
             return False
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def get_system_status(self):
         """Obtener estado del sistema"""
         try:
@@ -551,7 +564,7 @@ class NotificationBroadcastConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f'Error al enviar alerta del sistema: {str(e)}')
     
-    @database_sync_to_async
+    @tenant_sync_to_async
     def should_send_notification(self, notification):
         """Verificar si se debe enviar la notificación al usuario"""
         try:

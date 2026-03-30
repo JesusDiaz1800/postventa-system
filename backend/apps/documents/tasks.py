@@ -1,7 +1,7 @@
 """
 Celery tasks for document generation and conversion
 """
-# from celery import shared_task
+from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
 import logging
@@ -12,8 +12,46 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from apps.core.thread_local import set_current_country
 
-# @shared_task(bind=True)
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=120,
+    name='apps.documents.tasks.sync_visit_report_task'
+)
+def sync_visit_report_task(self, report_id, attachments_ids=None, img_descriptions=None, has_manual_pdf=False, user_id=None, country='CL'):
+    """
+    Tarea de Celery para procesar la sincronización completa de un Reporte de Visita.
+    """
+    from apps.documents.services.report_sync_service import ReportSyncService
+    
+    # Establecer contexto de país para hilos de Celery
+    set_current_country(country)
+    
+    logger.info(f"Celery: Iniciando sincronización integral del reporte {report_id} [{country}]")
+    
+    try:
+        # Ejecutamos el proceso interno del servicio que ya está implementado
+        # Simplemente delegamos la ejecución al método estático pero dentro del worker de Celery
+        ReportSyncService._sync_process(
+            report_id=report_id,
+            attachments_ids=attachments_ids or [],
+            img_descriptions=img_descriptions or {},
+            has_manual_pdf=has_manual_pdf,
+            user_id=user_id
+        )
+        return f"Report {report_id} synced successfully"
+        
+    except Exception as e:
+        logger.error(f"Celery: Error en sync_visit_report_task para reporte {report_id}: {e}")
+        # Reintentar solo si parece un error de conexión con SAP
+        if 'SAP' in str(e) or 'Connection' in str(e) or 'Timeout' in str(e):
+             raise self.retry(exc=e)
+        raise e
+
+
+@shared_task(bind=True)
 def generate_document_task(self, document_id):
     """
     Generate document from template using docxtpl
@@ -101,7 +139,7 @@ def generate_document_task(self, document_id):
         return {'status': 'error', 'error': str(e)}
 
 
-# @shared_task(bind=True)
+@shared_task(bind=True)
 def convert_document_task(self, conversion_id):
     """
     Convert document from DOCX to PDF using LibreOffice
@@ -187,7 +225,7 @@ def convert_document_task(self, conversion_id):
         return {'status': 'error', 'error': str(e)}
 
 
-# @shared_task(bind=True)
+@shared_task(bind=True)
 def cleanup_temp_files_task(self):
     """
     Clean up temporary files older than 24 hours

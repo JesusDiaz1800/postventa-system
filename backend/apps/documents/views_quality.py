@@ -19,7 +19,10 @@ from .serializers_quality import (
 )
 from apps.incidents.models import Incident
 
+from apps.core.thread_local import get_current_country
+
 logger = logging.getLogger(__name__)
+
 
 class QualityReportListCreateView(generics.ListCreateAPIView):
     """
@@ -264,9 +267,11 @@ def generate_quality_report_document(request, report_id):
         
         # Determinar ruta de guardado
         shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
+        country = get_current_country()
         report_type_folder = 'quality_reports_cliente' if report.report_type == 'cliente' else 'quality_reports_interno'
-        incident_folder = os.path.join(shared_path, report_type_folder, f'incident_{incident.id}' if incident else 'general')
+        incident_folder = os.path.join(shared_path, country, report_type_folder, f'incident_{incident.id}' if incident else 'general')
         os.makedirs(incident_folder, exist_ok=True)
+
         
         pdf_filename = f"{report.report_number}.pdf"
         pdf_path = os.path.join(incident_folder, pdf_filename)
@@ -335,9 +340,11 @@ def upload_quality_report_document(request):
         
         # Determinar ruta de guardado
         shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
+        country = get_current_country()
         report_type_folder = 'quality_reports_cliente' if report_type == 'cliente' else 'quality_reports_interno'
-        incident_folder = os.path.join(shared_path, report_type_folder, f'incident_{incident.id}')
+        incident_folder = os.path.join(shared_path, country, report_type_folder, f'incident_{incident.id}')
         os.makedirs(incident_folder, exist_ok=True)
+
         
         # Guardar archivo
         file_name = uploaded_file.name
@@ -520,6 +527,7 @@ def download_quality_report(request, pk):
     """
     import os
     from django.http import FileResponse
+    from django.conf import settings
     
     try:
         report = get_object_or_404(QualityReport, pk=pk)
@@ -530,21 +538,65 @@ def download_quality_report(request, pk):
                 status=status.HTTP_404_NOT_FOUND
             )
             
-        if not os.path.exists(report.pdf_path):
-            return Response(
-                {'error': 'El archivo físico no se encuentra en el servidor'}, 
-                status=status.HTTP_404_NOT_FOUND
+        # Intento 1: Ruta absoluta almacenada
+        if os.path.exists(report.pdf_path):
+            file_handle = open(report.pdf_path, 'rb')
+            response = FileResponse(
+                file_handle,
+                content_type='application/pdf',
+                as_attachment=False
+            )
+            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
+            return response
+            
+        # Intento 2: Reconstrucción de ruta (Fallback Regionalizado)
+        logger.warning(f"Ruta absoluta no encontrada: {report.pdf_path}. Intentando reconstrucción regionalizada...")
+        try:
+            filename = os.path.basename(report.pdf_path)
+            country = get_current_country()
+            report_type_folder = 'quality_reports_cliente' if report.report_type == 'cliente' else 'quality_reports_interno'
+            incident_folder_name = f'incident_{report.related_incident.id}' if report.related_incident else 'general'
+            
+            # Determinar base path (Shared o Media)
+            shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
+            
+            # Intentar primero con prefijo de país
+            reconstructed_path = os.path.join(
+                shared_path, 
+                country,
+                report_type_folder, 
+                incident_folder_name, 
+                filename
             )
             
-        # Abrir y servir el archivo
-        file_handle = open(report.pdf_path, 'rb')
-        response = FileResponse(
-            file_handle,
-            content_type='application/pdf',
-            as_attachment=False
+            if not os.path.exists(reconstructed_path):
+                # Intentar sin prefijo de país (legacy)
+                reconstructed_path = os.path.join(
+                    shared_path,
+                    report_type_folder,
+                    incident_folder_name,
+                    filename
+                )
+            
+            if os.path.exists(reconstructed_path):
+                logger.info(f"Archivo encontrado en ruta reconstruida: {reconstructed_path}")
+
+                file_handle = open(reconstructed_path, 'rb')
+                response = FileResponse(
+                    file_handle,
+                    content_type='application/pdf',
+                    as_attachment=False
+                )
+                response['Content-Disposition'] = f'inline; filename="{filename}"'
+                return response
+                
+        except Exception as reconstruction_error:
+            logger.error(f"Error en reconstrucción de ruta: {reconstruction_error}")
+            
+        return Response(
+            {'error': 'El archivo físico no se encuentra en el servidor'}, 
+            status=status.HTTP_404_NOT_FOUND
         )
-        response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
-        return response
         
     except Exception as e:
         logger.error(f"Error descargando reporte de calidad: {str(e)}", exc_info=True)

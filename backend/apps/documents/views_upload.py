@@ -15,6 +15,8 @@ from datetime import datetime
 import logging
 from datetime import datetime
 from apps.ai.rag_service import RAGService
+from apps.core.thread_local import get_current_country
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,9 @@ def sync_to_shared_folder(local_path, document_type, incident_id, filename, repo
         # Crear estructura en carpeta compartida
         # Convertir visit-report a visit_reports, lab-report a lab_reports, etc.
         folder_name = document_type.replace('-', '_') + 's'
-        shared_type_folder = os.path.join(shared_base, folder_name)
+        country = get_current_country()
+        shared_type_folder = os.path.join(shared_base, country, folder_name)
+
         
         # Para reportes de calidad, crear subcarpetas por tipo
         if document_type == 'quality-report' and report_type:
@@ -102,8 +106,10 @@ def upload_visit_report(request):
             shared_base = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
         
         # Crear estructura de carpetas
-        type_folder = os.path.join(shared_base, 'visit_report')
+        country = get_current_country()
+        type_folder = os.path.join(shared_base, country, 'visit_report')
         incident_folder = os.path.join(type_folder, f'incident_{incident_id}')
+
         
         # Crear carpetas si no existen
         os.makedirs(incident_folder, exist_ok=True)
@@ -249,8 +255,10 @@ def upload_supplier_report(request):
             shared_base = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
         
         # Crear estructura de carpetas
-        type_folder = os.path.join(shared_base, 'supplier_report')
+        country = get_current_country()
+        type_folder = os.path.join(shared_base, country, 'supplier_report')
         incident_folder = os.path.join(type_folder, f'incident_{incident_id}')
+
         
         # Crear carpetas si no existen
         os.makedirs(incident_folder, exist_ok=True)
@@ -371,8 +379,10 @@ def upload_lab_report(request):
             shared_base = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
         
         # Crear estructura de carpetas
-        type_folder = os.path.join(shared_base, 'lab_report')
+        country = get_current_country()
+        type_folder = os.path.join(shared_base, country, 'lab_report')
         incident_folder = os.path.join(type_folder, f'incident_{incident_id}')
+
         
         # Crear carpetas si no existen
         os.makedirs(incident_folder, exist_ok=True)
@@ -490,8 +500,10 @@ def upload_quality_report(request):
             shared_base = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
         
         # Crear estructura de carpetas
-        type_folder = os.path.join(shared_base, 'quality_report')
+        country = get_current_country()
+        type_folder = os.path.join(shared_base, country, 'quality_report')
         incident_folder = os.path.join(type_folder, f'incident_{incident_id}')
+
         
         # Crear carpetas si no existen
         os.makedirs(incident_folder, exist_ok=True)
@@ -618,9 +630,11 @@ def upload_document(request):
             )
         
         # Crear estructura de carpetas locales
-        shared_folder = os.path.join(settings.MEDIA_ROOT, 'shared_documents')
+        country = get_current_country()
+        shared_folder = os.path.join(settings.MEDIA_ROOT, 'shared_documents', country)
         type_folder = os.path.join(shared_folder, document_type)
         incident_folder = os.path.join(type_folder, f'incident_{incident_id}')
+
         
         # Crear carpetas si no existen
         os.makedirs(incident_folder, exist_ok=True)
@@ -771,13 +785,19 @@ def open_document(request, document_type, incident_id, filename):
         # Construir ruta del archivo (manejar diferentes formatos de nombres)
         # Convertir visit-report a visit_reports, lab-report a lab_reports, etc.
         folder_name = document_type.replace('-', '_') + 's'
+        country = get_current_country()
+        
+        # Intentar primero ruta regionalizada
+        regional_path = os.path.join(shared_base, country, folder_name)
         
         # Para quality reports, buscar en ambas subcarpetas (cliente e interno)
         if document_type == 'quality-report':
             shared_file_path = None
             for report_type in ['cliente', 'interno']:
+                # Probar ruta regional
                 test_path = os.path.join(
                     shared_base, 
+                    country,
                     folder_name, 
                     report_type,
                     f'incident_{incident_id}', 
@@ -786,6 +806,19 @@ def open_document(request, document_type, incident_id, filename):
                 if os.path.exists(test_path):
                     shared_file_path = test_path
                     break
+                
+                # Probar ruta legacy
+                test_path_legacy = os.path.join(
+                    shared_base, 
+                    folder_name, 
+                    report_type,
+                    f'incident_{incident_id}', 
+                    decoded_filename
+                )
+                if os.path.exists(test_path_legacy):
+                    shared_file_path = test_path_legacy
+                    break
+
             
             if not shared_file_path:
                 # Listar archivos disponibles para debugging

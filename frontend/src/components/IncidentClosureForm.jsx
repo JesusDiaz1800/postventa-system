@@ -1,418 +1,234 @@
 import React, { useState, useCallback } from 'react';
 import {
-  CheckCircleIcon,
   XMarkIcon,
-  DocumentTextIcon,
-  UserIcon,
-  CalendarIcon,
-  ExclamationTriangleIcon,
-  CheckIcon,
-  ListBulletIcon,
-  FlagIcon,
-  ChatBubbleBottomCenterTextIcon,
+  CheckCircleIcon,
   PaperClipIcon
 } from '@heroicons/react/24/outline';
 
 /**
- * Formulario optimizado para cierre de incidencias
- * Incluye campos detallados: Motivo, Resultado, Conclusión
+ * Standardized Incident Closure Form
+ * Replicates the design and logic from VisitReportsPage.jsx for consistency across the system.
  */
 const IncidentClosureForm = ({
   incident,
   onSubmit,
   onCancel,
-  isLoading = false
+  isClosing = false,
+  defaultStage = 'incidencia'
 }) => {
-  // Determinar etapa inicial basada en el estado de la incidencia
-  const getInitialStage = () => {
-    if (!incident?.estado) return 'incidencia';
-    const status = incident.estado;
-    if (status === 'escalado_proveedor' || status === 'en_proveedor' || status === 'proveedor') return 'proveedor';
-    if (status === 'escalado_calidad' || status === 'en_calidad' || status === 'laboratorio') return 'calidad';
-    if (status === 'en_proceso' || status === 'reporte_visita') return 'reporte_visita';
-    return 'incidencia';
-  };
-
   const [formData, setFormData] = useState({
-    stage: getInitialStage(), // Inicializar correctamente
-    closure_reason: '',
-    closure_result: '',
-    conclusions: '',
-    resolution: '',
-    actions_taken: '',
-    preventive_measures: '',
-    responsible_person: '',
-    closure_date: new Date().toISOString().split('T')[0],
-    closure_notes: '',
-    requires_follow_up: false,
-    follow_up_date: '',
-    follow_up_responsible: '',
+    stage: defaultStage,
+    reason: '',
+    closure_summary: '',
+    closure_attachment: null
   });
 
   const [errors, setErrors] = useState({});
 
-  // Manejar cambios en el formulario
   const handleChange = useCallback((e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-
+    const { name, value, files } = e.target;
+    if (name === 'closure_attachment') {
+      setFormData(prev => ({ ...prev, closure_attachment: files[0] || null }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+    
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
   }, [errors]);
 
-  // Validar formulario
-  const validateForm = useCallback(() => {
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
     const newErrors = {};
-
-    if (!formData.closure_reason) newErrors.closure_reason = 'El motivo de cierre es obligatorio';
-    if (!formData.closure_result) newErrors.closure_result = 'El resultado es obligatorio';
-    if (!formData.conclusions.trim()) newErrors.conclusions = 'La conclusión es obligatoria';
-    if (!formData.resolution.trim()) newErrors.resolution = 'La resolución es obligatoria';
-    if (!formData.actions_taken.trim()) newErrors.actions_taken = 'Las acciones tomadas son obligatorias';
-    if (!formData.responsible_person.trim()) newErrors.responsible_person = 'La persona responsable es obligatoria';
-
-    if (formData.requires_follow_up) {
-      if (!formData.follow_up_date) newErrors.follow_up_date = 'La fecha de seguimiento es obligatoria';
-      if (!formData.follow_up_responsible.trim()) newErrors.follow_up_responsible = 'El responsable es obligatorio';
+    if (!formData.reason) newErrors.reason = 'El motivo de cierre es obligatorio';
+    if (formData.closure_summary.length < 10) newErrors.closure_summary = 'El resumen debe tener al menos 10 caracteres';
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData]);
-
-  // Manejar envío del formulario
-  const handleSubmit = useCallback((e) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    // Formatear el resumen completo para el backend
-    const structuredSummary = `
-[CIERRE DETALLADO]
-Motivo: ${formData.closure_reason}
-Resultado: ${formData.closure_result}
-
---- CONCLUSIONES ---
-${formData.conclusions}
-
---- RESOLUCIÓN ---
-${formData.resolution}
-
---- ACCIONES TOMADAS ---
-${formData.actions_taken}
-
---- MEDIDAS PREVENTIVAS ---
-${formData.preventive_measures}
-
---- NOTAS ADICIONALES ---
-${formData.closure_notes}
-    `.trim();
+    // Combine Reason + Summary for traceability (same logic as in VisitReportsPage)
+    const finalSummary = `[Motivo: ${formData.reason}] ${formData.closure_summary}`;
 
     onSubmit({
-      incident_id: incident?.id,
-      stage: formData.stage, // Usar la etapa seleccionada por el usuario
-      closure_summary: structuredSummary,
-      // Pasamos los datos crudos por si el componente padre quiere usarlos individualmente
-      raw_data: formData,
-      closure_date: formData.closure_date
+      ...formData,
+      closure_summary: finalSummary,
+      // Pass raw summary too if needed
+      raw_summary: formData.closure_summary
     });
-  }, [formData, validateForm, onSubmit, incident]);
+  };
 
   return (
-    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.25)] w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col border border-white/40 animate-in fade-in zoom-in-95 duration-200">
-        {/* Header - Premium Green Gradient */}
-        <div className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-600 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl shadow-inner">
-              <CheckCircleIcon className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-white">Cerrar Incidencia</h3>
-              <p className="text-sm text-emerald-100 font-medium">{incident?.code} - {incident?.cliente}</p>
-            </div>
-          </div>
-          <button onClick={onCancel} className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
-            <XMarkIcon className="h-6 w-6" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" aria-hidden="true" onClick={onCancel}></div>
 
-        {/* Formulario - Scrollable Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
-          {/* Etapa de Cierre (Selector) */}
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Etapa de Cierre <span className="text-red-500">*</span>
-            </label>
-            <select
-              name="stage"
-              value={formData.stage}
-              onChange={handleChange}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="incidencia">Incidencia (Interna)</option>
-              <option value="reporte_visita">Reporte de Visita</option>
-              <option value="calidad">Calidad (Laboratorio)</option>
-              <option value="proveedor">Proveedor</option>
-            </select>
-            <p className="mt-1 text-xs text-blue-600">
-              Confirma en qué etapa se está cerrando el caso.
-            </p>
-          </div>
-
-          {/* Archivo Adjunto */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              <PaperClipIcon className="h-4 w-4 inline mr-1.5 text-gray-500" />
-              Adjuntar Archivo de Cierre (Opcional)
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="file"
-                name="closure_attachment"
-                id="closure_attachment"
-                onChange={handleChange}
-                className="hidden"
-              />
-              <label
-                htmlFor="closure_attachment"
-                className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-200 transition-colors text-sm font-medium"
-              >
-                Elegir Archivo...
-              </label>
-              {formData.closure_attachment ? (
-                <span className="text-sm text-green-600 font-medium truncate max-w-xs block">
-                  {formData.closure_attachment.name}
-                </span>
-              ) : (
-                <span className="text-sm text-gray-400 italic">Ningún archivo seleccionado</span>
-              )}
-            </div>
-          </div>
-
-
-          {/* Fila 1: Motivo y Resultado */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <ListBulletIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-                Motivo de Cierre *
-              </label>
-              <select
-                name="closure_reason"
-                value={formData.closure_reason}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 transition-all ${errors.closure_reason ? 'border-red-300' : 'border-gray-300'}`}
-              >
-                <option value="">Seleccione un motivo...</option>
-                <option value="Solucionado Definitivamente">Solucionado Definitivamente</option>
-                <option value="Solucion Palliata">Solución Paliativa</option>
-                <option value="Rechazado por Cliente">Rechazado por Cliente</option>
-                <option value="No Procede (Falsa Alarma)">No Procede (Falsa Alarma)</option>
-                <option value="Duplicado">Duplicado</option>
-                <option value="Otro">Otro</option>
-              </select>
-              {errors.closure_reason && <p className="mt-1 text-sm text-red-600 animate-pulse">{errors.closure_reason}</p>}
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <FlagIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-                Resultado Final *
-              </label>
-              <select
-                name="closure_result"
-                value={formData.closure_result}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 transition-all ${errors.closure_result ? 'border-red-300' : 'border-gray-300'}`}
-              >
-                <option value="">Seleccione un resultado...</option>
-                <option value="Exitoso">Exitoso</option>
-                <option value="Satisfactorio con Observaciones">Satisfactorio con Observaciones</option>
-                <option value="No Satisfactorio">No Satisfactorio</option>
-                <option value="Cancelado">Cancelado</option>
-              </select>
-              {errors.closure_result && <p className="mt-1 text-sm text-red-600 animate-pulse">{errors.closure_result}</p>}
-            </div>
-          </div>
-
-          {/* Conclusiones */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              <ChatBubbleBottomCenterTextIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-              Conclusiones *
-            </label>
-            <textarea
-              name="conclusions"
-              value={formData.conclusions}
-              onChange={handleChange}
-              rows={3}
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 transition-all ${errors.conclusions ? 'border-red-300' : 'border-gray-300'}`}
-              placeholder="¿A qué conclusión se llegó tras el análisis?"
-            />
-            {errors.conclusions && <p className="mt-1 text-sm text-red-600">{errors.conclusions}</p>}
-          </div>
-
-          {/* Resolución */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              <DocumentTextIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-              Resolución Técnica *
-            </label>
-            <textarea
-              name="resolution"
-              value={formData.resolution}
-              onChange={handleChange}
-              rows={3}
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 transition-all ${errors.resolution ? 'border-red-300' : 'border-gray-300'}`}
-              placeholder="Detalle técnico de la solución aplicada..."
-            />
-            {errors.resolution && <p className="mt-1 text-sm text-red-600">{errors.resolution}</p>}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Acciones tomadas */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <CheckIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-                Acciones Tomadas *
-              </label>
-              <textarea
-                name="actions_taken"
-                value={formData.actions_taken}
-                onChange={handleChange}
-                rows={4}
-                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 transition-all ${errors.actions_taken ? 'border-red-300' : 'border-gray-300'}`}
-                placeholder="- Acción 1..."
-              />
-              {errors.actions_taken && <p className="mt-1 text-sm text-red-600">{errors.actions_taken}</p>}
-            </div>
-
-            {/* Medidas preventivas */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <ExclamationTriangleIcon className="h-4 w-4 inline mr-1.5 text-blue-500" />
-                Medidas Preventivas
-              </label>
-              <textarea
-                name="preventive_measures"
-                value={formData.preventive_measures}
-                onChange={handleChange}
-                rows={4}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all"
-                placeholder="- Medida 1..."
-              />
-            </div>
-          </div>
-
-          {/* Responsable y Fecha */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-xl">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <UserIcon className="h-4 w-4 inline mr-1.5 text-gray-500" />
-                Responsable del Cierre *
-              </label>
-              <input
-                type="text"
-                name="responsible_person"
-                value={formData.responsible_person}
-                onChange={handleChange}
-                className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 bg-white ${errors.responsible_person ? 'border-red-300' : 'border-gray-300'}`}
-                placeholder="Nombre del responsable"
-              />
-              {errors.responsible_person && <p className="mt-1 text-sm text-red-600">{errors.responsible_person}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                <CalendarIcon className="h-4 w-4 inline mr-1.5 text-gray-500" />
-                Fecha de Cierre
-              </label>
-              <input
-                type="date"
-                name="closure_date"
-                value={formData.closure_date}
-                onChange={handleChange}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-              />
-            </div>
-          </div>
-
-          {/* Seguimiento */}
-          <div className="border border-gray-200 rounded-xl p-4">
-            <div className="flex items-center mb-3">
-              <input
-                type="checkbox"
-                id="requires_follow_up"
-                name="requires_follow_up"
-                checked={formData.requires_follow_up}
-                onChange={handleChange}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
-              />
-              <label htmlFor="requires_follow_up" className="ml-2 text-sm font-semibold text-gray-700 cursor-pointer select-none">
-                Requiere seguimiento posterior
-              </label>
-            </div>
-
-            {formData.requires_follow_up && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 animate-fadeIn">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de Seguimiento *</label>
-                  <input
-                    type="date"
-                    name="follow_up_date"
-                    value={formData.follow_up_date}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 border rounded-lg ${errors.follow_up_date ? 'border-red-300' : 'border-gray-300'}`}
-                  />
-                  {errors.follow_up_date && <p className="mt-1 text-xs text-red-600">{errors.follow_up_date}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Responsable Seguimiento *</label>
-                  <input
-                    type="text"
-                    name="follow_up_responsible"
-                    value={formData.follow_up_responsible}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 border rounded-lg ${errors.follow_up_responsible ? 'border-red-300' : 'border-gray-300'}`}
-                  />
-                  {errors.follow_up_responsible && <p className="mt-1 text-xs text-red-600">{errors.follow_up_responsible}</p>}
+        <div className="inline-block align-bottom bg-white rounded-3xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border border-white/20">
+          <div className="bg-white px-6 pt-6 pb-6 sm:p-8">
+            <div className="sm:flex sm:items-start mb-6">
+              <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-2xl bg-emerald-50 text-emerald-600 sm:mx-0 sm:h-12 sm:w-12 shadow-sm border border-emerald-100">
+                <CheckCircleIcon className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <div className="mt-4 text-center sm:mt-0 sm:ml-5 sm:text-left w-full">
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight" id="modal-title">
+                  Cerrar Incidencia Asociada
+                </h3>
+                <div className="mt-1">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    Expediente: <span className="text-indigo-600">{incident?.code || 'S/N'}</span>
+                  </p>
                 </div>
               </div>
-            )}
+              <button onClick={onCancel} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-sm text-amber-800 flex items-start gap-3">
+                <div className="mt-0.5">⚠️</div>
+                <p className="font-bold leading-relaxed italic">
+                  Esta acción es definitiva y cerrará formalmente el caso en el sistema y SAP.
+                </p>
+              </div>
+
+              {/* Etapa de Cierre */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Etapa de Cierre <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  name="stage"
+                  value={formData.stage}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all font-bold text-slate-700 outline-none"
+                >
+                  <option value="incidencia">Cerrada en Incidencia</option>
+                  <option value="reporte_visita">Cerrada en Reporte de Visita</option>
+                  <option value="calidad">Cerrada en Calidad</option>
+                  <option value="proveedor">Cerrada en Proveedor</option>
+                </select>
+              </div>
+
+              {/* Motivo de Cierre */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Motivo de Cierre <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  name="reason"
+                  value={formData.reason}
+                  onChange={handleChange}
+                  className={`w-full px-4 py-3 bg-slate-50 border rounded-xl focus:ring-4 transition-all font-bold text-slate-700 outline-none ${errors.reason ? 'border-rose-300 focus:ring-rose-500/10 focus:border-rose-500' : 'border-slate-200 focus:ring-emerald-500/10 focus:border-emerald-500'}`}
+                >
+                  <option value="">-- Seleccionar motivo --</option>
+                  <option value="Resuelto satisfactoriamente">Resuelto satisfactoriamente</option>
+                  <option value="Sin garantía aplicable">Sin garantía aplicable</option>
+                  <option value="Producto reemplazado">Producto reemplazado</option>
+                  <option value="Crédito emitido">Crédito emitido</option>
+                  <option value="Problema no reproducible">Problema no reproducible</option>
+                  <option value="Solicitud del cliente">Solicitud del cliente</option>
+                  <option value="Otro">Otro</option>
+                </select>
+                {errors.reason && <p className="mt-1.5 text-[10px] font-black text-rose-500 uppercase tracking-widest">{errors.reason}</p>}
+              </div>
+
+              {/* Resumen */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Resumen de Acciones y Conclusiones <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  name="closure_summary"
+                  value={formData.closure_summary}
+                  onChange={handleChange}
+                  rows={4}
+                  className={`w-full px-4 py-3 bg-slate-50 border rounded-xl focus:ring-4 transition-all font-bold text-slate-700 outline-none resize-none ${errors.closure_summary ? 'border-rose-300 focus:ring-rose-500/10 focus:border-rose-500' : 'border-slate-200 focus:ring-emerald-500/10 focus:border-emerald-500'}`}
+                  placeholder="Describa las acciones tomadas..."
+                />
+                <div className="flex justify-between mt-1.5">
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${formData.closure_summary.length < 10 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                    {formData.closure_summary.length}/10 caracteres mínimos
+                  </p>
+                  {errors.closure_summary && <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{errors.closure_summary}</p>}
+                </div>
+              </div>
+
+              {/* Archivo Adjunto */}
+              <div>
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Archivo Adjunto (opcional)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    id="closure-file-standard"
+                    name="closure_attachment"
+                    className="hidden"
+                    onChange={handleChange}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
+                  />
+                  <label
+                    htmlFor="closure-file-standard"
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 rounded-xl cursor-pointer transition-all text-[10px] font-black uppercase tracking-widest shadow-sm"
+                  >
+                    Seleccionar Archivo
+                  </label>
+                  {formData.closure_attachment && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 animate-in fade-in slide-in-from-left-2">
+                      <PaperClipIcon className="w-4 h-4 text-slate-400" />
+                      <span className="truncate max-w-[150px]">{formData.closure_attachment.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, closure_attachment: null }))}
+                        className="ml-1 text-rose-500 hover:text-rose-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 flex gap-4">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
+                disabled={isClosing}
+              >
+                CANCELAR
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isClosing || formData.closure_summary.length < 10 || !formData.reason}
+                className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest border-b-4 transition-all shadow-lg ${
+                  formData.closure_summary.length < 10 || !formData.reason
+                    ? 'bg-slate-300 border-slate-400 cursor-not-allowed opacity-50'
+                    : 'bg-emerald-600 border-emerald-800 hover:bg-emerald-700 active:border-b-0 shadow-emerald-600/20'
+                }`}
+              >
+                {isClosing ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
+                    <span>CERRANDO...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-2">
+                    <CheckCircleIcon className="h-4 w-4" />
+                    <span>CONFIRMAR CIERRE</span>
+                  </div>
+                )}
+              </button>
+            </div>
           </div>
-
-        </form>
-
-        {/* Footer - Premium Sticky */}
-        <div className="px-6 py-4 bg-gray-50/80 backdrop-blur-sm border-t border-gray-100 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-5 py-2.5 text-sm font-bold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:shadow-md transition-all shadow-sm"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isLoading}
-            className="px-6 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-green-600 rounded-xl hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg shadow-green-500/30 hover:shadow-green-500/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center hover:-translate-y-0.5"
-          >
-            {isLoading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white mr-2"></div>
-                Cerrando...
-              </>
-            ) : (
-              <>
-                <CheckCircleIcon className="h-5 w-5 mr-2" />
-                Confirmar Cierre
-              </>
-            )}
-          </button>
         </div>
       </div>
     </div>

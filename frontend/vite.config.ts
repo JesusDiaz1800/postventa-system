@@ -22,7 +22,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
-    // HTTPS habilitado para producción con certificados de CA corporativa
+    // HTTPS habilitado con certificados de CA corporativa Polifusion
     https: hasSSL ? {
       key: fs.readFileSync(keyPath),
       cert: fs.readFileSync(certPath),
@@ -35,12 +35,13 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
+        timeout: 600000, // 10 minutos
       },
       '/ws': {
-        target: 'ws://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8000',
         ws: true,
-        changeOrigin: true,
         secure: false,
+        changeOrigin: false,
       },
       '/documentos': {
         target: 'http://127.0.0.1:8000',

@@ -15,6 +15,7 @@ Architecture:
 """
 
 import logging
+import json
 from typing import TypedDict, Literal, Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -79,8 +80,9 @@ class PostventaAgent:
         """Lazy load the AI provider manager"""
         if self._provider_manager is None:
             try:
-                from apps.ai_orchestrator.orchestrator import ai_provider_manager
-                self._provider_manager = ai_provider_manager
+                # Use the REAL orchestrator from providers.py, not the mock one
+                from apps.ai_orchestrator.providers import get_orchestrator
+                self._provider_manager = get_orchestrator()
             except ImportError as e:
                 logger.warning(f"Could not import ai_provider_manager: {e}")
         return self._provider_manager
@@ -130,45 +132,125 @@ class PostventaAgent:
         query_lower = state['query'].lower()
         
         # Keywords for routing
-        image_keywords = ['imagen', 'foto', 'picture', 'image', 'adjunta']
-        arch_keywords = ['arquitectura', 'diseño', 'patrón', 'microservicio', 'bff', 'cqrs', 'architecture', 'design', 'código', 'backend', 'frontend', 'api']
-        quality_keywords = ['falla', 'defecto', 'soldadura', 'polifusión', 'electro', 'norma', 'procedimiento', 'ensayo', 'tubería', 'accesorio', 'calidad', 'garantía', 'reclamo']
-        doc_keywords = ['documento', 'pdf', 'manual', 'buscar', 'guía', 'incidente', 'reporte', 'obra', 'cliente', 'historial', 'caso', 'problema', 'solución']
+        image_keywords = ['imagen', 'foto', 'picture', 'image', 'adjunta', 'captura', 'veo']
+        arch_keywords = ['arquitectura', 'diseño', 'patrón', 'microservicio', 'bff', 'cqrs', 'architecture', 'design', 'código', 'backend', 'frontend', 'api', 'servidor', 'base de datos']
+        quality_keywords = ['falla', 'defecto', 'soldadura', 'polifusión', 'electro', 'norma', 'procedimiento', 'ensayo', 'tubería', 'accesorio', 'calidad', 'garantía', 'reclamo', 'pasos', 'instalar']
+        doc_keywords = ['documento', 'pdf', 'manual', 'buscar', 'guía', 'incidente', 'reporte', 'obra', 'cliente', 'historial', 'caso', 'problema', 'solución', 'informe']
 
-        if state.get('images') or any(word in query_lower for word in image_keywords):
-            if state.get('images'):
-                state['reasoning'] = "Query includes image for analysis"
-                state['current_step'] = 'analyze_image'
-            else:
-                 # User mentions image but didn't upload one, treat as manual search or general query
-                 if any(word in query_lower for word in quality_keywords):
-                    state['reasoning'] = "Question about quality/defects (no image uploaded)"
-                    state['target_notebook'] = QUALITY_NOTEBOOK_ID
-                    state['current_step'] = 'consult_notebook'
-                 else:
-                    state['reasoning'] = "User mentioned images but none provided."
-                    state['current_step'] = 'generate_response'
+        # 0. Check for small talk or very short queries
+        if len(state['query'].split()) < 3 and not state.get('images'):
+            state['reasoning'] = "Consulta muy corta o saludo. Respuesta directa."
+            state['current_step'] = 'generate_response'
+            
+        # 1. Check for images first
+        elif state.get('images') and len(state.get('images', [])) > 0:
+            state['reasoning'] = "La consulta incluye imágenes para análisis técnico."
+            state['current_step'] = 'analyze_image'
+            
+        # 2. Check for image-related keywords without images
+        elif any(word in query_lower for word in image_keywords):
+            state['reasoning'] = "El usuario menciona imágenes pero no se han adjuntado. Procediendo a búsqueda general."
+            state['current_step'] = 'search_knowledge'
 
+        # 3. Check for quality/procedures (RAG)
         elif any(word in query_lower for word in quality_keywords):
-            state['reasoning'] = "Query related to quality standards or defects"
+            state['reasoning'] = "Consulta relacionada con estándares de calidad o procedimientos técnicos."
             state['target_notebook'] = QUALITY_NOTEBOOK_ID
             state['current_step'] = 'consult_notebook'
 
+        # 4. Check for architecture (RAG)
         elif any(word in query_lower for word in arch_keywords):
-            state['reasoning'] = "Query related to system architecture"
+            state['reasoning'] = "Consulta relacionada con la arquitectura del sistema."
             state['target_notebook'] = ARCH_NOTEBOOK_ID
             state['current_step'] = 'consult_notebook'
             
+        # 5. Check for database queries (When was the last..., what incidents...)
+        elif any(word in query_lower for word in ['cuándo', 'cuando', 'último', 'ultimo', 'última', 'ultima', 'cuántas', 'cuantos', 'ranking', 'historial']):
+            state['reasoning'] = "Consulta sobre el historial o datos específicos de la base de datos."
+            state['current_step'] = 'query_database'
+            
+        # 6. Check for documents/incidents (Local RAG)
         elif any(word in query_lower for word in doc_keywords):
-            state['reasoning'] = "Query requires document search"
-            state['current_step'] = 'search_knowledge' # Fallback to local chroma or generic
+            state['reasoning'] = "Se requiere búsqueda en el historial de documentos e incidentes."
+            state['current_step'] = 'search_knowledge'
+            
+        # 7. Fallback
         else:
-            state['reasoning'] = "Query is a direct question"
+            state['reasoning'] = "Pregunta directa sin contexto específico de RAG inmediato."
             state['current_step'] = 'generate_response'
         
         state['iterations'] += 1
         return state
     
+    # -------------------------------------------------------------------------
+    # Node: Query Database (Django Models)
+    # -------------------------------------------------------------------------
+    def node_query_database(self, state: AgentState) -> AgentState:
+        """Query the Django database for live incident data"""
+        logger.info(f"[Agent] Querying database for: {state['query']}")
+        
+        try:
+            from apps.incidents.models import Incident
+            from django.db.models import Q
+            
+            # Extract keywords (clean query)
+            clean_query = state['query'].lower()
+            stop_words = [
+                'cuándo', 'cuando', 'fue', 'la', 'última', 'ultima', 'incidencia', 
+                'con', 'el', 'de', 'del', 'qué', 'que', 'pasó', 'en', 'hay', 'sobre'
+            ]
+            for stop in stop_words:
+                clean_query = clean_query.replace(f" {stop} ", " ")
+            
+            keywords = [w.strip() for w in clean_query.split() if len(w.strip()) > 2]
+            
+            # Query incidents
+            query = Q()
+            if keywords:
+                for word in keywords:
+                    query |= Q(code__icontains=word)
+                    query |= Q(descripcion__icontains=word)
+                    query |= Q(sku__icontains=word)
+                    query |= Q(cliente__icontains=word)
+                    query |= Q(obra__icontains=word)
+            
+            # Get last 10 relevant incidents
+            incidents = Incident.objects.filter(query).order_by('-fecha_reporte')[:10]
+            
+            db_results = []
+            for inc in incidents:
+                db_results.append({
+                    'id': inc.code,
+                    'fecha': inc.fecha_reporte.strftime('%Y-%m-%d %H:%M') if inc.fecha_reporte else 'N/A',
+                    'cliente': inc.cliente,
+                    'sku': inc.sku,
+                    'estado': inc.estado,
+                    'descripcion': inc.descripcion[:200] if inc.descripcion else ''
+                })
+            
+            if db_results:
+                msg = f"Se encontraron {len(db_results)} registros relevantes en el historial:\n"
+                msg += "\n".join([f"- {r['id']} ({r['fecha']}): Cliente {r['cliente']}, SKU {r['sku']}, Estado {r['estado']}. Resumen: {r['descripcion']}" for r in db_results])
+                
+                state['knowledge_results'] = state.get('knowledge_results', []) + [
+                    {
+                        'source': 'Base de Datos (En Vivo)',
+                        'content': msg
+                    }
+                ]
+                state['reasoning'] += f" | {len(db_results)} registros encontrados en BD"
+            else:
+                state['reasoning'] += " | No se encontraron registros específicos en BD"
+            
+        except Exception as e:
+            logger.error(f"Database query error: {e}")
+            state['reasoning'] += f" | Error en consulta BD: {str(e)}"
+            
+        # Continue to search_knowledge to complement with manuals or older context
+        state['current_step'] = 'search_knowledge'
+        state['iterations'] += 1
+        return state
+
     # -------------------------------------------------------------------------
     # Node: Search Knowledge Base (Local ChromaDB)
     # -------------------------------------------------------------------------
@@ -219,8 +301,8 @@ class PostventaAgent:
     # Node: Analyze Image
     # -------------------------------------------------------------------------
     def node_analyze_image(self, state: AgentState) -> AgentState:
-        """Analyze an image using the AI provider"""
-        logger.info("[Agent] Analyzing image...")
+        """Analyze images using Gemini Service"""
+        logger.info("[Agent] Analyzing images...")
         
         if not state.get('images'):
             state['analysis_result'] = "No image provided for analysis"
@@ -228,33 +310,37 @@ class PostventaAgent:
             return state
         
         try:
-            if self.provider_manager:
-                result = self.provider_manager.analyze_image(
-                    state['images'][0],
-                    consent_external=True
+            # Use GeminiService directly for advanced multi-image analysis
+            from apps.ai.gemini_service import get_gemini_service
+            gemini = get_gemini_service()
+            
+            if gemini:
+                logger.info(f"[Agent] Sending {len(state['images'])} images to GeminiService")
+                
+                # GeminiService.analyze_real_image expects list of bytes or file-like objects
+                result = gemini.analyze_real_image(
+                    image_files=state['images'],
+                    context=str(state.get('context', {})),
+                    analysis_type='technical_agent'
                 )
                 
-                # Robust handling of analysis result
-                if isinstance(result, dict):
-                    analysis_data = result.get('analysis', 'Analysis failed')
-                    # If analysis data is itself a dict (structured analysis), dump it to string for prompt
-                    if isinstance(analysis_data, dict):
-                        import json
-                        try:
-                            state['analysis_data'] = analysis_data
-                            state['analysis_result'] = json.dumps(analysis_data, ensure_ascii=False, indent=2)
-                        except:
-                             state['analysis_result'] = str(analysis_data)
-                    else:
-                        state['analysis_result'] = str(analysis_data)
-                elif isinstance(result, str):
-                    state['analysis_result'] = result
-                else:
-                    state['analysis_result'] = str(result)
+                if result.get('success'):
+                    analysis_data = result.get('analysis', {})
+                    state['analysis_data'] = analysis_data
                     
-                state['reasoning'] += f" | Image analyzed successfully"
+                    # Convert unstructured analysis dict to string for the prompt
+                    import json
+                    try:
+                        state['analysis_result'] = json.dumps(analysis_data, ensure_ascii=False, indent=2)
+                    except:
+                        state['analysis_result'] = str(analysis_data)
+                        
+                    state['reasoning'] += f" | {len(state['images'])} images analyzed successfully"
+                else:
+                    state['analysis_result'] = f"Analysis failed: {result.get('error')}"
+                    state['error'] = result.get('error')
             else:
-                state['analysis_result'] = "AI provider not available"
+                state['analysis_result'] = "Gemini Service not available"
                 
         except Exception as e:
             logger.error(f"Image analysis error: {e}")
@@ -274,13 +360,13 @@ class PostventaAgent:
         logger.info(f"[Agent] Consulting NotebookLM ({target_id})...")
 
         if not self.notebook_client:
-            state['reasoning'] += " | NotebookLM client unavailable"
-            state['current_step'] = 'generate_response'
+            state['reasoning'] += " | NotebookLM client unavailable (no credentials)"
+            state['current_step'] = 'search_knowledge' # Fallback to local search
             return state
             
         if not target_id:
              state['reasoning'] += " | No target notebook specified"
-             state['current_step'] = 'generate_response'
+             state['current_step'] = 'search_knowledge'
              return state
 
         try:
@@ -290,28 +376,31 @@ class PostventaAgent:
                 state['query']
             )
             
-            # NotebookLM returns a dict with 'answer' key usually, or just string depending on wrapper
-            # Assuming format based on previous tests
             answer = ""
             if isinstance(response, dict):
                 answer = response.get('answer', str(response))
             else:
                 answer = str(response)
 
-            if answer:
+            if answer and len(answer) > 10:
                  source_name = "Arquitectura" if target_id == ARCH_NOTEBOOK_ID else "Calidad"
                  state['knowledge_results'].append({
                     'content': answer,
-                    'source': f'NotebookLM ({source_name})'
+                    'source': f'Cuaderno de {source_name} (NotebookLM)'
                  })
-                 state['reasoning'] += f" | Retrieved info from NotebookLM ({source_name})"
+                 state['reasoning'] += f" | Información recuperada de NotebookLM ({source_name})"
             else:
-                 state['reasoning'] += " | No answer from NotebookLM"
+                 state['reasoning'] += " | NotebookLM no retornó información relevante. Intentando búsqueda local."
+                 state['current_step'] = 'search_knowledge'
+                 state['iterations'] += 1
+                 return state
 
         except Exception as e:
             logger.error(f"NotebookLM query error: {e}")
-            state['error'] = f"NotebookLM Error: {e}"
-            # Don't fail completely, just move on
+            state['reasoning'] += f" | Error en NotebookLM: {str(e)[:50]}"
+            state['current_step'] = 'search_knowledge' # Fallback
+            state['iterations'] += 1
+            return state
         
         state['current_step'] = 'generate_response'
         state['iterations'] += 1
@@ -334,19 +423,24 @@ class PostventaAgent:
                 state['sources'].append(result.get('source', 'Base de conocimiento'))
         
         if state.get('analysis_result'):
-            context_parts.append(f"ANÁLISIS TÉCNICO DE IMAGEN:\n{state['analysis_result']}")
+            context_parts.append(f"ANÁLISIS TÉCNICO DE IMAGEN (Estructurado):\n{state['analysis_result']}")
+        
+        # Merge analysis_data into context if it exists for extra grounding
+        if state.get('analysis_data'):
+             context_parts.append(f"DATOS DE FALLA IDENTIFICADOS: {json.dumps(state['analysis_data'], ensure_ascii=False)}")
         
         # Generate response using AI
         try:
             if self.provider_manager:
                 prompt = f"""
-Eres un experto asistente técnico senior para el sistema de Postventa de la empresa. 
-Tu misión es ayudar al personal técnico basándote en la evidencia histórica y los estándares de calidad.
+Eres un Asistente Técnico Senior Multimodal experto del sistema de Postventa. 
+Tu misión es asistir al personal técnico en diagnósticos, consultas de normativa y arquitectura, o cualquier duda general.
 
-IMPORTANTE: 
-1. Usa la información proporcionada abajo como tu fuente de verdad principal.
-2. Si la información proviene de 'RAG: INC-XXXX', cita el código del incidente en tu respuesta.
-3. Si la información proviene de NotebookLM, dale máxima prioridad para temas de normativa y arquitectura.
+REGLAS DE ORO:
+1. Si se te proporciona CONTEXTO RECUPERADO, úsalo como fuente de verdad prioritaria y cita fuentes (ej: INC-XXXX).
+2. Si se te proporcionan ANÁLISIS DE IMAGEN, intégralos en tu respuesta técnica.
+3. Si el usuario hace preguntas generales o de cortesía, responde de forma amable y profesional, sin forzar tecnicismos si no son necesarios.
+4. Si no tienes la información exacta en el contexto, usa tu conocimiento general de ingeniería y construcción mencionando que es una estimación técnica.
 
 Consulta del usuario: {state['query']}
 
@@ -362,9 +456,7 @@ Instrucciones de Respuesta:
 - Si no sabes la respuesta y no hay contexto, indícalo honestamente y sugiere consultar a un experto de área.
 """
                 result = self.provider_manager.generate_text(
-                    prompt,
-                    tone='professional',
-                    consent_external=True
+                    prompt
                 )
                 
                 logger.info(f"[Agent] Generate text result type: {type(result)}")
@@ -434,6 +526,7 @@ Instrucciones de Respuesta:
         # Node routing
         nodes = {
             'understand': self.node_understand,
+            'query_database': self.node_query_database,
             'search_knowledge': self.node_search_knowledge,
             'consult_notebook': self.node_consult_notebook,
             'analyze_image': self.node_analyze_image,

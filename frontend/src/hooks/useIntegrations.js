@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api from '../utils/api';
+import api from '../services/api';
 
 // Hook para sistemas externos
 export const useExternalSystems = (filters = {}) => {

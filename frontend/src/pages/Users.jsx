@@ -8,32 +8,28 @@ import UserCreateModal from '../components/UserCreateModal';
 import UserEditModal from '../components/UserEditModal';
 import UserDeleteModal from '../components/UserDeleteModal';
 import ChangePasswordModal from '../components/ChangePasswordModal';
+import PermissionManager from '../components/PermissionManager';
 import {
-  PlusIcon,
   MagnifyingGlassIcon,
   UserPlusIcon,
-  ShieldCheckIcon,
   UserIcon,
-  EnvelopeIcon,
-  PhoneIcon,
-  CalendarIcon,
-  PencilIcon,
-  TrashIcon,
-  EyeIcon,
   KeyIcon,
-  CheckCircleIcon,
-  XCircleIcon,
+  TrashIcon,
+  PencilIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+  AdjustmentsHorizontalIcon
 } from '@heroicons/react/24/outline';
 
 const Users = () => {
+  const [activeTab, setActiveTab] = useState('users'); // 'users' or 'permissions'
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
 
   // Hook de permisos
-  const { canManageUsers, canAccessAdmin, user: currentUser } = usePermissions();
-
+  const { canManageUsers, user: currentUser } = usePermissions();
 
   // Funciones auxiliares para determinar permisos
   const canEditUser = (user) => {
@@ -54,16 +50,17 @@ const Users = () => {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [userToChangePassword, setUserToChangePassword] = useState(null);
 
-  const { showSuccess, showError, showWarning } = useNotifications();
+  const { showSuccess, showError } = useNotifications();
   const queryClient = useQueryClient();
 
   // Query para obtener usuarios
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['users', { search: searchTerm, role: selectedRole }],
     queryFn: () => usersAPI.list({ search: searchTerm, role: selectedRole }),
+    enabled: activeTab === 'users' // Only fetch if on users tab
   });
 
-  // Handle paginated response from Django REST Framework
+  // Handle paginated response
   let users = [];
   if (usersData) {
     if (Array.isArray(usersData)) {
@@ -139,7 +136,6 @@ const Users = () => {
   };
 
   const handleUpdateUser = (userData) => {
-    // userData can be FormData or Object
     updateUserMutation.mutate({ id: selectedUser.id, data: userData });
   };
 
@@ -163,8 +159,9 @@ const Users = () => {
     changePasswordMutation.mutate({ id: userToChangePassword.id, ...passwordData });
   };
 
-  // Filter users based on search and role
+  // Filter users logic (client-side fallback if needed)
   const filteredUsers = users.filter(user => {
+    // If backend handles filtering, this might be redundant but safe
     const matchesSearch = !searchTerm ||
       user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -194,223 +191,226 @@ const Users = () => {
   // Role badge component
   const RoleBadge = ({ role }) => {
     const roleColors = {
-      'admin': 'bg-red-100 text-red-800',
-      'management': 'bg-purple-100 text-purple-800',
-      'technical_service': 'bg-blue-100 text-blue-800',
-      'quality': 'bg-green-100 text-green-800',
-      'supervisor': 'bg-yellow-100 text-yellow-800',
-      'analyst': 'bg-indigo-100 text-indigo-800',
-      'customer_service': 'bg-pink-100 text-pink-800',
-      'provider': 'bg-gray-100 text-gray-800'
+      'admin': 'bg-rose-100 text-rose-800 border-rose-200',
+      'management': 'bg-purple-100 text-purple-800 border-purple-200',
+      'technical_service': 'bg-blue-100 text-blue-800 border-blue-200',
+      'quality': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      'supervisor': 'bg-amber-100 text-amber-800 border-amber-200',
+      'analyst': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+      'customer_service': 'bg-pink-100 text-pink-800 border-pink-200',
+      'provider': 'bg-slate-100 text-slate-800 border-slate-200'
     };
 
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${roleColors[role] || 'bg-gray-100 text-gray-800'}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold uppercase tracking-wider border ${roleColors[role] || 'bg-gray-100 text-gray-800'}`}>
         {getRoleDisplay(role)}
       </span>
     );
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-red-600">Error al cargar los usuarios</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-fadeIn">
       {/* Header */}
-      <PageHeader
-        title="Gestión de Usuarios"
-        subtitle="Administra usuarios, roles y permisos del sistema"
-        icon={UserIcon}
-        showLogo={true}
-      >
-        <div className="flex space-x-3">
-          {canManageUsers() && (
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <PageHeader
+          title="Gestión de Accesos"
+          subtitle="Administración centralizada de usuarios y roles"
+          icon={UsersIcon}
+          showLogo={true}
+        />
+
+        {/* Toggle View */}
+        <div className="flex bg-white/50 backdrop-blur rounded-xl p-1 border border-white/60 shadow-sm self-start md:self-auto">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all
+              ${activeTab === 'users'
+                ? 'bg-white text-indigo-600 shadow-md ring-1 ring-black/5'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-white/40'}
+            `}
+          >
+            <UserIcon className="h-4 w-4" />
+            Usuarios
+          </button>
+          {currentUser?.role === 'admin' && (
             <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-105"
+              onClick={() => setActiveTab('permissions')}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all
+                ${activeTab === 'permissions'
+                  ? 'bg-white text-indigo-600 shadow-md ring-1 ring-black/5'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-white/40'}
+              `}
             >
-              <UserPlusIcon className="h-5 w-5 mr-2" />
-              Nuevo Usuario
+              <ShieldCheckIcon className="h-4 w-4" />
+              Roles y Permisos
             </button>
           )}
         </div>
-      </PageHeader>
+      </div>
 
-      {/* Filters */}
-      <div className="bg-white shadow-lg rounded-xl border border-gray-100">
-        <div className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                Buscar usuarios
-              </label>
-              <div className="relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+      {activeTab === 'users' ? (
+        <>
+          {/* Controls Bar */}
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white/40 backdrop-blur-md p-4 rounded-2xl border border-white/50 shadow-sm">
+
+            {/* Search & Filter */}
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto flex-1">
+              <div className="relative group flex-1 max-w-md">
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
                 <input
                   type="text"
-                  id="search"
-                  placeholder="Buscar por nombre, email o usuario..."
+                  placeholder="Buscar usuario..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="pl-10 w-full px-4 py-2.5 bg-white/80 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm font-medium"
                 />
               </div>
+
+              <div className="w-full sm:w-48 relative">
+                <AdjustmentsHorizontalIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <select
+                  value={selectedRole}
+                  onChange={(e) => setSelectedRole(e.target.value)}
+                  className="pl-10 w-full px-4 py-2.5 bg-white/80 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm font-medium appearance-none"
+                >
+                  <option value="">Todos los roles</option>
+                  <option value="admin">Administrador</option>
+                  <option value="management">Gerencia</option>
+                  <option value="technical_service">Servicio Técnico</option>
+                  <option value="quality">Calidad</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="analyst">Analista</option>
+                  <option value="customer_service">Atención al Cliente</option>
+                  <option value="provider">Proveedor</option>
+                </select>
+              </div>
             </div>
-            <div className="sm:w-48">
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
-                Filtrar por rol
-              </label>
-              <select
-                id="role"
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+
+            {/* Action Button */}
+            {canManageUsers() && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="w-full md:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 hover:scale-[1.02]"
               >
-                <option value="">Todos los roles</option>
-                <option value="admin">Administrador</option>
-                <option value="management">Gerencia</option>
-                <option value="technical_service">Servicio Técnico</option>
-                <option value="quality">Calidad</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="analyst">Analista</option>
-                <option value="customer_service">Atención al Cliente</option>
-                <option value="provider">Proveedor</option>
-              </select>
-            </div>
+                <UserPlusIcon className="h-5 w-5" />
+                Nuevo Usuario
+              </button>
+            )}
           </div>
-        </div>
-      </div>
 
-      {/* Users Table */}
-      <div className="bg-white shadow-lg rounded-xl border border-gray-100">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">
-            Usuarios ({filteredUsers.length})
-          </h3>
-        </div>
-
-        <div className="table-container">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Usuario
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rol
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Departamento
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Último acceso
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                    No se encontraron usuarios
-                  </td>
-                </tr>
-              ) : (
-                filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 table-row-hover">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
-                            <span className="text-white font-medium text-sm">
-                              {user.first_name?.[0] || user.username[0].toUpperCase()}
-                            </span>
+          {/* Users Table */}
+          <div className="bg-white/60 backdrop-blur-xl rounded-3xl shadow-xl border border-white/60 overflow-hidden">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="bg-gray-50 rounded-full h-20 w-20 flex items-center justify-center mx-auto mb-4">
+                  <UserIcon className="h-10 w-10 text-gray-300" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">No se encontraron usuarios</h3>
+                <p className="text-gray-500">Intenta ajustar los filtros de búsqueda</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead>
+                    <tr className="bg-gray-50/50">
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-wider pl-8">Usuario</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-wider">Rol</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-wider">Departamento</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-wider">Estado</th>
+                      <th className="px-6 py-4 text-left text-xs font-black text-gray-400 uppercase tracking-wider">Último Acceso</th>
+                      <th className="px-6 py-4 text-right text-xs font-black text-gray-400 uppercase tracking-wider pr-8">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-transparent">
+                    {filteredUsers.map((user) => (
+                      <tr key={user.id} className="hover:bg-indigo-50/30 transition-colors group">
+                        <td className="px-6 py-4 whitespace-nowrap pl-8">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md">
+                                <span className="text-white font-bold text-sm">
+                                  {user.first_name?.[0] || user.username[0].toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-bold text-gray-900">
+                                {user.full_name || user.username}
+                              </div>
+                              <div className="text-xs text-gray-500 font-mono">{user.email}</div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {user.full_name || user.username}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <RoleBadge role={user.role} />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
+                          {user.department || <span className="text-gray-400 italic">No asignado</span>}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.is_active
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-rose-100 text-rose-800'
+                            }`}>
+                            <span className={`w-1.5 h-1.5 mr-1.5 rounded-full ${user.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                            {user.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {user.last_login
+                            ? new Date(user.last_login).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : <span className="text-gray-300">Nunca</span>
+                          }
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium pr-8">
+                          <div className="flex items-center justify-end gap-2 opacity-60 group-hover:opacity-100 transition-all duration-200">
+                            {canEditUser(user) && (
+                              <button
+                                onClick={() => handleEditUser(user)}
+                                className="p-2 rounded-lg text-indigo-600 hover:bg-indigo-50 hover:shadow-sm transition-all"
+                                title="Editar"
+                              >
+                                <PencilIcon className="h-5 w-5" />
+                              </button>
+                            )}
+                            {canResetPassword(user) && (
+                              <button
+                                onClick={() => handleChangePassword(user)}
+                                className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 hover:shadow-sm transition-all"
+                                title="Cambiar contraseña"
+                              >
+                                <KeyIcon className="h-5 w-5" />
+                              </button>
+                            )}
+                            {canDeleteUser(user) && (
+                              <button
+                                onClick={() => handleDeleteUser(user)}
+                                className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 hover:shadow-sm transition-all"
+                                title="Eliminar"
+                              >
+                                <TrashIcon className="h-5 w-5" />
+                              </button>
+                            )}
                           </div>
-                          <div className="text-sm text-gray-500">{user.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <RoleBadge role={user.role} />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {user.department || 'No asignado'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.is_active
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                        }`}>
-                        {user.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.last_login
-                        ? new Date(user.last_login).toLocaleDateString('es-ES')
-                        : 'Nunca'
-                      }
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end space-x-2">
-                        {canEditUser(user) && (
-                          <button
-                            onClick={() => handleEditUser(user)}
-                            className="p-2 rounded-lg text-blue-600 hover:text-blue-900 hover:bg-blue-50 transition-colors"
-                            title="Editar usuario"
-                          >
-                            <PencilIcon className="h-4 w-4" />
-                          </button>
-                        )}
-                        {canResetPassword(user) && (
-                          <button
-                            onClick={() => handleChangePassword(user)}
-                            className="p-2 rounded-lg text-yellow-600 hover:text-yellow-900 hover:bg-yellow-50 transition-colors"
-                            title="Cambiar contraseña"
-                          >
-                            <KeyIcon className="h-4 w-4" />
-                          </button>
-                        )}
-                        {canDeleteUser(user) && (
-                          <button
-                            onClick={() => handleDeleteUser(user)}
-                            className="p-2 rounded-lg text-red-600 hover:text-red-900 hover:bg-red-50 transition-colors"
-                            title="Eliminar usuario"
-                          >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Permission Manager Tab */
+        <PermissionManager />
+      )}
 
       {/* Modales */}
       <UserCreateModal

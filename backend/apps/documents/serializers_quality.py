@@ -51,17 +51,8 @@ class QualityReportSerializer(serializers.ModelSerializer):
     
     def get_download_url(self, obj):
         """Genera URL de descarga para el archivo del reporte"""
-        folder_type = 'quality-reports-cliente' if obj.report_type == 'cliente' else 'quality-reports-interno'
-        
-        if obj.pdf_path:
-            import os
-            filename = os.path.basename(obj.pdf_path)
-            return f'/api/documents/open/{folder_type}/{obj.related_incident.id}/{filename}'
-        elif obj.docx_path:
-            import os
-            filename = os.path.basename(obj.docx_path)
-            return f'/api/documents/open/{folder_type}/{obj.related_incident.id}/{filename}'
-        return None
+        # Usar la vista dedicada con fallback robusto
+        return f'/api/documents/quality-reports/{obj.id}/download/'
     
     def get_has_document(self, obj):
         """Indica si el reporte tiene un documento adjunto"""

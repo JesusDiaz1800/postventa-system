@@ -16,9 +16,24 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Restaurar sesión si existen tokens válidos y perfil
+    // PROTECCIÓN DE CIERRE ACCIDENTAL
+    const handleBeforeUnload = (e) => {
+      // Si el usuario está autenticado, preguntar antes de salir
+      const isAuth = sessionStorage.getItem('access_token');
+      if (isAuth) {
+        e.preventDefault();
+        e.returnValue = ''; // Estándar para navegadores modernos
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  useEffect(() => {
+    // Restaurar sesión desde sessionStorage (Volátil: muere al cerrar pestaña)
     try {
-      const authDataRaw = localStorage.getItem('postventa_auth');
+      const authDataRaw = sessionStorage.getItem('postventa_auth');
       if (authDataRaw) {
         const authData = JSON.parse(authDataRaw);
         if (authData?.token) {
@@ -29,7 +44,7 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      const access = localStorage.getItem('access_token');
+      const access = sessionStorage.getItem('access_token');
       if (access) {
         api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
         // Intentar cargar perfil actual
@@ -37,7 +52,7 @@ export const AuthProvider = ({ children }) => {
           setUser(resp?.data?.user || null);
           // Guardar en almacén unificado
           const merged = { token: access, user: resp?.data?.user || null };
-          localStorage.setItem('postventa_auth', JSON.stringify(merged));
+          sessionStorage.setItem('postventa_auth', JSON.stringify(merged));
           setLoading(false);
         }).catch(() => {
           setUser(null);
@@ -61,27 +76,33 @@ export const AuthProvider = ({ children }) => {
       });
 
       const { access, refresh, user: userData } = response.data;
-      
-      localStorage.setItem('access_token', access);
-      localStorage.setItem('refresh_token', refresh);
-      
+
+      // GUARDAR EN SESSION STORAGE (Volátil)
+      sessionStorage.setItem('access_token', access);
+      sessionStorage.setItem('refresh_token', refresh);
+
       api.defaults.headers.common['Authorization'] = `Bearer ${access}`;
       setUser(userData);
       // Guardar almacén unificado
-      localStorage.setItem('postventa_auth', JSON.stringify({ token: access, user: userData }));
-      
+      sessionStorage.setItem('postventa_auth', JSON.stringify({ token: access, user: userData }));
+
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
-      
+
+      // Limpiar Volátil
+      sessionStorage.removeItem('access_token');
+      sessionStorage.removeItem('refresh_token');
+      sessionStorage.removeItem('postventa_auth');
+      // Limpiar Persistente (Posibles variables corrompidas arrastradas)
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('postventa_auth');
       delete api.defaults.headers.common['Authorization'];
-      
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || error.response?.data?.error || 'Error de autenticación' 
+
+      return {
+        success: false,
+        error: error.response?.data?.detail || error.response?.data?.error || 'Error de autenticación'
       };
     } finally {
       setLoading(false);
@@ -90,13 +111,16 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      const refreshToken = localStorage.getItem('refresh_token');
+      const refreshToken = sessionStorage.getItem('refresh_token');
       if (refreshToken) {
         await api.post('/auth/logout/', { refresh: refreshToken });
       }
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      sessionStorage.removeItem('access_token');
+      sessionStorage.removeItem('refresh_token');
+      sessionStorage.removeItem('postventa_auth');
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('postventa_auth');
@@ -108,8 +132,11 @@ export const AuthProvider = ({ children }) => {
   const clearAuth = () => {
     setUser(null);
     setLoading(false);
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('refresh_token');
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem('postventa_auth');
     delete api.defaults.headers.common['Authorization'];
   };
 
@@ -123,9 +150,9 @@ export const AuthProvider = ({ children }) => {
       return { success: true };
     } catch (error) {
       console.error('Change password error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.detail || 'Error al cambiar contraseña' 
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'Error al cambiar contraseña'
       };
     }
   };

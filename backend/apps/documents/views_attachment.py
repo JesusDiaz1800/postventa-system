@@ -7,8 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
-from apps.incidents.models import Incident
-from .models import DocumentAttachment
+from apps.incidents.models import Incident, IncidentImage, IncidentAttachment
+from .models import DocumentAttachment, Document
 from django.db.models import Q
 import logging
 import os
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def upload_attachment(request):
+def upload_attachment(request, incident_id=None):
     """
     Endpoint optimizado para subir archivos adjuntos
     
@@ -36,8 +36,8 @@ def upload_attachment(request):
     try:
         # 1. Validar datos requeridos
         file = request.FILES.get('file')
-        incident_id = request.data.get('incident_id')
-        document_type = request.data.get('document_type')
+        incident_id = incident_id or request.data.get('incident_id')
+        document_type = request.data.get('document_type', 'incident_attachment')
         description = request.data.get('description', '')
         
         if not file:
@@ -136,31 +136,114 @@ def list_attachments_by_incident(request, incident_id):
         # Validar que la incidencia existe
         incident = get_object_or_404(Incident, pk=incident_id)
         
-        # Obtener attachments
-        # Obtener attachments directos de la incidencia
+        # 1. DocumentAttachment (Nuevos)
         attachments = DocumentAttachment.objects.filter(
             document_id=incident_id
         )
         
-        # Filtrar por tipo si se proporciona
+        # 2. Document (Legacy)
+        legacy_docs = Document.objects.filter(
+            incident_id=incident_id
+        )
+
+        # 3. IncidentAttachment (Incidents App)
+        incident_attachments = IncidentAttachment.objects.filter(
+            incident_id=incident_id
+        )
+
+        # 4. IncidentImage (Galería)
+        incident_images = IncidentImage.objects.filter(
+            incident_id=incident_id
+        )
+        
+        # Filtrar por tipo si se proporciona (opcional)
         doc_type = request.query_params.get('document_type')
         if doc_type:
             attachments = attachments.filter(document_type=doc_type)
         
-        # Serializar datos
+        # Serializar datos unificados
         data = []
-        for attachment in attachments:
+        
+        # Procesar DocumentAttachment
+        for att in attachments:
             data.append({
-                'id': attachment.id,
-                'filename': attachment.filename,
-                'file_type': attachment.file_type,
-                'file_size': attachment.file_size,
-                'document_type': attachment.document_type,
-                'document_type_display': attachment.get_document_type_display(),
-                'description': attachment.description,
-                'uploaded_by': attachment.uploaded_by.username if attachment.uploaded_by else None,
-                'uploaded_at': attachment.uploaded_at.isoformat(),
-                'file_url': attachment.file.url if attachment.file else None
+                'id': f"new-{att.id}",
+                'real_id': att.id,
+                'model': 'DocumentAttachment',
+                'filename': att.filename,
+                'file_type': att.file_type,
+                'file_size': att.file_size,
+                'document_type': att.document_type,
+                'document_type_display': att.get_document_type_display(),
+                'description': att.description,
+                'uploaded_by': att.uploaded_by.username if att.uploaded_by else None,
+                'uploaded_at': att.uploaded_at.isoformat(),
+                'file_url': att.file.url if att.file else None,
+                'view_url': f"/api/documents/attachments/incident/{incident_id}/{att.id}/view/",
+                'download_url': f"/api/documents/attachments/incident/{incident_id}/{att.id}/download/",
+                'is_image': att.file_type.lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']
+            })
+            
+        # Procesar Document (Legacy)
+        for doc in legacy_docs:
+            data.append({
+                'id': f"legacy-{doc.id}",
+                'real_id': doc.id,
+                'model': 'Document',
+                'filename': doc.filename or doc.title,
+                'file_type': doc.filename.split('.')[-1] if doc.filename and '.' in doc.filename else 'pdf',
+                'file_size': doc.size,
+                'document_type': doc.document_type,
+                'document_type_display': 'Adjunto Incidencia (Legacy)',
+                'description': doc.description or doc.title,
+                'uploaded_by': doc.created_by.username if doc.created_by else 'Sistema',
+                'uploaded_at': doc.created_at.isoformat(),
+                'file_url': doc.pdf_path or doc.file_path or None,
+                'view_url': doc.pdf_path or doc.file_path or None, # Legacy docs usually have direct paths
+                'download_url': doc.pdf_path or doc.file_path or None,
+                'is_legacy': True,
+                'is_image': (doc.filename or "").lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))
+            })
+
+        # Procesar IncidentAttachment
+        for iatt in incident_attachments:
+            data.append({
+                'id': f"incident-att-{iatt.id}",
+                'real_id': iatt.id,
+                'model': 'IncidentAttachment',
+                'filename': iatt.file_name,
+                'file_type': iatt.file_type,
+                'file_size': iatt.file_size,
+                'document_type': 'incident_attachment',
+                'document_type_display': 'Adjunto Incidencia',
+                'description': iatt.description,
+                'uploaded_by': iatt.uploaded_by.username if iatt.uploaded_by else None,
+                'uploaded_at': iatt.uploaded_at.isoformat(),
+                'file_url': f"/api/incidents/{incident_id}/attachments/{iatt.id}/view/",
+                'view_url': f"/api/incidents/{incident_id}/attachments/{iatt.id}/view/",
+                'download_url': f"/api/incidents/{incident_id}/attachments/{iatt.id}/download/",
+                'is_image': iatt.file_type.lower() == 'image' or iatt.file_name.lower().endswith(('.jpg', '.jpeg', '.png'))
+            })
+
+        # Procesar IncidentImage
+        for img in incident_images:
+            data.append({
+                'id': f"image-{img.id}",
+                'real_id': img.id,
+                'model': 'IncidentImage',
+                'filename': img.filename,
+                'file_type': img.mime_type.split('/')[-1] if '/' in img.mime_type else 'image',
+                'file_size': img.file_size,
+                'document_type': 'incident_image',
+                'document_type_display': 'Imagen de Galería',
+                'description': img.caption_ai,
+                'uploaded_by': img.uploaded_by.username if img.uploaded_by else None,
+                'uploaded_at': img.created_at.isoformat(),
+                'file_url': f"/api/incidents/{incident_id}/images/{img.id}/view/",
+                'view_url': f"/api/incidents/{incident_id}/images/{img.id}/view/",
+                'download_url': f"/api/incidents/{incident_id}/images/{img.id}/view/",
+                'is_image': True,
+                'thumbnail_url': f"/api/incidents/{incident_id}/images/{img.id}/view/"
             })
         
         return Response({

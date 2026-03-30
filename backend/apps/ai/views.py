@@ -7,7 +7,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.http import JsonResponse
 import logging
-from .gemini_service import get_gemini_service
+from .services import AIService
+from .ollama_service import OllamaService
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,13 @@ def analyze_image(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Obtener servicio Gemini
-        gemini_service = get_gemini_service()
+        # Obtener proveedor solicitado (opcional)
+        provider_name = request.data.get('provider')
+        ai_service = AIService(provider_name=provider_name)
         
-        # Analizar imagen real
-        result = gemini_service.analyze_real_image(
-            image_file=image_file,
+        # Analizar imagen real (soporta múltiples imágenes si se envían)
+        result = ai_service.analyze_real_image(
+            image_files=image_file,
             analysis_type=analysis_type,
             description=description,
             context=context
@@ -98,11 +100,12 @@ def analyze_failure_image(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Obtener servicio Gemini
-        gemini_service = get_gemini_service()
+        # Obtener servicio IA
+        provider_name = request.data.get('provider')
+        ai_service = AIService(provider_name=provider_name)
         
         # Analizar imagen
-        result = gemini_service.analyze_failure_image(image_description)
+        result = ai_service.analyze_failure_image(image_description)
         
         if result['success']:
             return Response({
@@ -140,11 +143,12 @@ def professionalize_problem_description(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Obtener servicio Gemini
-        gemini_service = get_gemini_service()
+        # Obtener servicio IA
+        provider_name = request.data.get('provider')
+        ai_service = AIService(provider_name=provider_name)
         
         # Redactar problema
-        result = gemini_service.professionalize_problem_description(problem_description)
+        result = ai_service.professionalize_problem_description(problem_description)
         
         if result['success']:
             return Response({
@@ -203,15 +207,27 @@ def get_ai_service_status(request):
                 'message': 'API key de Gemini no configurada. Configure GEMINI_API_KEY en el archivo .env'
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         
-        # Intentar inicializar el servicio
-        gemini_service = get_gemini_service()
-        stats = gemini_service.get_analysis_statistics()
+        # Intentar inicializar el servicio principal (orquestador)
+        ai_service = AIService()
+        stats = ai_service._provider_instance.get_analysis_statistics() if hasattr(ai_service._provider_instance, 'get_analysis_statistics') else {}
         
+        # Verificar Ollama específicamente
+        ollama_status = "Not configured"
+        try:
+            ollama_srv = OllamaService(base_url="http://nb-jdiaz26:11434")
+            # Podríamos hacer un heartbeat aquí
+            ollama_status = "Available (nb-jdiaz26)"
+        except:
+            ollama_status = "Unavailable"
+
         return Response({
             'success': True,
-            'gemini_available': True,
-            'api_key_configured': True,
-            'service_status': stats
+            'gemini_available': api_key is not None,
+            'ollama_available': ollama_status == "Available (nb-jdiaz26)",
+            'ollama_info': ollama_status,
+            'api_key_configured': api_key is not None,
+            'service_status': stats,
+            'current_provider': ai_service.provider_name
         })
         
     except Exception as e:

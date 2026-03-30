@@ -6,22 +6,78 @@ import {
   EyeIcon,
   ArrowDownTrayIcon,
   XMarkIcon,
-  ArrowPathIcon,
   CloudArrowUpIcon,
   DocumentTextIcon,
-  CheckCircleIcon,
   CalendarIcon,
   UserIcon,
+  PhotoIcon,
 } from '@heroicons/react/24/outline';
 import { useNotifications } from '../hooks/useNotifications';
 import { api } from '../services/api';
 
-const IncidentAttachments = ({ incidentId, incidentCode }) => {
+const AuthenticatedImage = ({ src, alt, className, onError }) => {
+  const [blobUrl, setBlobUrl] = React.useState(null);
+  const [error, setError] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!src) return;
+
+    // If it's already a data URL or blob, use it directly
+    if (src.startsWith('data:') || src.startsWith('blob:')) {
+      setBlobUrl(src);
+      return;
+    }
+
+    // If it's not an API URL, use it directly
+    if (!src.includes('/api/')) {
+      setBlobUrl(src);
+      return;
+    }
+
+    let isCancelled = false;
+    const fetchImage = async () => {
+      try {
+        // Strip /api prefix as api instance adds baseURL
+        const cleanSrc = src.replace(/^\/api/, '');
+        const response = await api.get(cleanSrc, { responseType: 'blob' });
+        if (isCancelled) return;
+        const url = URL.createObjectURL(response.data);
+        setBlobUrl(url);
+      } catch (err) {
+        console.error('Error fetching image:', err);
+        if (!isCancelled) setError(true);
+      }
+    };
+
+    fetchImage();
+
+    return () => {
+      isCancelled = true;
+      if (blobUrl && (src.includes('/api/'))) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [src]);
+
+  if (error) {
+    if (onError) onError();
+    return null;
+  }
+
+  if (!blobUrl) {
+    return <div className="w-full h-full bg-slate-100 animate-pulse flex items-center justify-center">
+      <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+    </div>;
+  }
+
+  return <img src={blobUrl} alt={alt} className={className} />;
+};
+
+const IncidentAttachments = ({ incidentId }) => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [description, setDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
   const { showSuccess, showError } = useNotifications();
@@ -50,9 +106,10 @@ const IncidentAttachments = ({ incidentId, incidentCode }) => {
       formData.append('incident_id', incidentId);
       formData.append('document_type', 'incident_attachment');
       formData.append('description', description || file.name);
+      formData.append('is_public', isPublic);
 
       const response = await api.post(
-        `/documents/upload-attachment/`,
+        `/documents/attachments/incident/${incidentId}/upload/`, // Correct endpoint from urls.py
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -60,75 +117,94 @@ const IncidentAttachments = ({ incidentId, incidentCode }) => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['incident-attachments', incidentId]);
-      showSuccess('Protocol Attached Successfully');
+      showSuccess('Documento adjuntado correctamente');
       setShowUploadModal(false);
       setSelectedFile(null);
       setDescription('');
-      setIsPublic(false);
+      setIsPublic(true);
       setIsUploading(false);
     },
-    onError: () => {
-      showError('Transmission Failure: Could not attach document');
+    onError: (error) => {
+      console.error(error);
+      showError('Error al subir el documento');
       setIsUploading(false);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (attachmentId) => {
-      await api.delete(`/documents/attachments/incident/${incidentId}/${attachmentId}/delete/`);
+    mutationFn: async (attachment) => {
+      if (attachment.model === 'IncidentImage') {
+        const realId = attachment.real_id || attachment.id.split('-')[1];
+        await api.delete(`/incidents/${incidentId}/images/${realId}/delete/`);
+      } else {
+        // Default to DocumentAttachment logic
+        const realId = attachment.real_id || attachment.id;
+        await api.delete(`/documents/attachments/incident/${incidentId}/${realId}/delete/`);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['incident-attachments', incidentId]);
-      showSuccess('Archive Entry Deleted');
+      showSuccess('Archivo eliminado');
     },
-    onError: () => showError('Purge command failed'),
+    onError: () => showError('Error al eliminar el archivo'),
   });
 
-  const handleView = useCallback(async (attachment) => {
-    try {
-      const response = await api.get(
-        `/documents/attachments/incident/${incidentId}/${attachment.id}/download/`,
-        { responseType: 'blob' }
-      );
-      const extension = attachment.filename.split('.').pop()?.toLowerCase();
-      const mimeTypes = {
-        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-        pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        txt: 'text/plain',
-      };
-      const mimeType = mimeTypes[extension] || 'application/octet-stream';
-      const blob = new Blob([response.data], { type: mimeType });
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-    } catch (err) {
-      showError('Visual Retrieval Error');
+  const handleOpen = async (doc) => {
+    if (!doc.view_url) {
+      showError('No se puede visualizar este archivo');
+      return;
     }
-  }, [incidentId, showError]);
+
+    try {
+      // If it's not an API URL, just open it
+      if (!doc.view_url.includes('/api/')) {
+        window.open(doc.view_url, '_blank');
+        return;
+      }
+
+      // Fetch as blob to include Auth header
+      // Strip /api prefix
+      const cleanUrl = doc.view_url.replace(/^\/api/, '');
+      const response = await api.get(cleanUrl, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: response.headers['content-type'] }));
+      window.open(url, '_blank');
+      // Note: We don't revokeObjectURL here as it's used in the new tab. 
+      // It will be cleaned up when the current page is closed.
+    } catch (err) {
+      console.error('Error opening document:', err);
+      showError('Error al abrir el documento');
+    }
+  };
 
   const handleDownload = useCallback(async (attachment) => {
     try {
+      if (!attachment.download_url) {
+        showError('No hay URL de descarga disponible');
+        return;
+      }
+
+      // Strip /api prefix
+      const cleanUrl = attachment.download_url.replace(/^\/api/, '');
       const response = await api.get(
-        `/documents/attachments/incident/${incidentId}/${attachment.id}/download/`,
+        cleanUrl,
         { responseType: 'blob' }
       );
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.download = attachment.filename;
+      link.download = attachment.filename || attachment.file_name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      showError('Data Extraction Failure');
+      showError('Error en la descarga');
     }
-  }, [incidentId, showError]);
+  }, [showError]);
 
   const handleDelete = useCallback((attachment) => {
-    if (window.confirm(`Initiate purge protocol for "${attachment.filename}"?`)) {
-      deleteMutation.mutate(attachment.id);
+    if (window.confirm(`¿Eliminar el archivo "${attachment.file_name || attachment.filename}"?`)) {
+      deleteMutation.mutate(attachment);
     }
   }, [deleteMutation]);
 
@@ -138,162 +214,160 @@ const IncidentAttachments = ({ incidentId, incidentCode }) => {
     uploadMutation.mutate({ file: selectedFile, description, isPublic });
   }, [selectedFile, description, isPublic, uploadMutation]);
 
-  const handleDrag = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    setDragActive(e.type === 'dragenter' || e.type === 'dragover');
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files?.[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
-      setDescription(e.dataTransfer.files[0].name);
-    }
-  };
-
-  const formatSize = (bytes) => {
-    if (!bytes) return '0 KB';
-    const k = 1024;
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + ['B', 'KB', 'MB', 'GB'][i];
-  };
-
   if (!incidentId) return null;
 
   return (
-    <div className="bg-[#050a14]/60 border border-white/5 rounded-sm overflow-hidden">
-      {/* Header Deck */}
-      <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
-        <div className="flex items-center gap-3">
-          <PaperClipIcon className="h-5 w-5 text-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.4)]" />
-          <div>
-            <h4 className="data-font text-[11px] font-black uppercase text-white tracking-widest">Archive_Vault</h4>
-            <p className="data-font text-[8px] text-gray-600 uppercase tracking-tighter">{attachments.length} Record(s) Linked</p>
-          </div>
-        </div>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <button onClick={() => refetch()} className="p-2 text-gray-500 hover:text-white transition-colors">
-            <ArrowPathIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="tactical-btn py-2 px-4 flex items-center gap-2"
-          >
-            <CloudArrowUpIcon className="h-4 w-4" />
-            <span className="data-font text-[9px] font-black uppercase">Archive_Store</span>
-          </button>
+          <PaperClipIcon className="w-4 h-4 text-slate-400" />
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">{attachments.length} Archivos / Evidencias</p>
         </div>
+        <button
+          onClick={() => setShowUploadModal(true)}
+          className="text-[10px] font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-800 flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          <CloudArrowUpIcon className="w-4 h-4" />
+          Adjuntar Archivo
+        </button>
       </div>
 
-      {/* Archive Grid */}
-      <div className="divide-y divide-white/5 bg-black/20">
-        {isLoading ? (
-          <div className="p-10 flex flex-col items-center justify-center space-y-4">
-            <div className="w-8 h-8 border-2 border-purple-500/20 border-t-purple-500 animate-spin rounded-full"></div>
-            <p className="data-font text-[8px] text-purple-400 uppercase animate-pulse">Scanning Vault...</p>
-          </div>
-        ) : attachments.length === 0 ? (
-          <div className="p-12 text-center opacity-40">
-            <DocumentTextIcon className="h-10 w-10 text-gray-600 mx-auto mb-4" />
-            <p className="data-font text-[10px] text-gray-500 uppercase tracking-widest">Encryption Buffer Empty</p>
-          </div>
-        ) : (
-          attachments.map((doc) => (
-            <div key={doc.id} className="p-5 hover:bg-white/[0.02] flex items-center justify-between group transition-colors">
-              <div className="flex items-center gap-4 flex-1 min-w-0">
-                <div className="w-10 h-10 bg-white/5 border border-white/5 rounded-xs flex items-center justify-center group-hover:border-purple-500/30 transition-all">
-                  <DocumentTextIcon className="w-5 h-5 text-gray-500 transition-colors group-hover:text-white" />
+      {isLoading ? (
+        <div className="flex justify-center p-8">
+          <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      ) : attachments.length === 0 ? (
+        <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+          <DocumentTextIcon className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+          <p className="text-xs text-slate-400 font-bold">No hay documentos adjuntos</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {attachments.map((doc) => (
+            <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:shadow-md transition-shadow group">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-50 rounded-lg flex items-center justify-center text-slate-400 overflow-hidden border border-slate-100">
+                  {doc.is_image ? (
+                    <AuthenticatedImage
+                      src={doc.thumbnail_url || doc.view_url || doc.file_url}
+                      alt="Thumbnail"
+                      className="w-full h-full object-cover"
+                      onError={() => { /* fallback stays handled by AuthenticatedImage internally if it returns null */ }}
+                    />
+                  ) : (
+                    <DocumentTextIcon className="w-6 h-6 text-indigo-400" />
+                  )}
+                  {doc.is_image && !doc.thumbnail_url && !doc.view_url && <PhotoIcon className="w-6 h-6 text-emerald-400" />}
                 </div>
-                <div className="min-w-0">
-                  <p className="data-font text-[11px] font-black text-white uppercase truncate tracking-tight">
-                    {doc.description || doc.filename}
-                  </p>
-                  <div className="flex items-center gap-4 mt-1 opacity-60">
-                    <span className="data-font text-[8px] text-gray-500 flex items-center gap-1 uppercase">
-                      <CalendarIcon className="h-2.5 w-2.5" /> {new Date(doc.created_at).toLocaleDateString()}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-slate-700 leading-tight">{doc.description || doc.filename}</p>
+                    {doc.is_image && (
+                      <span className="text-[8px] font-black bg-emerald-100 text-emerald-600 px-1 rounded uppercase tracking-tighter">Imagen</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className="text-[9px] text-slate-400 font-medium flex items-center gap-1">
+                      <CalendarIcon className="w-2.5 h-2.5" />
+                      {new Date(doc.uploaded_at || doc.created_at).toLocaleDateString()}
                     </span>
-                    <span className="data-font text-[8px] text-gray-500 flex items-center gap-1 uppercase">
-                      <UserIcon className="h-2.5 w-2.5" /> ID:{doc.created_by?.slice(0, 8) || 'SYS'}
+                    <span className="text-[9px] text-slate-400 font-medium flex items-center gap-1">
+                      <UserIcon className="w-2.5 h-2.5" />
+                      {doc.uploaded_by || 'Sistema'}
                     </span>
-                    <span className="data-font text-[8px] text-purple-400 uppercase font-black">{formatSize(doc.size)}</span>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1 ml-4 opacity-20 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleView(doc)} className="p-2 text-gray-500 hover:text-cyan-400 transition-colors" title="View_Data">
-                  <EyeIcon className="h-4 w-4" />
+
+              <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => handleOpen(doc)}
+                  className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-lg transition-colors"
+                  title="Visualizar"
+                >
+                  <EyeIcon className="w-4 h-4" />
                 </button>
-                <button onClick={() => handleDownload(doc)} className="p-2 text-gray-500 hover:text-purple-400 transition-colors" title="Extract_File">
-                  <ArrowDownTrayIcon className="h-4 w-4" />
+                <button
+                  onClick={() => handleDownload(doc)}
+                  className="p-2 text-slate-400 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-lg transition-colors"
+                  title="Descargar"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
                 </button>
-                <button onClick={() => handleDelete(doc)} className="p-2 text-gray-500 hover:text-rose-500 transition-colors" title="Purge_Entry">
-                  <TrashIcon className="h-4 w-4" />
-                </button>
+                {(doc.model === 'DocumentAttachment' || doc.model === 'IncidentImage') && (
+                  <button
+                    onClick={() => handleDelete(doc)}
+                    className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Eliminar"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* Tactical Upload Modal */}
+      {/* Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 bg-[#050a14]/95 backdrop-blur-xl flex items-center justify-center z-[100] p-4">
-          <div className="glass-panel max-w-md w-full border border-purple-500/20 overflow-hidden relative">
-            <div className="absolute inset-0 scanline opacity-5"></div>
-            <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
-              <h5 className="data-font text-xs font-black uppercase text-white italic tracking-[0.2em]">Initiate_Store_Protocol</h5>
-              <button onClick={() => setShowUploadModal(false)} className="text-gray-500 hover:text-white"><XMarkIcon className="h-5 w-5" /></button>
+        <div className="fixed inset-0 z-[50] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Adjuntar Documento</h3>
+              <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-rose-500 transition-colors">
+                <XMarkIcon className="w-5 h-5" />
+              </button>
             </div>
 
             <div className="p-6 space-y-6">
-              <div
-                className={`border border-dashed p-10 text-center transition-all ${dragActive ? 'border-purple-500 bg-purple-500/10' : 'border-white/10 bg-white/[0.02]'}`}
-                onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-              >
-                {selectedFile ? (
-                  <div className="space-y-3">
-                    <CheckCircleIcon className="h-8 w-8 text-emerald-500 mx-auto" />
-                    <p className="data-font text-[10px] text-white uppercase font-black">{selectedFile.name}</p>
-                    <p className="data-font text-[8px] text-gray-500 uppercase">{formatSize(selectedFile.size)}</p>
-                    <button onClick={() => setSelectedFile(null)} className="data-font text-[8px] text-rose-500 hover:underline uppercase tracking-widest font-black">De_Link_File</button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <CloudArrowUpIcon className="h-8 w-8 text-gray-700 mx-auto" />
-                    <p className="data-font text-[9px] text-gray-600 uppercase tracking-widest">Link or Signal Archive Entry</p>
-                    <input type="file" onChange={(e) => { setSelectedFile(e.target.files[0]); setDescription(e.target.files[0]?.name || ''); }} className="hidden" id="internal-upload" />
-                    <label htmlFor="internal-upload" className="tactical-btn py-2 px-6 inline-block cursor-pointer data-font text-[9px] font-black">LINK_ENTRY</label>
-                  </div>
-                )}
+              <div className="space-y-4">
+                <label className="block text-center border-2 border-dashed border-slate-200 rounded-xl p-8 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/10 transition-colors">
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setSelectedFile(e.target.files[0]);
+                        setDescription(e.target.files[0].name);
+                      }
+                    }}
+                  />
+                  <CloudArrowUpIcon className="w-10 h-10 text-indigo-300 mx-auto mb-2" />
+                  {selectedFile ? (
+                    <div className="text-indigo-600 font-medium text-sm break-all">{selectedFile.name}</div>
+                  ) : (
+                    <span className="text-slate-400 text-xs font-bold uppercase tracking-wide">Click para seleccionar archivo</span>
+                  )}
+                </label>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Descripción / Nombre</label>
+                  <input
+                    type="text"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    placeholder="Ej. Guía de Despacho, Informe Técnico..."
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="data-font text-[8px] text-gray-600 uppercase tracking-widest">Metadata_Label</label>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-[#0a0f1d] border border-white/10 rounded-xs px-4 py-3 data-font text-xs text-white"
-                  placeholder="ARCHIVE_LABEL_REQUIRED"
-                />
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowUploadModal(false)}
+                  className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleUpload}
+                  disabled={!selectedFile || isUploading}
+                  className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUploading ? 'Subiendo...' : 'Adjuntar'}
+                </button>
               </div>
-
-              <div className="flex items-center gap-3 bg-white/5 p-3 border border-white/5">
-                <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="checkbox-futuristic" id="pub-check" />
-                <label htmlFor="pub-check" className="data-font text-[9px] text-gray-500 uppercase tracking-widest cursor-pointer">Unrestricted_Access_Protocol</label>
-              </div>
-            </div>
-
-            <div className="p-6 bg-black/40 border-t border-white/5 flex gap-3">
-              <button onClick={() => setShowUploadModal(false)} className="flex-1 tactical-btn py-4 data-font text-[10px] font-black uppercase">Abort</button>
-              <button
-                onClick={handleUpload}
-                disabled={!selectedFile || isUploading}
-                className="flex-1 tactical-btn-active py-4 data-font text-[10px] font-black uppercase"
-              >
-                {isUploading ? 'SYNCING...' : 'COMMIT_ATTACH'}
-              </button>
             </div>
           </div>
         </div>

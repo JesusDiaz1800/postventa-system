@@ -122,16 +122,13 @@ class ProfessionalPDFGenerator:
         ))
 
     def _find_logo(self) -> Optional[str]:
-        """Busca el logo en rutas estándar"""
+        """Busca el logo en rutas estándar (usa BASE_DIR, sin rutas hardcodeadas)"""
+        base = getattr(settings, 'BASE_DIR', '')
         candidates = [
-            os.path.join(getattr(settings, 'BASE_DIR', ''), 'static', 'Logo Polifusion blanco.png'),
-            os.path.join(getattr(settings, 'BASE_DIR', ''), 'static', 'logo_polifusion.png'),
-             # Fallbacks...
+            os.path.join(base, 'static', 'Logo Polifusion blanco.png'),
+            os.path.join(base, 'static', 'logo_polifusion.png'),
+            os.path.join(base, 'apps', 'documents', 'assets', 'logo_polifusion.png'),
         ]
-        # Agregar ruta absoluta directa si existe
-        if os.path.exists(r'C:\Users\jdiaz\Desktop\postventa-system\backend\static\Logo Polifusion blanco.png'):
-             return r'C:\Users\jdiaz\Desktop\postventa-system\backend\static\Logo Polifusion blanco.png'
-
         for path in candidates:
             if os.path.exists(path):
                 return path
@@ -537,10 +534,47 @@ class ProfessionalPDFGenerator:
             }
             elements.append(self._create_info_block(personnel_info))
             
+            # --- NUEVA UBICACIÓN: MÉTRICAS Y MAQUINARIA (ANTES DE DETALLES TÉCNICOS) ---
+            machine_data = data.get('machine_data', {})
+            if isinstance(machine_data, str):
+                try: machine_data = json.loads(machine_data)
+                except: machine_data = {}
+            
+            sap_meta = machine_data.get('sap_metadata', {})
+            if sap_meta:
+                elements.append(Paragraph("MÉTRICAS E INFORMACIÓN DE OBRA", self.styles['SectionHeader']))
+                def bool_to_str(v): return "SÍ" if v else "NO"
+                complementary_info = {
+                    "Obra Finalizada:": bool_to_str(sap_meta.get('is_project_finished')),
+                    "Material Mezclado:": bool_to_str(sap_meta.get('is_mixed_material')),
+                    "Obra Rescatada/Nueva:": bool_to_str(sap_meta.get('is_rescued_project')),
+                    "N° Patente Transp.:": sap_meta.get('patent_number', '-'),
+                    "Nivel Instalación:": sap_meta.get('installation_level', 'NORMAL'),
+                    "Obra Otro Prov.:": sap_meta.get('project_with_other_provider', 'NO'),
+                    "Nombre Proveedor:": sap_meta.get('other_provider', '-'),
+                }
+                elements.append(self._create_info_block(complementary_info))
+                
+
+            
+            machines = machine_data.get('machines', [])
+            if machines:
+                elements.append(Paragraph("DESEMPEÑO DE EQUIPOS Y MAQUINARIA", self.styles['SectionHeader']))
+                m_table_data = [['#', 'Máquina / Equipo', 'Inicio (Hrs/Km)', 'Corte (Hrs/Km)']]
+                for i, m in enumerate(machines):
+                    m_table_data.append([str(i+1), m.get('machine', '-'), m.get('start', '-'), m.get('cut', '-')])
+                
+                m_col_widths = [1*cm, 9*cm, 3.5*cm, 3.5*cm]
+                elements.append(self._create_full_width_table(m_table_data, m_col_widths))
+                
+                if machine_data.get('machine_removal'):
+                    elements.append(Spacer(1, 3))
+                    elements.append(Paragraph(f"<b>Retiro de Máquina:</b> SÍ (N° Reporte de Retiro: {machine_data.get('report_number', '-')})", self.styles['ModernBodyText']))
+            
             # 4. Detalle Técnico (Motivo + Observaciones)
-            elements.append(Paragraph("DETALLE TÉCNICO", self.styles['SectionHeader']))
-            elements.append(Paragraph(f"<b>Motivo Visita:</b> {data.get('visit_reason', '-')}", self.styles['ModernBodyText']))
-            elements.append(Spacer(1, 5))
+            elements.append(Paragraph("DETALLES TÉCNICOS Y OBSERVACIONES", self.styles['SectionHeader']))
+            elements.append(Paragraph("<b>Motivo Visita:</b> Post Venta", self.styles['ModernBodyText']))
+            elements.append(Spacer(1, 4))
             
             # Observaciones específicas
             sections = [
@@ -549,6 +583,7 @@ class ProfessionalPDFGenerator:
                 ('Matriz', data.get('matrix_observations')),
                 ('Losa', data.get('slab_observations')),
                 ('Almacenaje', data.get('storage_observations')),
+                ('Pre-Armados', data.get('pre_assembled_observations')),
                 ('Exteriores', data.get('exterior_observations')),
             ]
             
@@ -586,8 +621,8 @@ class ProfessionalPDFGenerator:
                 
                 elements.append(self._create_full_width_table(table_data, col_widths))
             
-            # 6. Evidencia Fotográfica (Salto de página recomendado si queda poco espacio)
-            elements.append(PageBreak())
+            # 8. Evidencia Fotográfica (Removido el PageBreak forzado para ahorrar hojas)
+            elements.append(Spacer(1, 10))
             elements.append(Paragraph("EVIDENCIA FOTOGRÁFICA", self.styles['SectionHeader']))
             
             # Recopilar imágenes
@@ -753,65 +788,72 @@ class ProfessionalPDFGenerator:
 
         
         # Obtener usuario y firma digital
+        user_full_name = "Personal Autorizado"
+        tech_sign_img = None
+        
         try:
             from django.contrib.auth import get_user_model
             User = get_user_model()
-            user_id = data.get('created_by')
             
-            # Si no viene created_by, intentar con technician (usualmente es el ID del usuario técnico)
-            if not user_id:
-                user_id = data.get('technician')
-                
-            if isinstance(user_id, dict): 
-                user_id = user_id.get('id')
+            # 1. Intentar con technician_id (ID de SAP) - MÁXIMA PRIORIDAD
+            technician_id_val = data.get('technician_id')
+            user = None
             
-            if user_id:
-                user = None
-                # Intentar buscar por ID si es número o string numérico
-                if isinstance(user_id, int) or (isinstance(user_id, str) and user_id.isdigit()):
-                    user = User.objects.filter(pk=user_id).first()
-                
-                # Si no, buscar por nombre string (ej: "Marco Montenegro")
-                if not user and isinstance(user_id, str):
-                    logger.info(f"Buscando usuario por nombre: {user_id}")
-                    # 1. Intentar match por username
-                    user = User.objects.filter(username__iexact=user_id).first()
-                    
-                    # 2. Intentar separar Nombre Apellido
-                    if not user:
-                        parts = user_id.split()
-                        if len(parts) >= 2:
-                            # Busqueda flexible: Nombre Apellido
-                            user = User.objects.filter(
-                                first_name__iexact=parts[0], 
-                                last_name__iexact=" ".join(parts[1:])
-                            ).first()
-                            
-                            # Si no funciona, intentar buscar solo por apellido si es único? No, muy arriesgado.
-                
+            if technician_id_val:
+                user = User.objects.filter(pk=technician_id_val).first()
                 if user:
-                    logger.info(f"Usuario encontrado para firma: {user.username} (ID: {user.id})")
-                    signature_path = self._get_digital_signature(user)
+                    logger.info(f"Usuario encontrado por technician_id (SAP): {user.username}")
+            
+            # 2. Si no se encontró, intentar con created_by
+            if not user:
+                created_by_val = data.get('created_by')
+                if isinstance(created_by_val, dict): 
+                    created_by_val = created_by_val.get('id')
+                
+                if created_by_val:
+                    user = User.objects.filter(pk=created_by_val).first()
+                    if user:
+                        logger.info(f"Usuario encontrado por created_by: {user.username}")
+            
+            # 3. Fallback: Intentar con technician (Nombre string o ID histórico)
+            if not user:
+                user_id_alt = data.get('technician')
+                
+                if user_id_alt:
+                    # Si es numérico
+                    if isinstance(user_id_alt, int) or (isinstance(user_id_alt, str) and user_id_alt.isdigit()):
+                        user = User.objects.filter(pk=user_id_alt).first()
                     
-                    # Convertir el path a un objeto Image de ReportLab
-                    if signature_path:
-                        try:
-                            # Crear objeto Image con tamaño apropiado para firma
-                            # Usamos ReportLabImage (alias global) y cm (global)
-                            tech_sign_img = ReportLabImage(signature_path, width=4*cm, height=2*cm)
-                            tech_sign_img.hAlign = 'CENTER'
-                            logger.info(f"Imagen de firma creada exitosamente desde: {signature_path}")
-                        except Exception as img_error:
-                            logger.warning(f"No se pudo crear Image desde firma: {img_error}")
-                            tech_sign_img = None
-                    
-                    # El modelo User tiene una propiedad full_name, no el método get_full_name
-                    user_full_name = getattr(user, 'full_name', f"{user.first_name} {user.last_name}".strip()) or user.username
-                else:
-                    logger.warning(f"No se pudo encontrar usuario para el ID/Nombre: {user_id}")
-                    # Fallback visual: Si tenemos el nombre "Marco Montenegro", usémoslo aunque no tengamos la firma
-                    if isinstance(user_id, str) and not user_id.isdigit():
-                        user_full_name = user_id
+                    # Si es nombre string
+                    if not user and isinstance(user_id_alt, str):
+                        logger.info(f"Buscando usuario por nombre/username: {user_id_alt}")
+                        user = User.objects.filter(username__iexact=user_id_alt).first()
+                        
+                        if not user:
+                            parts = user_id_alt.split()
+                            if len(parts) >= 2:
+                                user = User.objects.filter(
+                                    first_name__iexact=parts[0], 
+                                    last_name__iexact=" ".join(parts[1:])
+                                ).first()
+                        
+                        if not user and not user_id_alt.isdigit():
+                            # Si definitivamente es un nombre pero no hay usuario, lo guardamos para el PDF
+                            user_full_name = user_id_alt
+            
+            if user:
+                logger.info(f"Usuario final para firma: {user.username} (ID: {user.id})")
+                signature_path = self._get_digital_signature(user)
+                
+                if signature_path:
+                    try:
+                        tech_sign_img = ReportLabImage(signature_path, width=4*cm, height=2*cm)
+                        tech_sign_img.hAlign = 'CENTER'
+                    except Exception as img_error:
+                        logger.warning(f"No se pudo crear Image desde firma: {img_error}")
+                
+                # Nombre del usuario
+                user_full_name = getattr(user, 'full_name', f"{user.first_name} {user.last_name}".strip()) or user.username
         except Exception as e:
             logger.warning(f"No se pudo resolver firma usuario: {e}")
 

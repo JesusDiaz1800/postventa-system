@@ -5,6 +5,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from apps.incidents.models import Incident
+from apps.core.thread_local import get_current_country
 
 User = get_user_model()
 
@@ -178,6 +179,17 @@ class DocumentConversion(models.Model):
     def __str__(self):
         return f"{self.document.title} - {self.source_format} a {self.target_format}"
 
+def get_visit_report_pdf_path(instance, filename):
+    """Genera ruta dinámica: <pais>/visit_reports/pdfs/YYYY/MM/filename"""
+    country = get_current_country()
+    year_month = timezone.now().strftime('%Y/%m')
+    return f"{country}/visit_reports/pdfs/{year_month}/{filename}"
+
+def get_attachment_upload_path(instance, filename):
+    """Genera ruta dinámica: <pais>/documents/attachments/filename"""
+    country = get_current_country()
+    return f"{country}/documents/attachments/{filename}"
+
 # ==================== NUEVOS MODELOS PARA TRAZABILIDAD ====================
 
 class DocumentType(models.TextChoices):
@@ -223,6 +235,7 @@ class VisitReport(models.Model):
     # Personal involucrado
     salesperson = models.CharField(max_length=100, blank=True, null=True, verbose_name="Vendedor")
     technician = models.CharField(max_length=100, blank=True, null=True, verbose_name="Técnico")
+    technician_id = models.IntegerField(null=True, blank=True, verbose_name="ID Técnico SAP")
     installer = models.CharField(max_length=100, blank=True, verbose_name="Instalador")
     installer_phone = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Instalador")
     
@@ -282,7 +295,7 @@ class VisitReport(models.Model):
     
     # Archivo PDF generado
     pdf_file = models.FileField(
-        upload_to='visit_reports/pdfs/%Y/%m/', 
+        upload_to=get_visit_report_pdf_path, 
         null=True, 
         blank=True,
         verbose_name="PDF del Reporte"
@@ -314,7 +327,7 @@ class VisitReport(models.Model):
     def save(self, *args, **kwargs):
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🟡 MODEL SAVE CALLED: self.report_number = '{self.report_number}'")
+        logger.info(f"[MODEL] SAVE CALLED: self.report_number = '{self.report_number}'")
         
         # Solo generar report_number si no fue pre-asignado
         if not self.report_number:
@@ -605,7 +618,7 @@ class DocumentAttachment(models.Model):
     document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES, verbose_name="Tipo de Documento")
     document_id = models.PositiveIntegerField(verbose_name="ID del Documento")
     
-    file = models.FileField(upload_to='documents/attachments/', verbose_name="Archivo")
+    file = models.FileField(upload_to=get_attachment_upload_path, verbose_name="Archivo")
     filename = models.CharField(max_length=255, verbose_name="Nombre del Archivo")
     file_type = models.CharField(max_length=50, verbose_name="Tipo de Archivo")
     file_size = models.PositiveIntegerField(verbose_name="Tamaño del Archivo")

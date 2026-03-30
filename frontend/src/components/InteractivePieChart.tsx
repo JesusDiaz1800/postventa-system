@@ -1,145 +1,162 @@
 "use client";
 
 import { useState } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { ChevronLeft } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Sector } from 'recharts';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowUturnLeftIcon } from '@heroicons/react/24/solid';
 
-interface CategoryData {
+interface ChartData {
     name: string;
     value: number;
-    color: string;
-    subcategories?: SubcategoryData[];
-}
-
-interface SubcategoryData {
-    name: string;
-    value: number;
-    color: string;
+    color?: string;
+    [key: string]: any;
 }
 
 interface InteractivePieChartProps {
-    data: CategoryData[];
+    data: ChartData[];
+    title?: string;
+    onSliceClick?: (entry: ChartData) => void;
+    onBack?: () => void;
+    hasParent?: boolean;
 }
 
-export function InteractivePieChart({ data }: InteractivePieChartProps) {
-    const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(null);
-    const [isAnimating, setIsAnimating] = useState(false);
+const COLORS = ['#3b82f6', '#6366f1', '#818cf8', '#2dd4bf', '#fbbf24', '#f87171', '#a855f7', '#ec4899', '#8b5cf6'];
+
+const renderActiveShape = (props: any) => {
+    const RADIAN = Math.PI / 180;
+    const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
+
+    return (
+        <g>
+            <text x={cx} y={cy} dy={-10} textAnchor="middle" fill="#f8fafc" className="font-black text-[12px] uppercase tracking-wider">
+                {payload.name.length > 12 ? payload.name.substring(0, 10) + '..' : payload.name}
+            </text>
+            <text x={cx} y={cy} dy={15} textAnchor="middle" fill="#94a3b8" className="font-bold text-[10px]">
+                {`${value}`}
+            </text>
+            <Sector
+                cx={cx}
+                cy={cy}
+                innerRadius={innerRadius}
+                outerRadius={outerRadius + 6}
+                startAngle={startAngle}
+                endAngle={endAngle}
+                fill={fill}
+            />
+            <Sector
+                cx={cx}
+                cy={cy}
+                startAngle={startAngle}
+                endAngle={endAngle}
+                innerRadius={outerRadius + 10}
+                outerRadius={outerRadius + 14}
+                fill={fill}
+            />
+        </g>
+    );
+};
+
+export function InteractivePieChart({ data, title = "Distribución", onSliceClick, onBack, hasParent = false }: InteractivePieChartProps) {
+    const [activeIndex, setActiveIndex] = useState(0);
+
+    const onPieEnter = (_: any, index: number) => {
+        setActiveIndex(index);
+    };
 
     const handlePieClick = (entry: any, index: number) => {
-        if (selectedCategory) return; // Ya estamos en subcategorías
-
-        const category = data[index];
-        if (category.subcategories && category.subcategories.length > 0) {
-            setIsAnimating(true);
-            setTimeout(() => {
-                setSelectedCategory(category);
-                setIsAnimating(false);
-            }, 200);
+        if (onSliceClick) {
+            onSliceClick(entry);
+            setActiveIndex(0);
         }
-    };
-
-    const handleBack = () => {
-        setIsAnimating(true);
-        setTimeout(() => {
-            setSelectedCategory(null);
-            setIsAnimating(false);
-        }, 200);
-    };
-
-    const currentData = selectedCategory?.subcategories || data;
-    const title = selectedCategory ? selectedCategory.name : 'Distribución por Categorías';
-
-    const CustomTooltip = ({ active, payload }: any) => {
-        if (active && payload && payload.length) {
-            return (
-                <div className="bg-white/95 backdrop-blur-sm px-4 py-2 rounded-xl shadow-xl border border-slate-200">
-                    <p className="text-sm font-semibold text-slate-800">{payload[0].name}</p>
-                    <p className="text-xs text-blue-600 font-bold">{payload[0].value} incidencias</p>
-                    <p className="text-xs text-slate-500">
-                        {((payload[0].value / currentData.reduce((acc, item) => acc + item.value, 0)) * 100).toFixed(1)}%
-                    </p>
-                </div>
-            );
-        }
-        return null;
     };
 
     return (
-        <div className="relative bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-lg p-6 h-full transition-all duration-300 hover:shadow-xl hover:border-slate-300/60">
-            {/* Header con título y botón back */}
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-indigo-500 rounded-full"></div>
-                    {title}
-                </h3>
-                {selectedCategory && (
-                    <button
-                        onClick={handleBack}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                        <ChevronLeft size={16} />
-                        Volver
-                    </button>
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col h-full bg-transparent overflow-hidden"
+        >
+            <div className="flex items-center justify-between px-5 pt-5 mb-2">
+                <div className="flex items-center gap-2">
+                    <div className={`w-1 h-3 rounded-full animate-pulse ${hasParent ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                    <h3 className="text-[11px] font-black text-slate-100 tracking-widest uppercase truncate max-w-[200px]" title={title}>
+                        {title}
+                    </h3>
+                </div>
+
+                <AnimatePresence>
+                    {hasParent && (
+                        <motion.button
+                            initial={{ opacity: 0, x: 10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 10 }}
+                            onClick={onBack}
+                            className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black text-[9px] uppercase tracking-widest transition-all shadow-lg border border-white/10"
+                        >
+                            <ArrowUturnLeftIcon className="h-3 w-3" />
+                            Volver
+                        </motion.button>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            <div className="flex-1 w-full min-h-0 relative">
+                {data && data.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%" debounce={100} minWidth={0} minHeight={0}>
+                        <PieChart>
+                            <Pie
+                                activeIndex={activeIndex}
+                                activeShape={renderActiveShape}
+                                data={data}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={70}
+                                outerRadius={90}
+                                dataKey="value"
+                                onMouseEnter={onPieEnter}
+                                onClick={handlePieClick}
+                                animationDuration={800}
+                                paddingAngle={4}
+                            >
+                                {data.map((entry, index) => (
+                                    <Cell
+                                        key={`cell-${index}`}
+                                        fill={COLORS[index % COLORS.length]}
+                                        stroke="rgba(15, 23, 42, 1)"
+                                        strokeWidth={4}
+                                        style={{ cursor: !hasParent ? 'pointer' : 'default', outline: 'none' }}
+                                    />
+                                ))}
+                            </Pie>
+                            <Tooltip content={<div className="hidden" />} />
+                        </PieChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <div className="h-full flex items-center justify-center text-slate-500 text-xs uppercase tracking-widest font-bold">
+                        Sin Datos
+                    </div>
                 )}
             </div>
 
-            {/* Indicador de drill-down activo */}
-            {selectedCategory && (
-                <div className="mb-3 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-xs text-blue-700 font-medium">
-                        📊 Subcategorías de <span className="font-bold">{selectedCategory.name}</span>
-                    </p>
-                </div>
-            )}
-
-            {/* Gráfico de torta */}
-            <div className={`transition-opacity duration-200 ${isAnimating ? 'opacity-30' : 'opacity-100'}`}>
-                <ResponsiveContainer width="100%" height={320}>
-                    <PieChart>
-                        <Pie
-                            data={currentData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                            outerRadius={100}
-                            innerRadius={selectedCategory ? 50 : 0}
-                            fill="#8884d8"
-                            dataKey="value"
-                            onClick={handlePieClick}
-                            cursor={!selectedCategory ? "pointer" : "default"}
-                            animationBegin={0}
-                            animationDuration={800}
+            {/* Smart Legend with Scroll */}
+            <div className="px-5 pb-5 h-[80px] overflow-y-auto custom-scrollbar border-t border-slate-800/50 pt-3">
+                <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+                    {data.map((entry, index) => (
+                        <div
+                            key={index}
+                            className={`flex items-center gap-2 cursor-pointer transition-all group ${activeIndex === index ? 'opacity-100 scale-105' : 'opacity-40 hover:opacity-80'}`}
+                            onMouseEnter={() => setActiveIndex(index)}
+                            onClick={() => handlePieClick(entry, index)}
                         >
-                            {currentData.map((entry, index) => (
-                                <Cell
-                                    key={`cell-${index}`}
-                                    fill={entry.color}
-                                    className="transition-all duration-200 hover:opacity-80"
-                                />
-                            ))}
-                        </Pie>
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend
-                            verticalAlign="bottom"
-                            height={36}
-                            iconType="circle"
-                            formatter={(value, entry: any) => (
-                                <span className="text-sm text-slate-700 font-medium">{value}</span>
-                            )}
-                        />
-                    </PieChart>
-                </ResponsiveContainer>
-            </div>
-
-            {/* Hint para interacción */}
-            {!selectedCategory && (
-                <div className="mt-3 text-center">
-                    <p className="text-xs text-slate-500 italic">
-                        💡 Haz click en una categoría para ver sus subcategorías
-                    </p>
+                            <div className="w-2 h-2 rounded-sm rotate-45 shadow-[0_0_5px_currentColor]" style={{ backgroundColor: COLORS[index % COLORS.length], color: COLORS[index % COLORS.length] }} />
+                            <span className="text-[10px] font-bold uppercase text-slate-300 tracking-tight truncate max-w-[100px]" title={entry.name}>
+                                {entry.name}
+                            </span>
+                            <span className="text-[9px] font-black text-slate-500">{entry.value}</span>
+                        </div>
+                    ))}
                 </div>
-            )}
-        </div>
+            </div>
+        </motion.div>
     );
 }

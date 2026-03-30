@@ -109,227 +109,110 @@ class DocumentTemplateListCreateView(generics.ListCreateAPIView):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def documents_by_incidents(request):
-    """Get documents organized by incidents"""
-    logger.info(f"Documents by incidents called by user: {request.user.username}")
+    """Get documents organized by incidents with optimized prefetching and pagination"""
+    logger.info(f"Optimized documents by incidents called by user: {request.user.username}")
     
     try:
+        from rest_framework.pagination import PageNumberPagination
+        
         # Get filter parameters
-        document_type = request.GET.get('document_type', '')
         search = request.GET.get('search', '')
         
-        # Base queryset - incluir documentos y reportes de visita
-        from .models import VisitReport, LabReport, SupplierReport
+        # Base Incident Queryset with Prefetching
+        queryset = Incident.objects.all()
         
-        # Obtener documentos
-        documents_queryset = Document.objects.select_related('incident', 'created_by').all()
+        # Filter by search if provided
+        if search:
+            queryset = queryset.filter(
+                Q(code__icontains=search) | 
+                Q(cliente__icontains=search) | 
+                Q(obra__icontains=search)
+            )
+            
+        # Optimization: select_related and prefetch everything related to documents
+        queryset = queryset.select_related('created_by').prefetch_related(
+            'documents', 
+            'visit_reports', 
+            'lab_reports', 
+            'supplier_reports'
+        ).order_by('-created_at')
         
-        # Obtener reportes de visita
-        visit_reports_queryset = VisitReport.objects.select_related('related_incident').all()
+        # Pagination
+        paginator = PageNumberPagination()
+        paginator.page_size = 10  # Process 10 incidents at a time
+        page = paginator.paginate_queryset(queryset, request)
         
-        # Obtener reportes de laboratorio
-        lab_reports_queryset = LabReport.objects.select_related('related_incident').all()
-        
-        # Obtener reportes de proveedores
-        supplier_reports_queryset = SupplierReport.objects.select_related('related_incident').all()
-        
-        # Organize by incidents
-        incidents_data = {}
-        
-        # Procesar documentos regulares
-        for document in documents_queryset.order_by('-created_at'):
-            if document.incident:
-                incident_id = document.incident.id
-                if incident_id not in incidents_data:
-                    incidents_data[incident_id] = {
-                        'incident': {
-                            'id': document.incident.id,
-                            'code': document.incident.code,
-                            'cliente': document.incident.cliente,
-                            'provider': document.incident.provider,
-                            'estado': document.incident.estado,
-                            'prioridad': document.incident.prioridad,
-                        },
-                        'documents': []
-                    }
-                incidents_data[incident_id]['documents'].append({
-                    'id': document.id,
-                    'title': document.title,
-                    'document_type': document.document_type,
-                    'document_type_display': document.get_document_type_display(),
-                    'version': document.version,
-                    'is_final': document.is_final,
-                    'created_by': {
-                        'id': document.created_by.id,
-                        'username': document.created_by.username,
-                        'first_name': document.created_by.first_name,
-                        'last_name': document.created_by.last_name,
-                    },
-                    'created_at': document.created_at,
-                    'updated_at': document.updated_at,
+        incidents_list = []
+        for incident in (page if page is not None else queryset):
+            incident_docs = []
+            
+            # 1. Regular Documents
+            for doc in incident.documents.all():
+                incident_docs.append({
+                    'id': doc.id,
+                    'title': doc.title,
+                    'document_type': doc.document_type,
+                    'document_type_display': doc.get_document_type_display(),
+                    'created_at': doc.created_at,
+                    'pdf_path': doc.pdf_path,
                 })
-        
-        # Procesar reportes de visita
-        for report in visit_reports_queryset.order_by('-created_at'):
-            if report.related_incident:
-                incident_id = report.related_incident.id
-                if incident_id not in incidents_data:
-                    incidents_data[incident_id] = {
-                        'incident': {
-                            'id': report.related_incident.id,
-                            'code': report.related_incident.code,
-                            'cliente': report.related_incident.cliente,
-                            'provider': report.related_incident.provider,
-                            'estado': report.related_incident.estado,
-                            'prioridad': report.related_incident.prioridad,
-                        },
-                        'documents': []
-                    }
-                # Buscar el archivo real en la carpeta compartida
-                real_filename = find_real_filename('visit_report', incident_id, report.report_number)
-                filename = real_filename or f"visit_report_{report.report_number}.pdf"
                 
-                # Generar URL directa al archivo
-                direct_url = get_direct_file_url('visit_report', incident_id, filename)
-                
-                incidents_data[incident_id]['documents'].append({
-                    'id': f"visit_report_{report.id}",
-                    'title': f"Reporte de Visita - {report.report_number}",
-                    'filename': filename,
-                    'direct_url': direct_url,
-                    'type': 'visit_report',
+            # 2. Visit Reports
+            for vr in incident.visit_reports.all():
+                incident_docs.append({
+                    'id': f"vr_{vr.id}",
+                    'title': f"Reporte Visita: {vr.report_number}",
                     'document_type': 'visit_report',
                     'document_type_display': 'Reporte de Visita',
-                    'version': '1.0',
-                    'is_final': True,
-                    'incident_id': incident_id,
-                    'created_by': {
-                        'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
-                        'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
-                        'first_name': report.created_by.first_name if hasattr(report, 'created_by') and report.created_by else '',
-                        'last_name': report.created_by.last_name if hasattr(report, 'created_by') and report.created_by else '',
-                    },
-                    'created_at': report.created_at,
-                    'updated_at': report.updated_at,
-                    'report_number': report.report_number,
-                    'order_number': report.order_number,
-                    'client_name': report.client_name,
-                    'visit_date': report.visit_date,
+                    'created_at': vr.created_at,
+                    'report_number': vr.report_number,
+                    'pdf_path': vr.pdf_path
                 })
-        
-        # Procesar reportes de laboratorio
-        for report in lab_reports_queryset.order_by('-created_at'):
-            if report.related_incident:
-                incident_id = report.related_incident.id
-                if incident_id not in incidents_data:
-                    incidents_data[incident_id] = {
-                        'incident': {
-                            'id': report.related_incident.id,
-                            'code': report.related_incident.code,
-                            'cliente': report.related_incident.cliente,
-                            'provider': report.related_incident.provider,
-                            'estado': report.related_incident.estado,
-                            'prioridad': report.related_incident.prioridad,
-                        },
-                        'documents': []
-                    }
-                # Buscar el archivo real en la carpeta compartida
-                real_filename = find_real_filename('lab_report', incident_id, report.report_number)
-                filename = real_filename or f"lab_report_{report.report_number}.pdf"
                 
-                # Generar URL directa al archivo
-                direct_url = get_direct_file_url('lab_report', incident_id, filename)
-                
-                incidents_data[incident_id]['documents'].append({
-                    'id': f"lab_report_{report.id}",
-                    'title': f"Reporte de Laboratorio - {report.report_number}",
-                    'filename': filename,
-                    'direct_url': direct_url,
-                    'type': 'lab_report',
+            # 3. Lab Reports
+            for lr in incident.lab_reports.all():
+                incident_docs.append({
+                    'id': f"lr_{lr.id}",
+                    'title': f"Reporte Lab: {lr.report_number}",
                     'document_type': 'lab_report',
-                    'document_type_display': 'Reporte de Laboratorio',
-                    'version': '1.0',
-                    'is_final': True,
-                    'incident_id': incident_id,
-                    'created_by': {
-                        'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
-                        'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
-                        'first_name': report.created_by.first_name if hasattr(report, 'created_by') and report.created_by else '',
-                        'last_name': report.created_by.last_name if hasattr(report, 'created_by') and report.created_by else '',
-                    },
-                    'created_at': report.created_at,
-                    'updated_at': report.updated_at,
-                    'report_number': report.report_number,
-                    'client_name': report.client_name,
+                    'document_type_display': 'Reporte Lab',
+                    'created_at': lr.created_at,
+                    'pdf_path': lr.pdf_path
                 })
-        
-        # Procesar reportes de proveedores
-        for report in supplier_reports_queryset.order_by('-created_at'):
-            if report.related_incident:
-                incident_id = report.related_incident.id
-                if incident_id not in incidents_data:
-                    incidents_data[incident_id] = {
-                        'incident': {
-                            'id': report.related_incident.id,
-                            'code': report.related_incident.code,
-                            'cliente': report.related_incident.cliente,
-                            'provider': report.related_incident.provider,
-                            'estado': report.related_incident.estado,
-                            'prioridad': report.related_incident.prioridad,
-                        },
-                        'documents': []
-                    }
-                # Buscar el archivo real en la carpeta compartida
-                real_filename = find_real_filename('supplier_report', incident_id, report.report_number)
-                filename = real_filename or f"supplier_report_{report.report_number}.pdf"
-                
-                # Generar URL directa al archivo
-                direct_url = get_direct_file_url('supplier_report', incident_id, filename)
-                
-                incidents_data[incident_id]['documents'].append({
-                    'id': f"supplier_report_{report.id}",
-                    'title': f"Reporte de Proveedor - {report.report_number}",
-                    'filename': filename,
-                    'direct_url': direct_url,
-                    'type': 'supplier_report',
+
+            # 4. Supplier Reports
+            for sr in incident.supplier_reports.all():
+                incident_docs.append({
+                    'id': f"sr_{sr.id}",
+                    'title': f"Reporte Proveedor: {sr.report_number}",
                     'document_type': 'supplier_report',
-                    'document_type_display': 'Reporte de Proveedor',
-                    'version': '1.0',
-                    'is_final': True,
-                    'incident_id': incident_id,
-                    'created_by': {
-                        'id': report.created_by.id if hasattr(report, 'created_by') and report.created_by else None,
-                        'username': report.created_by.username if hasattr(report, 'created_by') and report.created_by else 'Sistema',
-                        'first_name': report.created_by.first_name if hasattr(report, 'created_by') and report.created_by else '',
-                        'last_name': report.created_by.last_name if hasattr(report, 'created_by') and report.created_by else '',
+                    'document_type_display': 'Reporte Proveedor',
+                    'created_at': sr.created_at,
+                    'pdf_path': sr.pdf_path
+                })
+            
+            if incident_docs:
+                incidents_list.append({
+                    'incident': {
+                        'id': incident.id,
+                        'code': incident.code,
+                        'cliente': incident.cliente,
+                        'estado': incident.estado,
                     },
-                    'created_at': report.created_at,
-                    'updated_at': report.updated_at,
-                    'report_number': report.report_number,
-                    'client_name': report.client_name,
+                    'documents': incident_docs
                 })
         
-        # Convert to list and sort by incident code
-        incidents_list = list(incidents_data.values())
-        incidents_list.sort(key=lambda x: x['incident']['code'])
-        
+        if page is not None:
+            return paginator.get_paginated_response(incidents_list)
+            
         return Response({
             'success': True,
-            'incidents': incidents_list,
-            'total_incidents': len(incidents_list),
-            'total_documents': sum(len(inc['documents']) for inc in incidents_list),
-            'filters_applied': {
-                'document_type': document_type,
-                'search': search,
-            }
+            'incidents': incidents_list
         })
         
     except Exception as e:
-        logger.error(f"Error in documents_by_incidents: {e}")
-        return Response({
-            'success': False,
-            'error': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        logger.error(f"Error in optimized documents_by_incidents: {e}")
+        return Response({'success': False, 'error': str(e)}, status=500)
 
 class DocumentTemplateRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """Retrieve, update and delete document templates"""
@@ -557,8 +440,11 @@ def search_documents(request):
     })
 
 
+from django.views.decorators.cache import cache_page
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
+@cache_page(60 * 15)
 def document_dashboard(request):
     """Get document dashboard data"""
     try:

@@ -33,22 +33,25 @@ const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300 mb-6">
+    <div className="bg-white/60 backdrop-blur-2xl rounded-3xl border border-white/60 shadow-xl shadow-slate-200/50 overflow-hidden transition-all duration-300 mb-6 group hover:shadow-2xl hover:shadow-slate-300/50">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full px-6 py-4 flex items-center justify-between bg-gradient-to-r ${colorClasses[color] || colorClasses.teal} text-white transition-all`}
+        className={`w-full px-6 py-5 flex items-center justify-between bg-gradient-to-r ${colorClasses[color] || colorClasses.teal} text-white transition-all relative overflow-hidden`}
       >
-        <div className="flex items-center gap-3">
-          <Icon className="h-5 w-5 text-white/90" />
-          <span className="text-lg font-bold tracking-tight">{title}</span>
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+            <Icon className="h-6 w-6 text-white" />
+          </div>
+          <span className="text-lg font-black tracking-wide uppercase">{title}</span>
         </div>
-        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
-          <ChevronDownIcon className="h-4 w-4" />
+        <div className={`transition-transform duration-300 bg-white/20 p-1.5 rounded-full backdrop-blur-sm ${isOpen ? 'rotate-180' : ''}`}>
+          <ChevronDownIcon className="h-4 w-4 text-white" />
         </div>
       </button>
-      <div className={`transition-all duration-500 ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-        <div className="p-6 space-y-6">
+      <div className={`transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+        <div className="p-8 space-y-8">
           {children}
         </div>
       </div>
@@ -58,20 +61,20 @@ const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color
 
 // Input con diseño ultra-moderno
 const GlassInput = ({ label, icon: Icon, required, ...props }) => (
-  <div className="space-y-1.5 group">
-    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+  <div className="space-y-2 group">
+    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
       {label}
-      {required && <span className="text-red-500">*</span>}
+      {required && <span className="text-rose-500">*</span>}
     </label>
     <div className="relative">
       {Icon && (
-        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-teal-500 transition-colors">
-          <Icon className="h-4 w-4" />
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-600 transition-colors">
+          <Icon className="h-5 w-5" />
         </div>
       )}
       <input
         {...props}
-        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm`}
+        className={`w-full ${Icon ? 'pl-12' : 'px-4'} py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all duration-300 placeholder:text-slate-400 font-medium text-sm text-slate-700 shadow-sm`}
       />
     </div>
   </div>
@@ -79,21 +82,21 @@ const GlassInput = ({ label, icon: Icon, required, ...props }) => (
 
 // Textarea con diseño ultra-moderno
 const GlassTextarea = ({ label, icon: Icon, required, rows = 3, ...props }) => (
-  <div className="space-y-1.5 group">
-    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+  <div className="space-y-2 group">
+    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
       {label}
-      {required && <span className="text-red-500">*</span>}
+      {required && <span className="text-rose-500">*</span>}
     </label>
     <div className="relative">
       {Icon && (
-        <div className="absolute left-3.5 top-3.5 text-gray-400 group-focus-within:text-teal-500 transition-colors">
-          <Icon className="h-4 w-4" />
+        <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-teal-600 transition-colors">
+          <Icon className="h-5 w-5" />
         </div>
       )}
       <textarea
         {...props}
         rows={rows}
-        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-3 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm resize-none`}
+        className={`w-full ${Icon ? 'pl-12' : 'px-4'} py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all duration-300 placeholder:text-slate-400 font-medium text-sm text-slate-700 resize-none shadow-sm`}
       />
     </div>
   </div>
@@ -291,20 +294,37 @@ const SupplierReportForm = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
-        {/* Header Superior */}
-        <div className="flex items-center gap-6 mb-8">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-3 bg-white shadow-md rounded-xl text-gray-400 hover:text-teal-600 hover:scale-105 transition-all"
-          >
-            <ArrowLeftIcon className="h-6 w-6" />
-          </button>
-          <div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Reporte a Proveedor</h1>
-            <p className="text-gray-500 font-medium flex items-center gap-2 mt-1">
-              <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></span>
-              Incidencia: {incident?.code}
-            </p>
+        {/* Header Superior - Industrial Premium */}
+        <div className="relative mb-8 pt-6">
+          <div className="absolute inset-0 bg-gradient-to-r from-teal-600/5 via-emerald-600/5 to-cyan-600/5 rounded-3xl blur-3xl -z-10"></div>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+            <div>
+              <button
+                onClick={() => navigate(-1)}
+                className="group flex items-center gap-2 px-4 py-2 rounded-xl bg-white/50 hover:bg-white text-slate-500 hover:text-teal-600 border border-transparent hover:border-teal-100 transition-all duration-300 mb-4 shadow-sm"
+              >
+                <ArrowLeftIcon className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+                <span className="text-xs font-bold uppercase tracking-wider">Volver</span>
+              </button>
+
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-gradient-to-br from-teal-600 to-emerald-600 rounded-2xl shadow-lg shadow-teal-500/30">
+                  <BuildingOfficeIcon className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase">
+                    Reporte a Proveedor
+                    <span className="ml-3 px-3 py-1 bg-teal-50 text-teal-600 text-[10px] rounded-lg border border-teal-100 align-middle">
+                      Reclamo
+                    </span>
+                  </h1>
+                  <p className="text-slate-500 font-medium text-sm mt-1 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse shadow-sm shadow-teal-500/50"></span>
+                    Incidencia Vinculada: <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded ml-1">{incident?.code}</span>
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -517,16 +537,16 @@ const SupplierReportForm = () => {
             <button
               type="button"
               onClick={() => navigate('/supplier-reports')}
-              className="px-6 py-3 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold hover:bg-gray-50"
+              className="px-6 py-4 rounded-2xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 text-[10px] font-black uppercase tracking-widest transition-all"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting || isGeneratingPDF}
-              className="px-8 py-3 bg-teal-600 text-white rounded-xl font-bold shadow-lg shadow-teal-200/50 hover:bg-teal-700 hover:scale-105 transition-all flex items-center gap-2"
+              className="px-8 py-4 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white rounded-2xl shadow-xl shadow-teal-500/20 text-[10px] font-black uppercase tracking-widest transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {(isSubmitting || isGeneratingPDF) && <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />}
+              {(isSubmitting || isGeneratingPDF) && <div className="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full" />}
               {isGeneratingPDF ? 'Generando PDF...' : 'Crear Reporte Oficial'}
             </button>
           </div>

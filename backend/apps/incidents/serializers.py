@@ -112,6 +112,7 @@ class IncidentListSerializer(serializers.ModelSerializer):
         model = Incident
         fields = [
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente',
+            'comuna', 'ciudad',
             'sku', 'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'categoria', 'subcategoria', 'prioridad', 'estado', 'assigned_to',
             'responsable', 'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier', 'escalation_date',
@@ -119,7 +120,7 @@ class IncidentListSerializer(serializers.ModelSerializer):
             'sla_due_date', 'sla_breached', 'resolution_time_hours',
             'images_count', 'documents_count', 'created_at', 'updated_at',
             # SAP Fields
-            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
+            'customer_code', 'project_code', 'salesperson', 'sap_call_id', 'sap_doc_num', 'technician_code'
         ]
         read_only_fields = ['id', 'code', 'created_by', 'created_at', 'updated_at']
     
@@ -157,7 +158,7 @@ class IncidentDetailSerializer(serializers.ModelSerializer):
         model = Incident
         fields = [
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente',
-            'cliente_rut', 'direccion_cliente', 'sku', 'lote', 'factura_num',
+            'cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'sku', 'lote', 'factura_num',
             'pedido_num', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'acciones_inmediatas', 'categoria', 'subcategoria',
             'prioridad', 'estado', 'assigned_to', 'responsable', 'escalated_to_quality',
@@ -166,7 +167,7 @@ class IncidentDetailSerializer(serializers.ModelSerializer):
             'sla_due_date', 'sla_breached', 'first_response_at', 'resolution_time_hours',
             'images', 'lab_reports', 'timeline', 'created_at', 'updated_at',
             # SAP Fields
-            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
+            'customer_code', 'project_code', 'salesperson', 'sap_call_id', 'sap_doc_num', 'technician_code'
         ]
         read_only_fields = [
             'id', 'code', 'created_by', 'closed_by', 'closed_at', 'closed_at_stage',
@@ -202,15 +203,16 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Incident
         fields = [
-            'provider', 'obra', 'cliente', 'cliente_rut', 'direccion_cliente',
+            'id', 'code', # Added to return ID/Code after creation
+            'provider', 'obra', 'cliente', 'cliente_rut', 'direccion_cliente', 'comuna', 'ciudad',
             'sku', 'lote', 'factura_num', 'pedido_num', 'fecha_deteccion',
             'hora_deteccion', 'descripcion', 'acciones_inmediatas', 'categoria',
             'subcategoria', 'prioridad', 'estado', 'assigned_to', 'responsable',
             'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier',
             # SAP Fields
-            'customer_code', 'project_code', 'salesperson', 'sap_call_id'
+            'customer_code', 'project_code', 'salesperson', 'salesperson_code', 'technician_code', 'sap_call_id', 'sap_doc_num'
         ]
-        read_only_fields = ['fecha_reporte']
+        read_only_fields = ['id', 'code', 'fecha_reporte', 'sap_doc_num']
         extra_kwargs = {
             'fecha_deteccion': {'required': False},
             'hora_deteccion': {'required': False},
@@ -236,9 +238,14 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
             data['responsable'] = responsable_obj
         elif responsable_value == '' or responsable_value is None:
             data['responsable'] = None
+            
+        # Sync technician_code if not explicitly provided but available in responsible object
+        if data.get('responsable') and not data.get('technician_code'):
+            if hasattr(data['responsable'], 'sap_technician_id') and data['responsable'].sap_technician_id:
+                data['technician_code'] = data['responsable'].sap_technician_id
         
         # Convert empty strings to None for optional fields
-        for field in ['cliente_rut', 'direccion_cliente', 'sku', 'lote', 'factura_num', 
+        for field in ['cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'sku', 'lote', 'factura_num', 
                      'pedido_num', 'acciones_inmediatas', 'subcategoria', 
                      'fecha_deteccion', 'hora_deteccion']:
             if field in data and data[field] == '':
@@ -350,6 +357,11 @@ class IncidentCloseSerializer(serializers.Serializer):
         required=False, 
         allow_blank=True,
         help_text="Ruta del archivo adjunto con información de cierre (opcional)"
+    )
+    technician_code = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        help_text="Código del técnico en SAP para actualizar al cierre (opcional)"
     )
 
 

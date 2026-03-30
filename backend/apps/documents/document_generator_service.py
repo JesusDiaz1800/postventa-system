@@ -12,7 +12,9 @@ from docx.shared import Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from .services.professional_pdf_generator import ProfessionalPDFGenerator
+from apps.core.thread_local import get_current_country
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +31,23 @@ class DocumentGeneratorService:
         self.shared_folder = getattr(settings, 'SHARED_DOCUMENTS_FOLDER', '/shared/documents')
         self.ensure_directories()
     
-    def ensure_directories(self):
+    def ensure_directories(self, country: str = None):
         """Crear directorios necesarios si no existen"""
+        base_dir = self.shared_folder
+        if country:
+            base_dir = os.path.join(self.shared_folder, country)
+            
         directories = [
-            self.shared_folder,
-            os.path.join(self.shared_folder, 'visit_reports'),
-            os.path.join(self.shared_folder, 'lab_reports'),
-            os.path.join(self.shared_folder, 'supplier_reports'),
-            os.path.join(self.shared_folder, 'generated'),
+            base_dir,
+            os.path.join(base_dir, 'visit_reports'),
+            os.path.join(base_dir, 'lab_reports'),
+            os.path.join(base_dir, 'supplier_reports'),
+            os.path.join(base_dir, 'generated'),
         ]
         
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
+
     
     def overwrite_existing_document(self, old_filepath, new_content, file_type='pdf'):
         """
@@ -101,9 +108,10 @@ class DocumentGeneratorService:
                 'location': visit_report.location if hasattr(visit_report, 'location') else f"{visit_report.commune}, {visit_report.city}",
                 'visit_date': visit_report.visit_date.strftime('%d/%m/%Y') if visit_report.visit_date else 'N/A',
                 'technician_name': visit_report.technician,
+                'technician_id': visit_report.technician_id,
                 'client_name': visit_report.client_name,
                 'client_contact': getattr(visit_report, 'client_contact', 'N/A'),
-                'objective': visit_report.visit_reason,
+                'objective': 'Post Venta',
                 'observations': visit_report.general_observations,
                 'actions_taken': getattr(visit_report, 'actions_taken', ''),
                 'recommendations': getattr(visit_report, 'recommendations', ''),
@@ -145,7 +153,10 @@ class DocumentGeneratorService:
             else:
                 # Crear nuevo archivo
                 filename = f"reporte_visita_{visit_report.report_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                filepath = os.path.join(self.shared_folder, 'visit_reports', filename)
+                country = get_current_country()
+                self.ensure_directories(country)
+                filepath = os.path.join(self.shared_folder, country, 'visit_reports', filename)
+
                 
                 with open(filepath, 'wb') as f:
                     f.write(pdf_buffer.getvalue())
@@ -232,7 +243,10 @@ class DocumentGeneratorService:
             else:
                 # Crear nuevo archivo
                 filename = f"informe_lab_{lab_report.report_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                filepath = os.path.join(self.shared_folder, 'lab_reports', filename)
+                country = get_current_country()
+                self.ensure_directories(country)
+                filepath = os.path.join(self.shared_folder, country, 'lab_reports', filename)
+
                 
                 with open(filepath, 'wb') as f:
                     f.write(pdf_buffer.getvalue())
@@ -319,7 +333,10 @@ class DocumentGeneratorService:
             else:
                 # Crear nuevo archivo
                 filename = f"informe_proveedor_{supplier_report.report_number}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                filepath = os.path.join(self.shared_folder, 'supplier_reports', filename)
+                country = get_current_country()
+                self.ensure_directories(country)
+                filepath = os.path.join(self.shared_folder, country, 'supplier_reports', filename)
+
                 
                 with open(filepath, 'wb') as f:
                     f.write(pdf_buffer.getvalue())
@@ -460,8 +477,11 @@ class DocumentGeneratorService:
             
             # Guardar documento
             filename = f"RV_{visit_report.report_number}_{datetime.now().strftime('%Y%m%d')}.docx"
-            filepath = os.path.join(self.shared_folder, 'visit_reports', filename)
+            country = get_current_country()
+            self.ensure_directories(country)
+            filepath = os.path.join(self.shared_folder, country, 'visit_reports', filename)
             doc.save(filepath)
+
             
             logger.info(f"Reporte de visita generado: {filepath}")
             return filepath, filename
@@ -562,8 +582,11 @@ class DocumentGeneratorService:
             
             # Guardar documento
             filename = f"IL_{lab_report.report_number}_{datetime.now().strftime('%Y%m%d')}.docx"
-            filepath = os.path.join(self.shared_folder, 'lab_reports', filename)
+            country = get_current_country()
+            self.ensure_directories(country)
+            filepath = os.path.join(self.shared_folder, country, 'lab_reports', filename)
             doc.save(filepath)
+
             
             logger.info(f"Informe de laboratorio generado: {filepath}")
             return filepath, filename
@@ -649,8 +672,11 @@ class DocumentGeneratorService:
             
             # Guardar documento
             filename = f"IP_{supplier_report.report_number}_{datetime.now().strftime('%Y%m%d')}.docx"
-            filepath = os.path.join(self.shared_folder, 'supplier_reports', filename)
+            country = get_current_country()
+            self.ensure_directories(country)
+            filepath = os.path.join(self.shared_folder, country, 'supplier_reports', filename)
             doc.save(filepath)
+
             
             logger.info(f"Informe para proveedor generado: {filepath}")
             return filepath, filename
@@ -659,12 +685,18 @@ class DocumentGeneratorService:
             logger.error(f"Error generando informe para proveedor: {e}")
             raise
     
-    def get_document_path(self, document_type, filename):
+    def get_document_path(self, document_type, filename, country=None):
         """Obtener la ruta completa de un documento"""
-        return os.path.join(self.shared_folder, document_type, filename)
+        if not country:
+            country = get_current_country()
+        return os.path.join(self.shared_folder, country, document_type, filename)
+
     
-    def list_documents(self, document_type=None):
+    def list_documents(self, document_type=None, country=None):
         """Listar documentos en la carpeta compartida"""
+        if not country:
+            country = get_current_country()
+            
         documents = []
         
         if document_type:
@@ -673,8 +705,9 @@ class DocumentGeneratorService:
             types = ['visit_reports', 'lab_reports', 'supplier_reports']
         
         for doc_type in types:
-            folder_path = os.path.join(self.shared_folder, doc_type)
+            folder_path = os.path.join(self.shared_folder, country, doc_type)
             if os.path.exists(folder_path):
+
                 for filename in os.listdir(folder_path):
                     if filename.endswith(('.docx', '.pdf')):
                         filepath = os.path.join(folder_path, filename)
@@ -690,10 +723,13 @@ class DocumentGeneratorService:
         
         return sorted(documents, key=lambda x: x['modified'], reverse=True)
     
-    def delete_document(self, document_type, filename):
+    def delete_document(self, document_type, filename, country=None):
         """Eliminar un documento de la carpeta compartida"""
-        filepath = os.path.join(self.shared_folder, document_type, filename)
+        if not country:
+            country = get_current_country()
+        filepath = os.path.join(self.shared_folder, country, document_type, filename)
         if os.path.exists(filepath):
+
             os.remove(filepath)
             logger.info(f"Documento eliminado: {filepath}")
             return True

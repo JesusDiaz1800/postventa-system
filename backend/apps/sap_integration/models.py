@@ -19,11 +19,14 @@ class BusinessPartner(models.Model):
 
 class ServiceCall(models.Model):
     call_id = models.IntegerField(db_column='callID', primary_key=True)
+    doc_num = models.IntegerField(db_column='DocNum', blank=True, null=True)
     subject = models.CharField(db_column='subject', max_length=200, blank=True, null=True)
     customer_code = models.CharField(db_column='customer', max_length=15, blank=True, null=True)
     customer_name = models.CharField(db_column='custmrName', max_length=100, blank=True, null=True)
     status = models.IntegerField(db_column='status', blank=True, null=True)
     create_date = models.DateTimeField(db_column='createDate', blank=True, null=True)
+    create_time_raw = models.SmallIntegerField(db_column='createTime', blank=True, null=True)  # Minutos desde 00:00
+    priority_raw = models.SmallIntegerField(db_column='priority', blank=True, null=True)  # 0=Low, 1=Medium, 2=High
     
     # Nuevos Campos Estándar
     update_date = models.DateTimeField(db_column='updateDate', blank=True, null=True)
@@ -38,6 +41,9 @@ class ServiceCall(models.Model):
     # Datos de Contacto y Ubicacion
     telephone = models.CharField(db_column='Telephone', max_length=50, blank=True, null=True)
     bp_ship_addr = models.CharField(db_column='BPShipAddr', max_length=250, blank=True, null=True)
+    ship_street = models.CharField(db_column='Street', max_length=150, blank=True, null=True)
+    ship_city = models.CharField(db_column='City', max_length=100, blank=True, null=True)
+    # ship_county = models.CharField(db_column='County', max_length=100, blank=True, null=True)
     
     # Motivo de servicio
     problem_type = models.CharField(db_column='problemTyp', max_length=50, blank=True, null=True)
@@ -56,6 +62,42 @@ class ServiceCall(models.Model):
     obs_almac = models.TextField(db_column='U_NX_OBS_ALMAC', blank=True, null=True)
     obs_pre_arm = models.TextField(db_column='U_NX_OBS_PRE_ARM', blank=True, null=True)
     obs_exter = models.TextField(db_column='U_NX_OBS_EXTER', blank=True, null=True)
+    
+    # Datos de Máquinas
+    maq1 = models.CharField(db_column='U_NX_MAQ1', max_length=100, blank=True, null=True)
+    ini1 = models.CharField(db_column='U_NX_INI1', max_length=100, blank=True, null=True)
+    cor1 = models.CharField(db_column='U_NX_COR1', max_length=100, blank=True, null=True)
+    maq2 = models.CharField(db_column='U_NX_MAQ2', max_length=100, blank=True, null=True)
+    ini2 = models.CharField(db_column='U_NX_INI2', max_length=100, blank=True, null=True)
+    cor2 = models.CharField(db_column='U_NX_COR2', max_length=100, blank=True, null=True)
+    maq3 = models.CharField(db_column='U_NX_MAQ3', max_length=100, blank=True, null=True)
+    ini3 = models.CharField(db_column='U_NX_INI3', max_length=100, blank=True, null=True)
+    cor3 = models.CharField(db_column='U_NX_COR3', max_length=100, blank=True, null=True)
+    maq4 = models.CharField(db_column='U_NX_MAQ4', max_length=100, blank=True, null=True)
+    ini4 = models.CharField(db_column='U_NX_INI4', max_length=100, blank=True, null=True)
+    cor4 = models.CharField(db_column='U_NX_COR4', max_length=100, blank=True, null=True)
+    maq5 = models.CharField(db_column='U_NX_MAQ5', max_length=100, blank=True, null=True)
+    ini5 = models.CharField(db_column='U_NX_INI5', max_length=100, blank=True, null=True)
+    cor5 = models.CharField(db_column='U_NX_COR5', max_length=100, blank=True, null=True)
+    maq6 = models.CharField(db_column='U_NX_MAQ6', max_length=100, blank=True, null=True)
+    ini6 = models.CharField(db_column='U_NX_INI6', max_length=100, blank=True, null=True)
+    cor6 = models.CharField(db_column='U_NX_COR6', max_length=100, blank=True, null=True)
+    retiro_maq = models.SmallIntegerField(db_column='U_NX_RET_MQ', blank=True, null=True)
+    nro_reporte = models.IntegerField(db_column='U_NX_NREPORT', blank=True, null=True)
+    
+    # UDFs Complementarios Identificados (Reporte / Traslado)
+    obra_rescatada = models.SmallIntegerField(db_column='U_NX_RESCATADA', blank=True, null=True)
+    patente = models.CharField(db_column='U_NX_PATENTE', max_length=100, blank=True, null=True)
+    obra_finalizada = models.SmallIntegerField(db_column='U_NX_OBRAFINALIZADA', blank=True, null=True)
+    fecha_visita_udf = models.DateTimeField(db_column='U_NX_FECHAVISITA', blank=True, null=True)
+    obs_critica = models.CharField(db_column='U_obs_critica', max_length=250, blank=True, null=True)
+    obra_otro_proveedor = models.CharField(db_column='U_obra_con_otro_proveedor', max_length=50, blank=True, null=True)
+    nivel_instalacion = models.CharField(db_column='U_nivel_instalacion', max_length=100, blank=True, null=True)
+    otro_proveedor = models.CharField(db_column='U_otro_proveedor', max_length=100, blank=True, null=True)
+    
+    # UDFs de Clasificación (App ↔ SAP)
+    sap_category_udf = models.CharField(db_column='U_is_categoria', max_length=100, blank=True, null=True)
+    sap_subcategory_udf = models.CharField(db_column='U_is_subcategoria', max_length=100, blank=True, null=True)
     
     class Meta:
         managed = False

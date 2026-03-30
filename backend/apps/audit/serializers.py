@@ -72,7 +72,38 @@ class DeletedItemRestoreSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"El modelo {deleted_item.app_label}.{deleted_item.model_name} ya no existe.")
             
             # 2. Verificar si ya existe un objeto con ese ID
-            if ModelClass.objects.filter(pk=deleted_item.original_id).exists():
+            existing_obj = ModelClass.objects.filter(pk=deleted_item.original_id).first()
+            if existing_obj:
+                # Caso especial: Soft Delete (Incidencia Cancelada)
+                # Si el objeto existe y es una incidencia cancelada, simplemente la restauramos
+                if deleted_item.model_name == 'incident' and hasattr(existing_obj, 'estado') and existing_obj.estado == 'cancelada':
+                    existing_obj.estado = 'abierta'
+                    # Limpiamos campos de cierre si existen
+                    if hasattr(existing_obj, 'closure_summary'):
+                        existing_obj.closure_summary = ""
+                    if hasattr(existing_obj, 'closed_at'):
+                        existing_obj.closed_at = None
+                    if hasattr(existing_obj, 'closed_by'):
+                        existing_obj.closed_by = None
+                    
+                    existing_obj.save()
+                    
+                    # Registrar en timeline
+                    try:
+                        from apps.incidents.models import IncidentTimeline
+                        IncidentTimeline.objects.create(
+                            incident=existing_obj,
+                            user=None, # O el usuario del request si estuviera disponible, pero aquí usamos None o sistema
+                            action='restored',
+                            description="Incidencia restaurada desde la papelera de reciclaje."
+                        )
+                    except:
+                        pass
+                        
+                    # Eliminar backup tras restaurar
+                    deleted_item.delete()
+                    return existing_obj
+                
                 raise serializers.ValidationError(f"Ya existe un objeto {deleted_item.model_name} con ID {deleted_item.original_id}. No se puede restaurar.")
                 
             # 3. Deserializar

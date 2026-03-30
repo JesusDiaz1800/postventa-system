@@ -81,86 +81,81 @@ def escalate_to_quality(request, incident_id):
         
         
         # Generar archivo .eml para que el usuario lo abra en Outlook
-        eml_path = None
+        email_sent = False
         try:
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-            from email.mime.base import MIMEBase
-            from email import encoders
-            from django.conf import settings
+            from django.core.mail import EmailMessage, get_connection
             import os
-            import tempfile
             
-            # Crear el mensaje MIME
-            msg = MIMEMultipart()
+            # Configurar conexión SMTP estática a Office365 según requerimiento del cliente
+            connection = get_connection(
+                host='smtp.office365.com',
+                port=587,
+                username='sapbopolifusion@polifusion.cl',
+                password='Sb_Plfsn_3875002',
+                use_tls=True
+            )
             
             # Destinatarios
-            to_emails = 'vlutz@polifusion.cl; jdiaz@polifusion.cl; cmunizaga@polifusion.cl'
-            cc_emails = 'rcruz@polifusion.cl; srojas@polifusion.cl'
+            to_emails = ['vlutz@polifusion.cl', 'jdiaz@polifusion.cl', 'cmunizaga@polifusion.cl']
+            cc_emails = ['rcruz@polifusion.cl', 'srojas@polifusion.cl']
             
-            msg['To'] = to_emails
-            msg['Cc'] = cc_emails
-            msg['Subject'] = custom_subject or f"Escalación a Calidad: {incident.code}"
+            subject = custom_subject or f"Escalación a Calidad: {incident.code}"
             
             # Cuerpo del mensaje
             if custom_message:
                 body = custom_message
             else:
-                body = f"""Estimados,
+                body = f"""Estimado equipo de Calidad,
 
-Se ha escalado la siguiente incidencia al departamento de Calidad:
+Por medio del presente, se informa que la incidencia {incident.code} ha sido escalada al Departamento de Calidad para su revisión y gestión correspondiente.
 
-• Código: {incident.code}
-• Cliente: {incident.cliente}
-• Proveedor: {incident.provider or 'No especificado'}
-• Motivo de escalación: {incident.escalation_reason or 'No especificado'}
+A continuación se detallan los antecedentes del caso:
 
-Por favor revisar y tomar las acciones correspondientes.
+    Código de Incidencia: {incident.code}
+    Cliente: {incident.cliente or 'No especificado'}
+    Proveedor: {incident.provider or 'No especificado'}
+
+Motivo de escalación:
+{incident.escalation_reason or 'Se requiere revisión de calidad según reporte adjunto.'}
+
+Para mayor detalle técnico y antecedente visual, favor revisar el Reporte de Visita adjunto a este correo.
+Adicionalmente puede dirigirse a la Plataforma de Postventa en la sección Interna de Reportes.
+
+Se solicita revisar la información y coordinar las acciones correctivas que correspondan. Quedamos atentos a su respuesta.
 
 Saludos cordiales,
 Sistema de Gestión de Incidencias
-"""
-            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+Polifusión S.A."""
+            
+            # Preparar email
+            email = EmailMessage(
+                subject=subject,
+                body=body,
+                from_email='sapbopolifusion@polifusion.cl',
+                to=to_emails,
+                cc=cc_emails,
+                connection=connection,
+            )
             
             # Adjuntar PDF del reporte de visita si existe
             if visit_report_path and os.path.exists(visit_report_path):
-                with open(visit_report_path, 'rb') as attachment:
-                    part = MIMEBase('application', 'pdf')
-                    part.set_payload(attachment.read())
-                    encoders.encode_base64(part)
-                    part.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename="{os.path.basename(visit_report_path)}"'
-                    )
-                    msg.attach(part)
-                    logger.info(f"PDF adjuntado al EML: {visit_report_path}")
+                email.attach_file(visit_report_path)
+                logger.info(f"PDF adjuntado al correo SMTP: {visit_report_path}")
             
-            # Guardar el archivo .eml en un directorio temporal
-            eml_dir = os.path.join(settings.MEDIA_ROOT, 'temp_emails')
-            os.makedirs(eml_dir, exist_ok=True)
-            eml_filename = f"escalacion_{incident.code}_{incident.id}.eml"
-            eml_path = os.path.join(eml_dir, eml_filename)
+            # Enviar directamente
+            email.send(fail_silently=False)
+            logger.info(f"Correo de escalamiento enviado vía SMTP a {to_emails}")
+            email_sent = True
             
-            with open(eml_path, 'w', encoding='utf-8') as eml_file:
-                eml_file.write(msg.as_string())
-            
-            logger.info(f"Archivo EML generado: {eml_path}")
-            
-        except Exception as eml_error:
-            logger.warning(f"Error generando archivo EML: {str(eml_error)}")
-            eml_path = None
+        except Exception as smtp_error:
+            logger.warning(f"Error enviando correo SMTP de escalamiento: {str(smtp_error)}")
+            email_sent = False
         
-        # Construir URL para descargar el EML
-        eml_url = None
-        if eml_path:
-            eml_url = f"/documentos/temp_emails/{eml_filename}"
-        
-        if eml_path: # Check if EML was generated successfully
-            logger.info(f"Incidencia {incident.code} escalada a calidad exitosamente")
+        if email_sent:
+            logger.info(f"Incidencia {incident.code} escalada a calidad exitosamente y notificada por correo.")
             return Response({
                 'success': True,
-                'message': 'Incidencia escalada a calidad. Descarga el archivo para enviar el correo desde Outlook.',
-                'eml_url': eml_url,  # URL para descargar el archivo .eml
+                'message': 'Incidencia escalada a calidad y correo enviado exitosamente a los responsables.',
                 'incident': {
                     'id': incident.id,
                     'code': incident.code,

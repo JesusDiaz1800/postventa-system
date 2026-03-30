@@ -147,8 +147,6 @@ export const exportIncidents = (incidents, filename = 'incidencias') => {
         { key: 'cliente', label: 'Cliente', width: 150 },
         { key: 'obra', label: 'Obra', width: 150 },
         { key: 'provider', label: 'Proveedor', width: 120 },
-        { key: 'sku', label: 'SKU', width: 100 },
-        { key: 'lote', label: 'Lote', width: 80 },
         { key: 'estado', label: 'Estado', width: 80 },
         { key: 'prioridad', label: 'Prioridad', width: 80 },
         { key: 'descripcion', label: 'Descripción', width: 250 },

@@ -39,11 +39,21 @@ class AuditLog(models.Model):
         
         # Reportes
         ('report_attached', 'Reporte Adjuntado'),
+        ('report_created', 'Reporte Creado'),
+        ('report_updated', 'Reporte Editado'),
         
         # Operaciones Genéricas
         ('create', 'Crear'),
+        ('update', 'Actualizar'),
         ('delete', 'Eliminar'),
         ('item_restored', 'Elemento Restaurado'),
+        
+        # Integración SAP
+        ('sap_sync_error', 'Fallo Sincronización SAP'),
+        
+        # Errores de Sistema
+        ('pdf_error', 'Error en Generación de PDF'),
+        ('api_error', 'Error de Integración API'),
     ]
     
     # Campos principales
@@ -89,6 +99,9 @@ class AuditLog(models.Model):
             'create': '➕',
             'delete': '🗑️',
             'item_restored': '♻️',
+            'sap_sync_error': '❌',
+            'pdf_error': '📄',
+            'api_error': '🤖',
         }
         return icon_map.get(self.action, '📝')
     
@@ -108,6 +121,9 @@ class AuditLog(models.Model):
             'create': 'text-blue-600',
             'delete': 'text-red-700',
             'item_restored': 'text-teal-600',
+            'sap_sync_error': 'text-red-600 font-bold animate-pulse',
+            'pdf_error': 'text-orange-600',
+            'api_error': 'text-red-500 font-semibold',
         }
         return color_map.get(self.action, 'text-gray-600')
 

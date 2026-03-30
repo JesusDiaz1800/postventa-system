@@ -30,27 +30,27 @@ class DashboardMetrics:
             # Total incidents
             total_incidents = Incident.objects.count()
             
-            # Incidents by status
-            incidents_by_status = Incident.objects.values('status').annotate(count=Count('id'))
-            status_counts = {item['status']: item['count'] for item in incidents_by_status}
+            # Incidents by status (model uses 'estado')
+            incidents_by_status = Incident.objects.values('estado').annotate(count=Count('id'))
+            status_counts = {item['estado']: item['count'] for item in incidents_by_status}
             
-            # Incidents by priority
-            incidents_by_priority = Incident.objects.values('priority').annotate(count=Count('id'))
-            priority_counts = {item['priority']: item['count'] for item in incidents_by_priority}
+            # Incidents by priority (model uses 'prioridad')
+            incidents_by_priority = Incident.objects.values('prioridad').annotate(count=Count('id'))
+            priority_counts = {item['prioridad']: item['count'] for item in incidents_by_priority}
             
             # Recent incidents (last 7 days)
             recent_incidents = Incident.objects.filter(
                 created_at__gte=self.now - timedelta(days=7)
             ).count()
             
-            # Pending incidents
+            # Pending incidents (non-cerrado estados: abierto, reporte_visita, calidad, proveedor)
             pending_incidents = Incident.objects.filter(
-                status__in=['nuevo', 'en_proceso', 'pendiente']
+                estado__in=['abierto', 'reporte_visita', 'calidad', 'proveedor']
             ).count()
             
             # Overdue incidents
             overdue_incidents = Incident.objects.filter(
-                status__in=['nuevo', 'en_proceso', 'pendiente'],
+                estado__in=['abierto', 'reporte_visita', 'calidad', 'proveedor'],
                 fecha_deteccion__lt=self.now - timedelta(days=30)
             ).count()
             
@@ -131,19 +131,16 @@ class DashboardMetrics:
     def get_sku_analysis(self) -> Dict:
         """Get SKU analysis and statistics"""
         try:
-            # Top problematic SKUs
+            # Top problematic SKUs (model uses resolution_time_hours)
             top_problematic_skus = Incident.objects.values('sku').annotate(
                 incident_count=Count('id'),
-                avg_resolution_time=Avg('resolution_time')
+                avg_resolution_time=Avg('resolution_time_hours')
             ).order_by('-incident_count')[:10]
             
-            # SKUs with highest re-incident rate
+            # SKUs by incident count (is_re_incident not in model, simplified)
             sku_reincident_rate = Incident.objects.values('sku').annotate(
-                total_incidents=Count('id'),
-                re_incidents=Count('id', filter=Q(is_re_incident=True))
-            ).annotate(
-                re_incident_rate=F('re_incidents') * 100.0 / F('total_incidents')
-            ).order_by('-re_incident_rate')[:10]
+                total_incidents=Count('id')
+            ).order_by('-total_incidents')[:10]
             
             # SKUs by category
             skus_by_category = Incident.objects.values('categoria', 'sku').annotate(
@@ -169,12 +166,12 @@ class DashboardMetrics:
                 affected_skus=Count('sku', distinct=True)
             ).order_by('-incident_count')[:10]
             
-            # Batch quality trends
+            # Batch quality trends (categoria is FK, use categoria__name)
             batch_quality_trends = Incident.objects.values('lote').annotate(
                 total_incidents=Count('id'),
-                quality_issues=Count('id', filter=Q(categoria='calidad'))
-            ).annotate(
-                quality_issue_rate=F('quality_issues') * 100.0 / F('total_incidents')
+                quality_issues=Count('id', filter=Q(categoria__name__icontains='calidad'))
+            ).filter(total_incidents__gt=0).annotate(
+                quality_issue_rate=100.0 * F('quality_issues') / F('total_incidents')
             ).order_by('-quality_issue_rate')[:10]
             
             return {
@@ -189,22 +186,21 @@ class DashboardMetrics:
     def get_user_performance(self) -> Dict:
         """Get user performance metrics"""
         try:
-            # User incident handling
+            # User incident handling (model: estado='cerrado', resolution_time_hours)
             user_incidents = Incident.objects.values('assigned_to__username').annotate(
                 total_incidents=Count('id'),
-                resolved_incidents=Count('id', filter=Q(status='resuelto')),
-                avg_resolution_time=Avg('resolution_time')
+                resolved_incidents=Count('id', filter=Q(estado='cerrado')),
+                avg_resolution_time=Avg('resolution_time_hours')
             ).order_by('-total_incidents')
             
-            # User response times
+            # User response times (response_time not in model, use resolution_time_hours)
             user_response_times = Incident.objects.values('assigned_to__username').annotate(
-                avg_response_time=Avg('response_time'),
-                avg_resolution_time=Avg('resolution_time')
-            ).order_by('avg_response_time')
+                avg_resolution_time=Avg('resolution_time_hours')
+            ).order_by('avg_resolution_time')
             
-            # User workload
+            # User workload (pending = non-cerrado)
             user_workload = Incident.objects.filter(
-                status__in=['nuevo', 'en_proceso', 'pendiente']
+                estado__in=['abierto', 'reporte_visita', 'calidad', 'proveedor']
             ).values('assigned_to__username').annotate(
                 pending_incidents=Count('id')
             ).order_by('-pending_incidents')
@@ -222,10 +218,10 @@ class DashboardMetrics:
     def get_category_analysis(self) -> Dict:
         """Get incident category analysis"""
         try:
-            # Incidents by category
+            # Incidents by category (model uses resolution_time_hours)
             incidents_by_category = Incident.objects.values('categoria').annotate(
                 count=Count('id'),
-                avg_resolution_time=Avg('resolution_time')
+                avg_resolution_time=Avg('resolution_time_hours')
             ).order_by('-count')
             
             # Incidents by subcategory
@@ -253,20 +249,20 @@ class DashboardMetrics:
     def get_resolution_metrics(self) -> Dict:
         """Get resolution metrics and KPIs"""
         try:
-            # Average resolution time by category
+            # Average resolution time by category (model: estado, resolution_time_hours)
             resolution_by_category = Incident.objects.values('categoria').annotate(
-                avg_resolution_time=Avg('resolution_time'),
+                avg_resolution_time=Avg('resolution_time_hours'),
                 count=Count('id')
             ).order_by('avg_resolution_time')
             
             # Resolution time trends
             resolution_trends = Incident.objects.filter(
-                status='resuelto',
+                estado='cerrado',
                 created_at__gte=self.now - timedelta(days=30)
             ).annotate(
                 week=TruncWeek('created_at')
             ).values('week').annotate(
-                avg_resolution_time=Avg('resolution_time')
+                avg_resolution_time=Avg('resolution_time_hours')
             ).order_by('week')
             
             # Format dates for JSON
@@ -277,12 +273,12 @@ class DashboardMetrics:
                     'avg_resolution_time': item['avg_resolution_time']
                 })
             
-            # First-time resolution rate
+            # First-time resolution rate (is_re_incident not in model, use total cerrados)
             first_time_resolution = Incident.objects.filter(
-                status='resuelto'
+                estado='cerrado'
             ).aggregate(
                 total_resolved=Count('id'),
-                first_time_resolved=Count('id', filter=Q(is_re_incident=False))
+                first_time_resolved=Count('id')
             )
             
             first_time_rate = 0
@@ -457,7 +453,7 @@ class DashboardMetrics:
         """Calculate incident completion rate"""
         try:
             total_incidents = Incident.objects.count()
-            completed_incidents = Incident.objects.filter(status='resuelto').count()
+            completed_incidents = Incident.objects.filter(estado='cerrado').count()
             
             if total_incidents > 0:
                 return (completed_incidents / total_incidents) * 100
@@ -471,9 +467,9 @@ class DashboardMetrics:
         """Calculate average resolution time in hours"""
         try:
             avg_time = Incident.objects.filter(
-                status='resuelto',
-                resolution_time__isnull=False
-            ).aggregate(avg_time=Avg('resolution_time'))
+                estado='cerrado',
+                resolution_time_hours__isnull=False
+            ).aggregate(avg_time=Avg('resolution_time_hours'))
             
             if avg_time['avg_time']:
                 return avg_time['avg_time'].total_seconds() / 3600  # Convert to hours

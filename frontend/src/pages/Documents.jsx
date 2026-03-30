@@ -313,13 +313,17 @@ const Documents = () => {
 
       const matchesStatus = !filters.status || incident.estado === filters.status;
 
+      const matchesCategory = !filters.category ||
+        (incident.categoria && incident.categoria.toLowerCase().includes(filters.category.toLowerCase())) ||
+        (incident.subcategoria && incident.subcategoria.toLowerCase().includes(filters.category.toLowerCase()));
+
       const matchesDateFrom = !filters.dateFrom ||
         new Date(incident.fecha_reporte) >= new Date(filters.dateFrom);
 
       const matchesDateTo = !filters.dateTo ||
         new Date(incident.fecha_reporte) <= new Date(filters.dateTo);
 
-      return matchesSearch && matchesStatus && matchesDateFrom && matchesDateTo;
+      return matchesSearch && matchesStatus && matchesCategory && matchesDateFrom && matchesDateTo;
     });
   }, [incidents, searchTerm, filters]);
 
@@ -334,9 +338,22 @@ const Documents = () => {
     setSearchTerm('');
   };
 
+  // Helper to clean URL (remove double /api prefix if present)
+  const getCleanUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('/api/')) {
+      return url.substring(4); // Removes '/api' leaving '/documents/...'
+    }
+    return url;
+  };
+
   const handleViewDocument = async (doc) => {
     try {
-      const response = await api.get(doc.downloadUrl, { responseType: 'blob' });
+      // Use viewUrl if available for viewing, otherwise downloadUrl
+      // And clean the URL to avoid double /api prefix
+      const targetUrl = getCleanUrl(doc.viewUrl || doc.downloadUrl);
+
+      const response = await api.get(targetUrl, { responseType: 'blob' });
 
       // Determine MIME type
       const extension = (doc.filename || '').split('.').pop()?.toLowerCase();
@@ -360,7 +377,8 @@ const Documents = () => {
 
   const handleDownloadDocument = async (doc) => {
     try {
-      const response = await api.get(doc.downloadUrl, { responseType: 'blob' });
+      const targetUrl = getCleanUrl(doc.downloadUrl);
+      const response = await api.get(targetUrl, { responseType: 'blob' });
 
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
@@ -487,90 +505,140 @@ const Documents = () => {
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">📁 Trazabilidad de Documentos</h1>
-            <p className="mt-2 text-lg text-gray-600">
-              Centro de trazabilidad documental completo por incidencia
-            </p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-xl hover:bg-gray-50"
-          >
-            <ArrowPathIcon className="h-5 w-5 mr-2 text-gray-600" />
-            Actualizar
-          </button>
-        </div>
-      </div>
+      <div className="w-full px-4 sm:px-6 lg:px-8 space-y-4 py-4">
+        {/* Unified Premium Header & Toolbar */}
+        <div className="relative mb-6 p-2 rounded-3xl bg-white shadow-xl shadow-slate-200/50 border border-slate-100 overflow-visible flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300">
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por código, cliente, obra, proveedor..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Logo & Title Area */}
+          <div className="flex items-center gap-4 pl-4 py-3">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl blur opacity-40 group-hover:opacity-60 transition-opacity duration-500" />
+              <div className="relative p-3.5 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl shadow-lg shadow-blue-500/30 flex items-center justify-center group-hover:scale-105 transition-transform duration-500">
+                <DocumentTextIcon className="h-7 w-7 text-white" />
+              </div>
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                Gestión Documental
+                <span className="px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest border border-indigo-100 shadow-sm">
+                  Global
+                </span>
+              </h1>
+              <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1 ml-0.5">
+                Centro de Trazabilidad Documental
+              </p>
+            </div>
           </div>
-          <div className="flex gap-3">
+
+          {/* Integrated Search & Actions */}
+          <div className="flex flex-col md:flex-row items-center gap-2 pr-2 w-full md:w-auto">
+
+            {/* Search Input (Always visible) */}
+            <div className="relative group w-full md:w-72">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <MagnifyingGlassIcon className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+              </div>
+              <input
+                type="text"
+                placeholder="Buscar..."
+                className="block w-full pl-10 pr-4 py-3 bg-slate-50 border-transparent text-slate-700 placeholder-slate-400 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-2xl text-sm font-medium transition-all shadow-inner"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            {/* Filter Toggle Button with Label */}
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`inline-flex items-center px-4 py-3 rounded-xl border ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300'}`}
+              className={`px-5 py-3 rounded-2xl transition-all border shadow-sm group flex items-center gap-2 ${showFilters
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                }`}
             >
-              <FunnelIcon className="h-5 w-5 mr-2" />
-              Filtros
+              <FunnelIcon className="h-4 w-4" />
+              <span className="text-xs font-bold uppercase tracking-wider">Filtros</span>
             </button>
-            {(searchTerm || filters.status || filters.dateFrom || filters.dateTo) && (
-              <button
-                onClick={clearFilters}
-                className="inline-flex items-center px-4 py-3 text-red-600 hover:text-red-800"
-              >
-                <XMarkIcon className="h-5 w-5 mr-1" />
-                Limpiar
-              </button>
-            )}
+
+            {/* Refresh Button with Label */}
+            <button
+              onClick={handleRefresh}
+              className="px-5 py-3 bg-slate-900 text-white rounded-2xl shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:shadow-slate-900/30 transition-all active:scale-95 border border-slate-800 flex items-center gap-2"
+            >
+              <ArrowPathIcon className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <span className="text-xs font-bold uppercase tracking-wider">Actualizar</span>
+            </button>
           </div>
         </div>
 
-        {/* Advanced Filters */}
+        {/* Integrated Filters Panel (Expands inside the flow) */}
         {showFilters && (
-          <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="">Todos</option>
-                <option value="abierto">Abierto</option>
-                <option value="proveedor">Proveedor</option>
-                <option value="cerrado">Cerrado</option>
-              </select>
+          <div className="bg-white rounded-3xl p-6 mb-6 shadow-xl shadow-slate-200/50 border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-300 relative overflow-hidden -mt-2">
+            <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+              <FunnelIcon className="w-32 h-32 rotate-[-15deg]" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Fecha desde</label>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Fecha hasta</label>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
+
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
+                  <FunnelIcon className="w-4 h-4 text-indigo-500" />
+                  Filtros Avanzados
+                </h3>
+                <button
+                  onClick={clearFilters}
+                  className="text-xs font-bold text-slate-500 hover:text-rose-500 uppercase tracking-wider flex items-center gap-2 transition-colors"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                  Limpiar
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Estado</label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-slate-700"
+                  >
+                    <option value="">Todos</option>
+                    <option value="abierto">Abierto</option>
+                    <option value="cerrado">Cerrado</option>
+                    <option value="proveedor">En Proveedor</option>
+                    <option value="calidad">En Calidad</option>
+                  </select>
+                </div>
+
+                {/* NEW CATEGORY FILTER */}
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Categoría</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Tubería, Accesorio..."
+                    value={filters.category || ''} // Assuming we add category to filters state, or just reuse strict search
+                    onChange={(e) => setFilters({ ...filters, category: e.target.value })} // We need to handle this in filter logic
+                    className="w-full px-4 py-2.5 bg-slate-50 border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-slate-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Fecha Desde</label>
+                  <input
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-slate-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Fecha Hasta</label>
+                  <input
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-50 border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-slate-700"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -661,7 +729,7 @@ const Documents = () => {
               <p className="mt-4 text-gray-500">Cargando documentos...</p>
             </div>
           ) : (
-            <>
+            <React.Fragment>
               {/* Document List */}
               {combinedDocuments.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
@@ -783,25 +851,25 @@ const Documents = () => {
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2">
-                            {doc.hasDocument && (
-                              <>
-                                <button
-                                  onClick={() => handleViewDocument(doc)}
-                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                  title="Ver"
-                                >
-                                  <EyeIcon className="h-5 w-5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDownloadDocument(doc)}
-                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                  title="Descargar"
-                                >
-                                  <DocumentArrowDownIcon className="h-5 w-5" />
-                                </button>
-                              </>
-                            )}
+                          <div className="relative py-4 pl-3 pr-8 text-right text-sm font-medium whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleViewDocument(doc)}
+                                className="px-3 py-1.5 flex items-center gap-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-indigo-600 hover:text-white transition-all shadow-sm ring-1 ring-slate-200/50 hover:ring-indigo-600 group"
+                                title="Ver Documento"
+                              >
+                                <EyeIcon className="h-4 w-4" />
+                                <span className="text-xs font-bold uppercase tracking-wider">Ver</span>
+                              </button>
+                              <button
+                                onClick={() => handleDownloadDocument(doc)}
+                                className="px-3 py-1.5 flex items-center gap-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all shadow-sm ring-1 ring-slate-200/50 hover:ring-emerald-600 group"
+                                title="Descargar"
+                              >
+                                <DocumentArrowDownIcon className="h-4 w-4" />
+                                <span className="text-xs font-bold uppercase tracking-wider">Descargar</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -810,59 +878,63 @@ const Documents = () => {
                 </div>
               )}
 
-              {/* Incident Info Card with Stages */}
-              <div className="border-t bg-gray-50 p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">📋 Trazabilidad de la Incidencia</h3>
-
-                {/* Stage Timeline */}
-                <div className="mb-4">
-                  <div className="flex items-center space-x-2 mb-2">
-                    {(() => {
-                      const stageInfo = getStageInfo(selectedIncident);
-                      return (
-                        <div className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${stageInfo.color}`}>
-                          {stageInfo.icon}
-                          <span className="ml-2">Etapa actual: {stageInfo.label}</span>
-                        </div>
-                      );
-                    })()}
-                  </div>
+              <div className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm mt-4">
+                {/* Compact Header Row: Description Label & Stage */}
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-black text-blue-600 uppercase tracking-wide flex items-center gap-2">
+                    <DocumentTextIcon className="h-4 w-4" />
+                    Descripción de la Incidencia
+                  </h4>
+                  {(() => {
+                    const stageInfo = getStageInfo(selectedIncident);
+                    return (
+                      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${stageInfo.color} bg-opacity-10 text-slate-600 border border-slate-200`}>
+                        {stageInfo.icon}
+                        <span>{stageInfo.label}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                {/* Description Text */}
+                <div className="text-sm text-slate-700 bg-slate-50 p-2.5 rounded border border-slate-100 mb-4 leading-snug">
+                  {selectedIncident.descripcion || "Sin descripción disponible."}
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm border-t border-slate-100 pt-3">
                   <div>
-                    <span className="text-gray-500">Cliente:</span>
-                    <p className="font-medium">{selectedIncident.cliente || '-'}</p>
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Cliente</span>
+                    <p className="font-bold text-slate-800">{selectedIncident.cliente || '-'}</p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Obra:</span>
-                    <p className="font-medium">{selectedIncident.obra || '-'}</p>
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Obra</span>
+                    <p className="font-bold text-slate-800">{selectedIncident.obra || '-'}</p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Proveedor:</span>
-                    <p className="font-medium">{selectedIncident.provider || '-'}</p>
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Proveedor</span>
+                    <p className="font-bold text-slate-800">{selectedIncident.provider || '-'}</p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Categoría:</span>
-                    <p className="font-medium text-xs mt-0.5">
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Categoría</span>
+                    <p className="font-bold text-slate-800 text-xs flex items-center gap-1">
                       {selectedIncident.categoria || '-'}
-                      {selectedIncident.subcategoria ? ` / ${selectedIncident.subcategoria}` : ''}
+                      {selectedIncident.subcategoria && <span className="text-slate-400 font-normal">/ {selectedIncident.subcategoria}</span>}
                     </p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Fecha Detección:</span>
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Fecha Detección</span>
                     <p className="font-medium">
                       {selectedIncident.fecha_deteccion ? new Date(selectedIncident.fecha_deteccion).toLocaleDateString('es-ES') : '-'}
                     </p>
                   </div>
                   <div>
-                    <span className="text-gray-500">Documentos:</span>
-                    <p className="font-medium">{allDocuments.length}</p>
+                    <span className="block text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">Documentos</span>
+                    <p className="font-bold text-slate-800">{allDocuments.length} archivos</p>
                   </div>
 
                   {selectedIncident.escalation_date && (
-                    <div className="col-span-2">
-                      <span className="text-gray-500">Fecha Escalamiento:</span>
+                    <div>
+                      <span className="block text-xs font-bold text-orange-600 uppercase tracking-wide mb-1">Fecha Escalamiento</span>
                       <p className="font-medium">
                         {new Date(selectedIncident.escalation_date).toLocaleDateString('es-ES')}
                       </p>
@@ -870,38 +942,38 @@ const Documents = () => {
                   )}
 
                   {selectedIncident.estado === 'cerrado' && (
-                    <>
-                      <div className="col-span-2">
-                        <span className="text-gray-500">Fecha Cierre:</span>
-                        <p
-                          className="font-medium cursor-help"
-                          title={selectedIncident.closure_summary || 'Sin resumen'}
-                        >
+                    <React.Fragment>
+                      {/* Closure Date next to Escalation (if exists) or just in grid */}
+                      <div>
+                        <span className="block text-xs font-bold text-emerald-600 uppercase tracking-wide mb-1">Fecha Cierre</span>
+                        <p className="font-bold text-slate-800" title={selectedIncident.closure_summary || 'Sin resumen'}>
                           {selectedIncident.fecha_cierre ? new Date(selectedIncident.fecha_cierre).toLocaleDateString('es-ES') :
                             selectedIncident.closed_at ? new Date(selectedIncident.closed_at).toLocaleDateString('es-ES') : '-'}
                         </p>
                       </div>
+
                       {selectedIncident.motivo_cierre && (
-                        <div className="col-span-2">
-                          <span className="text-gray-500">Motivo de Cierre:</span>
-                          <p className="font-medium text-green-700 bg-green-50 px-2 py-1 rounded mt-1">
+                        <div className="col-span-2 mt-2">
+                          <span className="block text-xs font-bold text-purple-600 uppercase tracking-wide mb-2">Motivo de Cierre</span>
+                          <span className="inline-block px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-sm font-bold shadow-sm">
                             {selectedIncident.motivo_cierre}
-                          </p>
+                          </span>
                         </div>
                       )}
+
                       {selectedIncident.closure_summary && (
-                        <div className="col-span-2 mt-1">
-                          <span className="text-gray-500 text-xs">Resumen de Cierre:</span>
-                          <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded mt-1 border border-gray-100">
-                            {selectedIncident.closure_summary}
-                          </p>
+                        <div className="col-span-2 mt-2">
+                          <span className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Resumen de Cierre</span>
+                          <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                            "{selectedIncident.closure_summary}"
+                          </div>
                         </div>
                       )}
-                    </>
+                    </React.Fragment>
                   )}
                 </div>
               </div>
-            </>
+            </React.Fragment>
           )}
         </div>
       </div>

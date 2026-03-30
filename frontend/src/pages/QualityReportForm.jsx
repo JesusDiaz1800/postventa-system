@@ -25,7 +25,8 @@ import {
   ClipboardIcon,
   BeakerIcon,
   ArrowPathIcon,
-  ArrowDownTrayIcon
+  ArrowDownTrayIcon,
+  CubeIcon
 } from '@heroicons/react/24/outline';
 import { useNotifications } from '../hooks/useNotifications';
 import IncidentImagesViewer from '../components/IncidentImagesViewer';
@@ -44,22 +45,25 @@ const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300 mb-6">
+    <div className="bg-white/60 backdrop-blur-2xl rounded-3xl border border-white/60 shadow-xl shadow-slate-200/50 overflow-hidden transition-all duration-300 mb-6 group hover:shadow-2xl hover:shadow-slate-300/50">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full px-6 py-4 flex items-center justify-between bg-gradient-to-r ${colorClasses[color]} text-white transition-all`}
+        className={`w-full px-6 py-5 flex items-center justify-between bg-gradient-to-r ${colorClasses[color]} text-white transition-all relative overflow-hidden`}
       >
-        <div className="flex items-center gap-3">
-          <Icon className="h-5 w-5 text-white/90" />
-          <span className="text-lg font-bold tracking-tight">{title}</span>
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+            <Icon className="h-6 w-6 text-white" />
+          </div>
+          <span className="text-lg font-black tracking-wide uppercase">{title}</span>
         </div>
-        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
-          <ChevronDownIcon className="h-4 w-4" />
+        <div className={`transition-transform duration-300 bg-white/20 p-1.5 rounded-full backdrop-blur-sm ${isOpen ? 'rotate-180' : ''}`}>
+          <ChevronDownIcon className="h-4 w-4 text-white" />
         </div>
       </button>
-      <div className={`transition-all duration-500 ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
-        <div className="p-6 space-y-6">
+      <div className={`transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+        <div className="p-8 space-y-8">
           {children}
         </div>
       </div>
@@ -69,20 +73,20 @@ const PremiumSection = ({ title, icon: Icon, children, defaultOpen = true, color
 
 // Input con diseño ultra-moderno
 const GlassInput = ({ label, icon: Icon, required, ...props }) => (
-  <div className="space-y-1.5 group">
-    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+  <div className="space-y-2 group">
+    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
       {label}
-      {required && <span className="text-red-500">*</span>}
+      {required && <span className="text-rose-500">*</span>}
     </label>
     <div className="relative">
       {Icon && (
-        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-          <Icon className="h-4 w-4" />
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors">
+          <Icon className="h-5 w-5" />
         </div>
       )}
       <input
         {...props}
-        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-2.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm`}
+        className={`w-full ${Icon ? 'pl-12' : 'px-4'} py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 placeholder:text-slate-400 font-medium text-sm text-slate-700 shadow-sm`}
       />
     </div>
   </div>
@@ -90,21 +94,21 @@ const GlassInput = ({ label, icon: Icon, required, ...props }) => (
 
 // Textarea con diseño ultra-moderno
 const GlassTextarea = ({ label, icon: Icon, required, rows = 3, ...props }) => (
-  <div className="space-y-1.5 group">
-    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2 px-1">
+  <div className="space-y-2 group">
+    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
       {label}
-      {required && <span className="text-red-500">*</span>}
+      {required && <span className="text-rose-500">*</span>}
     </label>
     <div className="relative">
       {Icon && (
-        <div className="absolute left-3.5 top-3.5 text-gray-400 group-focus-within:text-blue-500 transition-colors">
-          <Icon className="h-4 w-4" />
+        <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-blue-600 transition-colors">
+          <Icon className="h-5 w-5" />
         </div>
       )}
       <textarea
         {...props}
         rows={rows}
-        className={`w-full ${Icon ? 'pl-10' : 'px-4'} py-3 bg-gray-50/50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all duration-200 placeholder:text-gray-400 font-medium text-sm resize-none`}
+        className={`w-full ${Icon ? 'pl-12' : 'px-4'} py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 placeholder:text-slate-400 font-medium text-sm text-slate-700 resize-none shadow-sm`}
       />
     </div>
   </div>
@@ -393,70 +397,82 @@ const QualityReportForm = () => {
     e.preventDefault();
     setIsSubmitting(true);
 
+    if (!incidentId || isNaN(parseInt(incidentId))) {
+      showError("ID de incidencia inválido");
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const dataToSend = new FormData();
+
+      // Construcción del objeto técnico limpio (sin nulls/undefined)
+      const technicalDetailsObj = {
+        client: formData.client_name || '',
+        project: formData.project_name || '',
+        sap_call_id: formData.sap_call_id || '',
+        salesperson: formData.salesperson || '',
+        technician: formData.technician || '',
+        incident_code: formData.incident_code || '',
+        sku: incident?.sku || '-',
+        provider: incident?.provider || '-',
+        // Campos técnicos avanzados
+        product: {
+          diameter: formData.product_diameter || '',
+          pn: formData.product_pn || '',
+          sdr: formData.product_sdr || '',
+          material: formData.product_material || 'PP-R',
+          lot: formData.product_lot || ''
+        },
+        site_conditions: {
+          method: formData.joining_method || 'Termofusión',
+          temperature: formData.ambient_temperature || '',
+          tools: formData.tools_status || 'OK',
+          machine_id: formData.machine_id || '',
+          normative: formData.applicable_normative || 'ISO 15874 / NCh 3151'
+        },
+        test_protocol: {
+          visual: formData.visual_inspection || 'Conforme',
+          pressure_test: formData.pressure_test || 'No Realizada',
+          pressure_bar: formData.test_pressure_bar || '',
+          duration_min: formData.test_duration_min || '',
+          result: formData.test_result || 'N/A'
+        },
+        lab_tests: {
+          melt_index: formData.melt_index || '',
+          density: formData.density || '',
+          tio: formData.tio || '',
+          dsc: formData.dsc || '',
+          carbon_black_dispersion: formData.carbon_black_dispersion || '',
+          carbon_black_percentage: formData.carbon_black_percentage || '',
+          ash_percentage: formData.ash_percentage || '',
+          moisture_percentage: formData.moisture_percentage || ''
+        },
+        section_images: formData.section_images
+      };
 
       const payload = {
         related_incident_id: parseInt(incidentId),
         report_type: reportType,
-        title: formData.title,
-        executive_summary: formData.executive_summary,
-        problem_description: formData.problem_description,
-        technical_analysis: formData.technical_analysis,
-        root_cause_analysis: formData.root_cause_analysis,
-        corrective_actions: formData.corrective_actions,
-        preventive_measures: formData.preventive_measures,
-        recommendations: formData.recommendations,
-        conclusions: formData.conclusions,
-        status: formData.status,
+        title: formData.title || `Reporte - ${formData.incident_code}`,
+        executive_summary: formData.executive_summary || '',
+        problem_description: formData.problem_description || '',
+        technical_analysis: formData.technical_analysis || '',
+        root_cause_analysis: formData.root_cause_analysis || '',
+        corrective_actions: formData.corrective_actions || '',
+        preventive_measures: formData.preventive_measures || '',
+        recommendations: formData.recommendations || '',
+        conclusions: formData.conclusions || '',
+        status: formData.status || 'draft',
         internal_notes: formData.internal_notes || '',
-        technical_details: JSON.stringify({
-          client: formData.client_name,
-          project: formData.project_name,
-          sap_call_id: formData.sap_call_id,
-          salesperson: formData.salesperson,
-          technician: formData.technician,
-          incident_code: formData.incident_code,
-          sku: incident?.sku || '-',
-          provider: incident?.provider || '-',
-          // Campos técnicos avanzados
-          product: {
-            diameter: formData.product_diameter,
-            pn: formData.product_pn,
-            sdr: formData.product_sdr,
-            material: formData.product_material,
-            lot: formData.product_lot
-          },
-          site_conditions: {
-            method: formData.joining_method,
-            temperature: formData.ambient_temperature,
-            tools: formData.tools_status,
-            machine_id: formData.machine_id,
-            normative: formData.applicable_normative
-          },
-          test_protocol: {
-            visual: formData.visual_inspection,
-            pressure_test: formData.pressure_test,
-            pressure_bar: formData.test_pressure_bar,
-            duration_min: formData.test_duration_min,
-            result: formData.test_result
-          },
-          lab_tests: {
-            melt_index: formData.melt_index,
-            density: formData.density,
-            tio: formData.tio,
-            dsc: formData.dsc,
-            carbon_black_dispersion: formData.carbon_black_dispersion,
-            carbon_black_percentage: formData.carbon_black_percentage,
-            ash_percentage: formData.ash_percentage,
-            moisture_percentage: formData.moisture_percentage
-          },
-          section_images: formData.section_images
-        })
+        technical_details: JSON.stringify(technicalDetailsObj)
       };
 
       Object.keys(payload).forEach(key => {
-        dataToSend.append(key, payload[key]);
+        const value = payload[key];
+        if (value !== null && value !== undefined) {
+          dataToSend.append(key, value);
+        }
       });
 
       images.forEach(img => {
@@ -489,8 +505,8 @@ const QualityReportForm = () => {
 
       navigate(isInternal ? '/quality-reports/internal' : '/quality-reports/client');
     } catch (error) {
-      console.error('Submit error:', error);
-      showError('Error al crear el reporte de calidad');
+      console.error('Submit error details:', error.response?.data || error.message);
+      showError(`Error al crear el reporte: ${error.response?.data?.message || error.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -523,274 +539,300 @@ const QualityReportForm = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        {/* Header Superior */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-4 bg-white shadow-lg shadow-gray-200/50 rounded-2xl text-gray-400 hover:text-blue-600 hover:scale-105 transition-all active:scale-95"
-            >
-              <ArrowLeftIcon className="h-6 w-6" />
-            </button>
+        {/* Header Superior - Industrial Premium */}
+        <div className="relative mb-12 pt-6">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 via-indigo-600/5 to-purple-600/5 rounded-3xl blur-3xl -z-10"></div>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
             <div>
-              <h1 className="text-3xl font-black text-gray-900 tracking-tight">
-                {isInternal ? 'Informe de Calidad Interno' : 'Reporte de Calidad para Cliente'}
-              </h1>
-              <p className="text-gray-500 font-medium flex items-center gap-2 mt-1">
-                <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
-                Trazabilidad Activa: {incident?.code}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {isInternal && (
               <button
-                onClick={handleImportClientData}
-                type="button"
-                className="flex items-center gap-2 px-4 py-3 bg-white border border-emerald-100 text-emerald-600 rounded-xl font-bold shadow-sm hover:bg-emerald-50 transition-all text-sm"
-                title="Precargar datos del reporte de cliente si existe"
+                onClick={() => navigate(-1)}
+                className="group flex items-center gap-2 px-4 py-2 rounded-xl bg-white/50 hover:bg-white text-slate-500 hover:text-blue-600 border border-transparent hover:border-blue-100 transition-all duration-300 mb-4 shadow-sm"
               >
-                <ArrowDownTrayIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">Importar Datos</span>
+                <ArrowLeftIcon className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+                <span className="text-xs font-bold uppercase tracking-wider">Volver</span>
               </button>
-            )}
-            <button
-              onClick={handleAIAnalysis}
-              disabled={isAnalyzing}
-              className="flex items-center gap-2 px-5 py-3 bg-white border border-indigo-100 text-indigo-600 rounded-xl font-bold shadow-sm hover:bg-indigo-50 transition-all disabled:opacity-50 text-sm"
-            >
-              {isAnalyzing ? (
-                <ArrowPathIcon className="h-4 w-4 animate-spin" />
-              ) : (
-                <SparklesIcon className="h-4 w-4" />
+
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-lg shadow-blue-500/30">
+                  <ClipboardDocumentCheckIcon className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-black text-slate-800 tracking-tight uppercase">
+                    {isInternal ? 'Informe de Calidad Interno' : 'Reporte de Calidad'}
+                    <span className="ml-3 px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] rounded-lg border border-indigo-100 align-middle">
+                      {isInternal ? 'Uso Interno' : 'Cliente Final'}
+                    </span>
+                  </h1>
+                  <p className="text-slate-500 font-medium text-sm mt-1 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-sm shadow-blue-500/50"></span>
+                    Trazabilidad Activa: <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded ml-1">{incident?.code}</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {isInternal && (
+                <button
+                  onClick={handleImportClientData}
+                  type="button"
+                  className="flex items-center gap-2 px-4 py-3 bg-white/80 backdrop-blur-sm border border-emerald-100 text-emerald-600 rounded-xl font-bold shadow-sm hover:bg-emerald-50 transition-all text-xs uppercase tracking-wide"
+                  title="Precargar datos del reporte de cliente si existe"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Importar Datos</span>
+                </button>
               )}
-              Asistente IA
-            </button>
-            <button
-              form="quality-form"
-              type="submit"
-              disabled={isSubmitting || isGeneratingPDF}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-md shadow-blue-200/50 hover:bg-blue-700 transition-all disabled:opacity-50 text-sm"
-            >
-              {isSubmitting || isGeneratingPDF ? (
-                <ArrowPathIcon className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircleIcon className="h-4 w-4" />
-              )}
-              {isGeneratingPDF ? 'Generando PDF...' : 'Finalizar Reporte'}
-            </button>
+              <button
+                onClick={handleAIAnalysis}
+                disabled={isAnalyzing}
+                className="flex items-center gap-2 px-5 py-3 bg-white/80 backdrop-blur-sm border border-indigo-100 text-indigo-600 rounded-xl font-bold shadow-sm hover:bg-indigo-50 transition-all disabled:opacity-50 text-xs uppercase tracking-wide group"
+              >
+                {isAnalyzing ? (
+                  <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                ) : (
+                  <SparklesIcon className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                )}
+                Asistente IA
+              </button>
+              <button
+                form="quality-form"
+                type="submit"
+                disabled={isSubmitting || isGeneratingPDF}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 hover:scale-[1.02] transition-all disabled:opacity-50 text-xs uppercase tracking-wide"
+              >
+                {isSubmitting || isGeneratingPDF ? (
+                  <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircleIcon className="h-4 w-4" />
+                )}
+                {isGeneratingPDF ? 'Generando PDF...' : 'Finalizar Reporte'}
+              </button>
+            </div>
           </div>
         </div>
 
         <form id="quality-form" onSubmit={handleSubmit}>
           {/* FASE 2: SECCIÓN DE TRAZABILIDAD (WOW Factor con datos reales) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="md:col-span-2 bg-slate-900 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden group border border-slate-700">
-              <div className="relative z-10 grid grid-cols-2 gap-6">
-                <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="md:col-span-2 bg-slate-900/95 backdrop-blur-xl rounded-3xl p-8 text-white shadow-2xl shadow-slate-900/20 relative overflow-hidden group border border-white/10 transition-all hover:scale-[1.01]">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-blue-500/20 transition-all duration-700"></div>
+              <div className="relative z-10 grid grid-cols-2 gap-8">
+                <div className="space-y-6">
                   <div>
-                    <p className="text-blue-400 text-[10px] font-bold uppercase tracking-wider mb-1">Cliente / Proyecto</p>
-                    <p className="text-lg font-bold leading-tight line-clamp-1">{formData.client_name || '-'}</p>
-                    <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{formData.project_name || '-'}</p>
+                    <p className="text-blue-400 text-[10px] font-black uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <BuildingOfficeIcon className="w-3 h-3" />
+                      Cliente / Proyecto
+                    </p>
+                    <p className="text-xl font-bold leading-tight line-clamp-1 text-white">{formData.client_name || '-'}</p>
+                    <p className="text-sm text-slate-400 mt-1 line-clamp-1 font-medium">{formData.project_name || '-'}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">ID SAP</p>
-                      <p className="text-sm font-mono font-bold bg-slate-800 px-2 py-1 rounded inline-block">#{formData.sap_call_id}</p>
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                      <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mb-1">ID SAP</p>
+                      <p className="text-sm font-mono font-bold text-white tracking-wide">#{formData.sap_doc_num || formData.sap_call_id}</p>
                     </div>
-                    <div>
-                      <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Cód. Incidencia</p>
-                      <p className="text-sm font-mono font-bold text-blue-300 italic">{formData.incident_code}</p>
+                    <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                      <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mb-1">Cód. Incidencia</p>
+                      <p className="text-sm font-mono font-bold text-blue-300">{formData.incident_code}</p>
                     </div>
                   </div>
                 </div>
-                <div className="space-y-4 border-l border-slate-800 pl-6">
+                <div className="space-y-6 border-l border-white/10 pl-8">
                   <div>
-                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Personal Responsable</p>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-5 h-5 bg-blue-500/20 rounded flex items-center justify-center">
-                        <UserIcon className="h-3 w-3 text-blue-400" />
+                    <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mb-2">Personal Responsable</p>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center border border-blue-500/20">
+                        <UserIcon className="h-4 w-4 text-blue-400" />
                       </div>
-                      <p className="text-xs font-medium">{formData.technician}</p>
+                      <div>
+                        <p className="text-xs font-bold text-white">{formData.technician}</p>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Técnico</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center">
-                        <BuildingOfficeIcon className="h-3 w-3 text-emerald-400" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center border border-emerald-500/20">
+                        <BuildingOfficeIcon className="h-4 w-4 text-emerald-400" />
                       </div>
-                      <p className="text-xs font-medium text-slate-300">{formData.salesperson}</p>
+                      <div>
+                        <p className="text-xs font-bold text-white">{formData.salesperson}</p>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Vendedor</p>
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-1">Fecha de Creación</p>
-                    <p className="text-xs font-bold">{new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                  <div className="bg-white/5 rounded-xl p-3 inline-block border border-white/5">
+                    <p className="text-slate-400 text-[9px] font-bold uppercase tracking-wider mb-1">Fecha Emisión</p>
+                    <p className="text-xs font-bold text-white">{new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-center">
-              <GlassInput
-                label="Título Técnico del Informe"
-                value={formData.title}
-                onChange={(e) => handleInputChange('title', e.target.value)}
-                placeholder="Ej: Análisis de Calidad - Tubería PP"
-                required
-              />
-              <div className="mt-4 flex gap-2">
-                <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100 italic">
-                  <p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Tipo de Informe</p>
-                  <p className="text-xs font-bold text-gray-700 capitalize">{reportType}</p>
-                </div>
-                <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100 italic">
-                  <p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Nivel</p>
-                  <p className="text-xs font-bold text-blue-600">Profesional V2</p>
+            <div className="bg-white/60 backdrop-blur-2xl rounded-3xl p-8 shadow-xl shadow-slate-200/50 border border-white/60 flex flex-col justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-white/0 z-0"></div>
+              <div className="relative z-10 space-y-4">
+                <GlassInput
+                  label="Título Técnico del Informe"
+                  value={formData.title}
+                  onChange={(e) => handleInputChange('title', e.target.value)}
+                  placeholder="Ej: Análisis de Calidad - Tubería PP"
+                  required
+                />
+                <div className="flex gap-3">
+                  <div className="flex-1 bg-slate-50/50 rounded-xl px-4 py-3 border border-slate-200/50">
+                    <p className="text-[9px] text-slate-400 font-black uppercase mb-1 tracking-wider">Tipo</p>
+                    <p className="text-xs font-bold text-slate-700 capitalize">{reportType}</p>
+                  </div>
+                  <div className="flex-1 bg-blue-50/50 rounded-xl px-4 py-3 border border-blue-100/50">
+                    <p className="text-[9px] text-blue-400 font-black uppercase mb-1 tracking-wider">Nivel</p>
+                    <p className="text-xs font-bold text-blue-600">Profesional V2</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {/* NUEVA SECCIÓN: Especificaciones Técnicas del Producto */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 md:col-span-2">
-              <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
-                <span className="w-3 h-[1px] bg-blue-600"></span>
-                Especificaciones del Producto y Trazabilidad
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <GlassInput
-                  label="Diámetro (mm)"
-                  placeholder="Ej: 32"
-                  value={formData.product_diameter}
-                  onChange={(e) => handleInputChange('product_diameter', e.target.value)}
-                />
-                <GlassInput
-                  label="PN (Presión)"
-                  placeholder="Ej: 16"
-                  value={formData.product_pn}
-                  onChange={(e) => handleInputChange('product_pn', e.target.value)}
-                />
-                <GlassInput
-                  label="SDR"
-                  placeholder="Ej: 7.4"
-                  value={formData.product_sdr}
-                  onChange={(e) => handleInputChange('product_sdr', e.target.value)}
-                />
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Material</label>
+          {/* NUEVA SECCIÓN: Especificaciones Técnicas del Producto */}
+          <PremiumSection title="Especificaciones del Producto y Trazabilidad" icon={CubeIcon} color="indigo">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <GlassInput
+                label="Diámetro (mm)"
+                placeholder="Ej: 32"
+                value={formData.product_diameter}
+                onChange={(e) => handleInputChange('product_diameter', e.target.value)}
+              />
+              <GlassInput
+                label="PN (Presión)"
+                placeholder="Ej: 16"
+                value={formData.product_pn}
+                onChange={(e) => handleInputChange('product_pn', e.target.value)}
+              />
+              <GlassInput
+                label="SDR"
+                placeholder="Ej: 7.4"
+                value={formData.product_sdr}
+                onChange={(e) => handleInputChange('product_sdr', e.target.value)}
+              />
+              <div className="space-y-2 group">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Material</label>
+                <div className="relative">
                   <select
                     value={formData.product_material}
                     onChange={(e) => handleInputChange('product_material', e.target.value)}
-                    className="w-full px-4 py-2 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/5 transition-all text-sm font-medium"
+                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-sm font-medium text-slate-700 appearance-none shadow-sm cursor-pointer hover:bg-white"
                   >
                     <option value="PP-R">PP-R</option>
                     <option value="PP-RCT">PP-RCT</option>
                     <option value="PE-AD">PE-AD</option>
                     <option value="PEX">PEX</option>
                   </select>
+                  <ChevronDownIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 </div>
               </div>
-              <div className="mt-4">
-                <GlassInput
-                  label="Lote de Fabricación / Código de Trazabilidad"
-                  icon={ClipboardIcon}
-                  placeholder="Ingrese el lote impreso en la tubería..."
-                  value={formData.product_lot}
-                  onChange={(e) => handleInputChange('product_lot', e.target.value)}
-                />
-              </div>
             </div>
+            <div className="mt-6">
+              <GlassInput
+                label="Lote de Fabricación / Código de Trazabilidad"
+                icon={ClipboardIcon}
+                placeholder="Ingrese el lote impreso en la tubería..."
+                value={formData.product_lot}
+                onChange={(e) => handleInputChange('product_lot', e.target.value)}
+              />
+            </div>
+          </PremiumSection>
 
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
-                <span className="w-3 h-[1px] bg-emerald-600"></span>
-                Condiciones de Instalación
-              </h3>
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Método de Unión</label>
+          <PremiumSection title="Condiciones de Instalación" icon={WrenchScrewdriverIcon} color="emerald">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="space-y-2 group">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Método de Unión</label>
+                <div className="relative">
                   <select
                     value={formData.joining_method}
                     onChange={(e) => handleInputChange('joining_method', e.target.value)}
-                    className="w-full px-4 py-2 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-medium"
+                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 appearance-none shadow-sm cursor-pointer hover:bg-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
                   >
                     <option value="Termofusión">Termofusión</option>
                     <option value="Electrofusión">Electrofusión</option>
                     <option value="Mecánico">Mecánico / Roscado</option>
                     <option value="Compresión">Compresión</option>
                   </select>
+                  <ChevronDownIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 </div>
-                <GlassInput
-                  label="Temp. Ambiente (°C)"
-                  placeholder="Ej: 22"
-                  value={formData.ambient_temperature}
-                  onChange={(e) => handleInputChange('ambient_temperature', e.target.value)}
-                />
-                <GlassInput
-                  label="ID Máquina / Herramienta"
-                  placeholder="Ej: TF-2025-042"
-                  value={formData.machine_id}
-                  onChange={(e) => handleInputChange('machine_id', e.target.value)}
-                />
-                <GlassInput
-                  label="Normativa Aplicable"
-                  placeholder="Ej: ISO 15874"
-                  value={formData.applicable_normative}
-                  onChange={(e) => handleInputChange('applicable_normative', e.target.value)}
-                />
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Estado Herramientas</label>
-                  <div className="flex gap-2">
-                    {['OK', 'Revisión', 'Falla'].map(status => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => handleInputChange('tools_status', status)}
-                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all border ${formData.tools_status === status
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md'
-                          : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                          }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
+              </div>
+              <GlassInput
+                label="Temp. Ambiente (°C)"
+                placeholder="Ej: 22"
+                value={formData.ambient_temperature}
+                onChange={(e) => handleInputChange('ambient_temperature', e.target.value)}
+              />
+              <GlassInput
+                label="ID Máquina / Herramienta"
+                placeholder="Ej: TF-2025-042"
+                value={formData.machine_id}
+                onChange={(e) => handleInputChange('machine_id', e.target.value)}
+              />
+              <GlassInput
+                label="Normativa Aplicable"
+                placeholder="Ej: ISO 15874"
+                value={formData.applicable_normative}
+                onChange={(e) => handleInputChange('applicable_normative', e.target.value)}
+              />
+              <div className="space-y-2 md:col-span-2 lg:col-span-4">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Estado Herramientas</label>
+                <div className="flex gap-2 bg-slate-50/50 p-1 rounded-xl border border-slate-200/50">
+                  {['OK', 'Revisión', 'Falla'].map(status => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => handleInputChange('tools_status', status)}
+                      className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all ${formData.tools_status === status
+                        ? 'bg-white shadow-sm text-emerald-600 border border-emerald-100'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'
+                        }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
-          </div>
+          </PremiumSection>
 
           {/* NUEVA SECCIÓN: Protocolo de Pruebas y Resultados */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
-            <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
-              <span className="w-3 h-[1px] bg-amber-600"></span>
-              Protocolo de Inspección y Pruebas de Terreno
-            </h3>
+          {/* NUEVA SECCIÓN: Protocolo de Pruebas y Resultados */}
+          <PremiumSection title="Protocolo de Inspección y Pruebas de Terreno" icon={ClipboardDocumentCheckIcon} color="amber">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Inspección Visual</label>
-                <select
-                  value={formData.visual_inspection}
-                  onChange={(e) => handleInputChange('visual_inspection', e.target.value)}
-                  className={`w-full px-4 py-2 border rounded-xl text-sm font-bold ${formData.visual_inspection === 'Conforme' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'
-                    }`}
-                >
-                  <option value="Conforme">Conforme</option>
-                  <option value="No Conforme">No Conforme</option>
-                  <option value="No Aplica">No Aplica</option>
-                </select>
+              <div className="space-y-2 group">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Inspección Visual</label>
+                <div className="relative">
+                  <select
+                    value={formData.visual_inspection}
+                    onChange={(e) => handleInputChange('visual_inspection', e.target.value)}
+                    className={`w-full px-4 py-3.5 border rounded-xl text-sm font-bold appearance-none shadow-sm cursor-pointer transition-all ${formData.visual_inspection === 'Conforme' ? 'bg-emerald-50/50 border-emerald-200 text-emerald-700 shadow-emerald-500/10' : 'bg-rose-50/50 border-rose-200 text-rose-700 shadow-rose-500/10'
+                      }`}
+                  >
+                    <option value="Conforme">Conforme</option>
+                    <option value="No Conforme">No Conforme</option>
+                    <option value="No Aplica">No Aplica</option>
+                  </select>
+                  <ChevronDownIcon className={`absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${formData.visual_inspection === 'Conforme' ? 'text-emerald-500' : 'text-rose-500'}`} />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider px-1">Prueba de Presión</label>
-                <select
-                  value={formData.pressure_test}
-                  onChange={(e) => handleInputChange('pressure_test', e.target.value)}
-                  className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium"
-                >
-                  <option value="Realizada">Realizada</option>
-                  <option value="No Realizada">No Realizada</option>
-                  <option value="Pendiente">Pendiente</option>
-                </select>
+              <div className="space-y-2 group">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">Prueba de Presión</label>
+                <div className="relative">
+                  <select
+                    value={formData.pressure_test}
+                    onChange={(e) => handleInputChange('pressure_test', e.target.value)}
+                    className="w-full px-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 appearance-none shadow-sm cursor-pointer hover:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                  >
+                    <option value="Realizada">Realizada</option>
+                    <option value="No Realizada">No Realizada</option>
+                    <option value="Pendiente">Pendiente</option>
+                  </select>
+                  <ChevronDownIcon className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
               </div>
               <GlassInput
                 label="Presión de Prueba (Bar)"
@@ -817,14 +859,10 @@ const QualityReportForm = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </PremiumSection>
 
           {/* NUEVA SECCIÓN: Ensayos de Laboratorio */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
-            <h3 className="text-gray-400 font-bold uppercase tracking-widest text-[10px] mb-6 flex items-center gap-2">
-              <span className="w-3 h-[1px] bg-purple-600"></span>
-              Ensayos de Laboratorio y Análisis de Polímeros
-            </h3>
+          <PremiumSection title="Ensayos de Laboratorio y Análisis de Polímeros" icon={BeakerIcon} color="purple">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <GlassInput
                 label="Melt Index (g/10 min)"
@@ -878,7 +916,7 @@ const QualityReportForm = () => {
             <div className="mt-8 border-t border-gray-50 pt-6">
               <SectionImageSlot section="lab_tests" label="Captura/Gráfico de Ensayos" />
             </div>
-          </div>
+          </PremiumSection>
 
           {/* NUEVA SECCIÓN: Documentación Visual Intercalada */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">

@@ -17,8 +17,7 @@ urlpatterns = [
     path('api/documents/', include('apps.documents.urls')),
     path('api/ai/', include('apps.ai.urls')),
     path('api/ai-orchestrator/', include('apps.ai_orchestrator.urls')),
-    path('api/ai-agents/', include('apps.ai_agents.urls')),  # NEW: LangGraph Agents
-    # path('api/workflows/', include('apps.workflows.urls')),  # Removed - feature deprecated
+    path('api/ai-agents/', include('apps.ai_agents.urls')),
     path('api/audit/', include('apps.audit.urls')),
     path('api/reports/', include('apps.reports.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { useNotifications } from '../hooks/useNotifications';
@@ -17,6 +18,8 @@ import {
   ChevronRightIcon
 } from '@heroicons/react/24/outline';
 import ConfirmationModal from '../components/ConfirmationModal';
+import MonitoringTab from '../components/MonitoringTab';
+import { CpuChipIcon } from '@heroicons/react/24/outline';
 
 // --- Components ---
 
@@ -87,7 +90,7 @@ const Pagination = ({ page, totalPages, setPage }) => (
   </div>
 );
 
-const AuditLogTable = ({ logs, page, totalPages, setPage, actionChoices }) => {
+const AuditLogTable = ({ logs, page, totalPages, setPage, actionChoices, onViewDetails }) => {
   // Helper to get label from choices
   const getActionLabel = (code) => {
     const choice = actionChoices.find(c => c.value === code);
@@ -96,29 +99,30 @@ const AuditLogTable = ({ logs, page, totalPages, setPage, actionChoices }) => {
 
   const formatTime = (dateString) => {
     if (!dateString) return '';
-    // Backend sends ISO UTC, browser converts to local
     return new Date(dateString).toLocaleString('es-CL');
   };
 
   return (
     <div className="bg-white shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-300">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-gray-300 border-separate border-spacing-0">
+          <thead className="bg-slate-50/50 sticky top-0 z-10">
             <tr>
-              <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide pl-6">
+              <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest pl-8 border-b border-slate-200">
                 Fecha
               </th>
-              <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200">
                 Usuario
               </th>
-              <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200">
                 Acción
               </th>
-              <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">
+              <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200">
                 Descripción
               </th>
-
+              <th scope="col" className="relative py-4 pl-3 pr-8 text-right text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200">
+                Detalles
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
@@ -135,7 +139,11 @@ const AuditLogTable = ({ logs, page, totalPages, setPage, actionChoices }) => {
                 const badgeColor = colorMatch ? colorMatch[1] : 'gray';
 
                 return (
-                  <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                  <tr 
+                    key={log.id} 
+                    className="hover:bg-indigo-50/30 transition-colors group cursor-pointer"
+                    onClick={() => onViewDetails(log)}
+                  >
                     <td className="whitespace-nowrap py-4 pl-6 pr-3 text-sm text-gray-500 font-medium">
                       {formatTime(log.timestamp)}
                     </td>
@@ -153,10 +161,14 @@ const AuditLogTable = ({ logs, page, totalPages, setPage, actionChoices }) => {
                         <Badge color={badgeColor}>{getActionLabel(log.action)}</Badge>
                       </div>
                     </td>
-                    <td className="px-3 py-4 text-sm text-gray-600 max-w-md truncate" title={log.description}>
+                    <td className="px-3 py-4 text-sm text-gray-600 max-w-sm truncate group-hover:text-indigo-700 transition-colors" title={log.description}>
                       {log.description}
                     </td>
-
+                    <td className="relative whitespace-nowrap py-4 pl-3 pr-8 text-right text-sm">
+                      <button className="text-indigo-600 hover:text-indigo-900 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                        Ver Más
+                      </button>
+                    </td>
                   </tr>
                 )
               })
@@ -173,22 +185,22 @@ const RecycleBinTable = ({ items, onRestore, loading, onDeletePermanent }) => (
   <div className="bg-white shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg overflow-hidden">
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-300">
-        <thead className="bg-red-50/50">
+        <thead className="bg-red-50/50 border-b border-red-100">
           <tr>
-            <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-xs font-semibold text-red-900 sm:pl-6 uppercase">
+            <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-red-400 uppercase tracking-widest pl-8">
               Elemento Eliminado
             </th>
-            <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-red-900 uppercase">
+            <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-red-400 uppercase tracking-widest">
               Eliminado Por
             </th>
-            <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-red-900 uppercase">
+            <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-red-400 uppercase tracking-widest">
               Fecha Eliminación
             </th>
-            <th scope="col" className="px-3 py-3.5 text-left text-xs font-semibold text-red-900 uppercase">
+            <th scope="col" className="px-6 py-4 text-left text-[11px] font-black text-red-400 uppercase tracking-widest">
               Expira en
             </th>
-            <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
-              <span className="sr-only">Restaurar</span>
+            <th scope="col" className="relative py-4 pl-3 pr-8 sm:pr-8 text-right text-[11px] font-black text-red-400 uppercase tracking-widest">
+              Gestión
             </th>
           </tr>
         </thead>
@@ -222,11 +234,11 @@ const RecycleBinTable = ({ items, onRestore, loading, onDeletePermanent }) => (
                     {item.days_remaining} días
                   </span>
                 </td>
-                <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                  <div className="flex justify-end gap-2">
+                <td className="relative whitespace-nowrap py-4 pl-3 pr-8 text-right text-sm font-medium sm:pr-8">
+                  <div className="flex justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => onDeletePermanent(item.id)}
-                      className="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-md transition-all font-semibold shadow-sm border border-red-200"
+                      className="h-9 w-9 flex items-center justify-center rounded-xl bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-all shadow-sm ring-1 ring-red-100 hover:ring-red-600"
                       title="Eliminar permanentemente"
                     >
                       <TrashIcon className="h-5 w-5" />
@@ -234,9 +246,10 @@ const RecycleBinTable = ({ items, onRestore, loading, onDeletePermanent }) => (
                     <button
                       onClick={() => onRestore(item)}
                       disabled={loading}
-                      className="text-green-600 hover:text-green-900 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-md transition-all font-semibold shadow-sm border border-green-200"
+                      className="h-9 w-9 flex items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all shadow-sm ring-1 ring-emerald-100 hover:ring-emerald-600"
+                      title="Restaurar"
                     >
-                      Restaurar
+                      <ArrowPathIcon className="h-5 w-5" />
                     </button>
                   </div>
                 </td>
@@ -254,8 +267,13 @@ const RecycleBinTable = ({ items, onRestore, loading, onDeletePermanent }) => (
 const AuditPage = () => {
   const { showSuccess, showError } = useNotifications();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('logs'); // 'logs' or 'bin'
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const initialTab = queryParams.get('tab') || 'logs';
+  
+  const [activeTab, setActiveTab] = useState(initialTab); // 'logs', 'bin', or 'health'
   const [restoreItem, setRestoreItem] = useState(null);
+  const [selectedLog, setSelectedLog] = useState(null);
 
   // Filters State
   const [page, setPage] = useState(1);
@@ -389,6 +407,19 @@ const AuditPage = () => {
               Admin
             </span>
           </button>
+          <button
+            onClick={() => setActiveTab('health')}
+            className={`${activeTab === 'health'
+              ? 'border-emerald-500 text-emerald-600'
+              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              } group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors`}
+          >
+            <CpuChipIcon
+              className={`-ml-0.5 mr-2 h-5 w-5 ${activeTab === 'health' ? 'text-emerald-500' : 'text-gray-400 group-hover:text-gray-500'}`}
+              aria-hidden="true"
+            />
+            <span>Salud del Sistema</span>
+          </button>
         </nav>
       </div>
 
@@ -482,10 +513,17 @@ const AuditPage = () => {
               <div className="h-64 bg-gray-100 rounded-lg w-full"></div>
             </div>
           ) : (
-            <AuditLogTable logs={logs} page={page} totalPages={totalPages} setPage={setPage} actionChoices={actionChoices} />
+            <AuditLogTable 
+              logs={logs} 
+              page={page} 
+              totalPages={totalPages} 
+              setPage={setPage} 
+              actionChoices={actionChoices} 
+              onViewDetails={setSelectedLog}
+            />
           )}
         </div>
-      ) : (
+      ) : activeTab === 'bin' ? (
         // Recycle Bin Tab
         <div className="space-y-4">
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
@@ -519,6 +557,9 @@ const AuditPage = () => {
             />
           )}
         </div>
+      ) : (
+        // Health Tab
+        <MonitoringTab />
       )}
 
       {/* Restore Confirmation */}
@@ -532,8 +573,84 @@ const AuditPage = () => {
         type="info"
         isLoading={restoreMutation.isLoading}
       />
+
+      {/* Log Details Modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col border border-slate-200 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{selectedLog.action_icon}</span>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-lg">Detalles de Actividad</h3>
+                  <p className="text-xs text-slate-500 font-medium">{new Date(selectedLog.timestamp).toLocaleString('es-CL')}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedLog(null)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+              >
+                <XMarkIcon className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Description Card */}
+              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4">
+                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1.5">Descripción</h4>
+                <p className="text-slate-700 font-semibold leading-relaxed">{selectedLog.description}</p>
+              </div>
+
+              {/* Technical Details (JSON) */}
+              <div>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center">
+                  <div className="h-px bg-slate-200 flex-1 mr-3"></div>
+                  Información Técnica / Logs
+                  <div className="h-px bg-slate-200 flex-1 ml-3"></div>
+                </h4>
+                <div className="bg-slate-900 rounded-xl p-4 overflow-x-auto shadow-inner ring-1 ring-white/10">
+                  <pre className="text-xs text-emerald-400/90 font-mono leading-relaxed">
+                    {JSON.stringify(selectedLog.details, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Metadata Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-0.5">Usuario</span>
+                  <span className="text-sm font-semibold text-slate-700">{selectedLog.user?.username || 'Sistema'}</span>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-0.5">IP Address</span>
+                  <span className="text-sm font-semibold text-slate-700">{selectedLog.ip_address || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="px-6 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+              >
+                Cerrar Diagnóstico
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+/* --- Visual Details Helper --- */
+const XMarkIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
 
 export default AuditPage;

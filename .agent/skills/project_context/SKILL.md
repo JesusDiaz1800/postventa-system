@@ -16,6 +16,11 @@ Esta skill asegura que NUNCA olvides dónde y cómo está desplegado el sistema.
 ## 🗄️ Datos Corporativos
 1.  **Base de Datos Principal**: SQL Server Corporativo (`PRDPOLIFUSION`).
     *   **Acceso**: Estrictamente controlado. Generalmente LECTURA (SELECT) para reportes.
+    *   **Acceso- **C:\Users\jdiaz\.gemini\antigravity\brain\053782eb-5125-44c5-87af-8c58066a181e\SKILL.md** (Reglas base)
+- **C:\Users\jdiaz\Desktop\postventa-system\.agent\memory\PRODUCT_CONTEXT.md** (Identidad y Visión)
+- **C:\Users\jdiaz\Desktop\postventa-system\.agent\memory\EVOLUTION_LOG.md** (Historial reciente)
+
+**REGLAS DE ORO:**
     *   **Escritura**: Solo en tablas específicas o bases de datos satélites permitidas.
     *   **Regla de Oro**: NUNCA intentes migraciones destructivas en el SQL Server corporativo sin autorización explícita y backup.
 2.  **Base de Datos Local**: SQLite/Postgres (si aplica para la app satélite) para gestión de sesiones, caché o datos transitorios de la IA.

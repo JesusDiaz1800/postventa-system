@@ -21,10 +21,9 @@ class NotificationService {
     this.listeners = new Map();
     this.messageQueue = [];
 
-    // Gestión de Reconexión (Exponential Backoff)
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
-    this.baseReconnectInterval = 1000;
+    this.maxReconnectAttempts = 1; // Reducido de 3 a 1 para evitar spam
+    this.baseReconnectInterval = 5000;
     this.maxReconnectInterval = 30000;
 
     // Identificadores de Timers
@@ -49,38 +48,41 @@ class NotificationService {
   // --- Gestión de Conexión ---
 
   connect() {
-    // DISABLED: runserver doesn't support WebSocket/ASGI
-    // To enable: use Daphne or uvicorn instead of runserver
-    // Example: daphne -b 0.0.0.0 -p 8000 postventa_system.asgi:application
-    // Conexión habilitada por defecto para notificaciones en tiempo real
+    // Evitar conexiones duplicadas
     if (this.isConnecting) return;
-
-    // Evitar conexiones duplicadas o innecesarias
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
-    if (this.isConnecting) return;
 
     this.isConnecting = true;
     const token = this.getToken();
 
     if (!token) {
       this.isConnecting = false;
-      // Changing warn to debug to reduce console noise during initial load or logout
-      console.debug('ℹ️ [NS] No token available, skipping connection.');
+      // No loggear si no hay token - es comportamiento esperado
       return;
     }
 
     try {
       const wsUrl = this.buildWebSocketURL(token);
-      // console.log(`🔌 [NS] Connecting to ${wsUrl.split('?')[0]}...`);
+      // Only log first attempt and every 5th retry to reduce noise
+      if (this.reconnectAttempts === 0 || this.reconnectAttempts % 5 === 0) {
+        console.log(`🔌 [NS] Connecting to: ${wsUrl.split('?')[0]} (attempt ${this.reconnectAttempts + 1})`);
+      }
 
       this.ws = new WebSocket(wsUrl);
       this.setupEventHandlers();
     } catch (error) {
-      console.error('❌ [NS] Connection setup error:', error);
+      console.error('❌ [NS] WebSocket instant failure:', error);
       this.handleConnectionError();
     }
+  }
+
+  handleConnectionError(err) {
+    this.isConnecting = false;
+    this.isConnected = false;
+    console.error('❌ [NS] Detailed Connection Error:', err);
+    this.scheduleReconnect();
   }
 
   disconnect() {
@@ -103,9 +105,13 @@ class NotificationService {
   // --- Helpers Internos ---
 
   buildWebSocketURL(token) {
+    // When Vite runs with HTTPS (SSL certs), browser is on https:// so we MUST use wss://
+    // Vite's proxy handles the WSS -> WS downgrade to the backend (Daphne on http://)
+    // This is the correct behavior: browser <--WSS--> Vite <--WS--> Daphne
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host; // Use same origin (Vite proxies /ws to backend)
-    return `${protocol}//${host}/ws/notifications/?token=${token}`;
+    const host = window.location.host;
+    const countryCode = localStorage.getItem('country_code') || 'CL';
+    return `${protocol}//${host}/ws/notifications/?token=${token}&country=${countryCode}`;
   }
 
   setupEventHandlers() {
@@ -155,9 +161,11 @@ class NotificationService {
     };
 
     this.ws.onerror = (error) => {
-      // El error exacto de WS suele ser ocultado por el navegador por seguridad,
-      // pero onclose se disparará inmediatamente después.
-      console.warn('⚠️ [NS] WebSocket Error encountered.');
+      // Solo loggear primer error para evitar spam en consola
+      if (this.reconnectAttempts === 0) {
+        console.warn('⚠️ [NS] WebSocket no disponible (normal en desarrollo sin backend activo)');
+      }
+      this.handleConnectionError(error);
     };
   }
 
@@ -236,23 +244,25 @@ class NotificationService {
 
   scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('❌ [NS] Max reconnect attempts reached. Giving up.');
-      toast.error('No se pudo conectar al servicio de notificaciones.');
+      // Silent after max attempts - only show toast once
+      if (this.reconnectAttempts === this.maxReconnectAttempts) {
+        console.warn('⚠️ [NS] Max reconnect attempts reached. Notifications will work via REST API.');
+        // Don't show toast error - this is not critical, REST fallback works
+      }
       return;
     }
 
-    // Exponential Backoff con Jitter
+    // Exponential Backoff con Jitter - longer delays to reduce noise
     const delay = Math.min(
-      this.baseReconnectInterval * Math.pow(1.5, this.reconnectAttempts),
+      this.baseReconnectInterval * Math.pow(2, this.reconnectAttempts),
       this.maxReconnectInterval
-    ) + (Math.random() * 500);
+    ) + (Math.random() * 1000);
 
     this.reconnectAttempts++;
-    // console.log(`⏳ [NS] Reconnecting in ${Math.round(delay)}ms (Attempt ${this.reconnectAttempts})`);
 
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     this.reconnectTimeout = setTimeout(() => {
-      this.isConnecting = false; // Reset flag para permitir connect()
+      this.isConnecting = false;
       this.connect();
     }, delay);
   }

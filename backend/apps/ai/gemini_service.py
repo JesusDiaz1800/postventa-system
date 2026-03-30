@@ -8,7 +8,7 @@ from django.core.cache import cache
 import logging
 import hashlib
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Importación de Google Generative AI (nueva API)
 try:
@@ -104,6 +104,10 @@ class GeminiService:
             return response.text
             
         except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "quota" in error_msg.lower():
+                logger.warning(f"Límite de cuota de Gemini alcanzado: {e}")
+                raise PermissionError("GEMINI_QUOTA_EXCEEDED")
             logger.error(f"Error al generar contenido con Gemini: {e}")
             raise
 
@@ -134,19 +138,19 @@ class GeminiService:
             logger.error(f"Error en análisis multimodal de documento: {e}")
             raise
     
-    def analyze_real_image(self, image_file, analysis_type: str = 'comprehensive_technical_analysis', 
+    def analyze_real_image(self, image_files: List[Any], analysis_type: str = 'comprehensive_technical_analysis', 
                           description: str = '', context: str = '') -> Dict[str, Any]:
         """
-        Analizar imagen real de falla en tuberías o accesorios
+        Analizar una o múltiples imágenes de falla en tuberías o accesorios
         
         Args:
-            image_file: Archivo de imagen subido
+            image_files: Lista de archivos de imagen (o un solo archivo para compatibilidad)
             analysis_type (str): Tipo de análisis a realizar
             description (str): Descripción adicional del contexto
             context (str): Contexto adicional del análisis
             
         Returns:
-            dict: Análisis detallado de la imagen
+            dict: Análisis detallado de la(s) imagen(es)
         """
         import time
         import uuid
@@ -156,69 +160,86 @@ class GeminiService:
         start_time = time.time()
         analysis_id = str(uuid.uuid4())
         
+        # Normalizar entrada a lista
+        if not isinstance(image_files, list):
+            image_files = [image_files]
+            
         try:
-            # Leer y procesar la imagen
-            image_data = image_file.read()
-            image_file.seek(0)  # Resetear el puntero del archivo
+            image_parts = []
             
-            # Crear objeto PIL Image
-            pil_image = Image.open(io.BytesIO(image_data))
+            for img_file in image_files:
+                # Leer y procesar la imagen
+                if isinstance(img_file, bytes):
+                    image_data = img_file
+                elif hasattr(img_file, 'read'):
+                    image_data = img_file.read()
+                    if hasattr(img_file, 'seek'):
+                        img_file.seek(0)
+                else:
+                    continue # Skip invalid input
+
+                # Crear objeto PIL Image
+                pil_image = Image.open(io.BytesIO(image_data))
+                
+                # Convertir a formato compatible con Gemini
+                if pil_image.mode != 'RGB':
+                    pil_image = pil_image.convert('RGB')
+                
+                # Redimensionar si es muy grande (máximo 1024x1024)
+                max_size = 1024
+                if pil_image.width > max_size or pil_image.height > max_size:
+                    pil_image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                
+                # Convertir a bytes para Gemini
+                img_byte_arr = io.BytesIO()
+                pil_image.save(img_byte_arr, format='JPEG', quality=85)
+                img_byte_arr = img_byte_arr.getvalue()
+                
+                # Preparar parte con imagen
+                image_parts.append(types.Part.from_bytes(
+                    data=img_byte_arr,
+                    mime_type="image/jpeg"
+                ))
             
-            # Convertir a formato compatible con Gemini
-            if pil_image.mode != 'RGB':
-                pil_image = pil_image.convert('RGB')
-            
-            # Redimensionar si es muy grande (máximo 1024x1024)
-            max_size = 1024
-            if pil_image.width > max_size or pil_image.height > max_size:
-                pil_image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
-            # Convertir a bytes para Gemini
-            img_byte_arr = io.BytesIO()
-            pil_image.save(img_byte_arr, format='JPEG', quality=85)
-            img_byte_arr = img_byte_arr.getvalue()
-            
+            if not image_parts:
+                raise ValueError("No valid images provided for analysis")
+
             # Crear prompt para análisis
             prompt = f"""
-            Como experto en análisis de fallas de tuberías y accesorios industriales, 
-            analiza esta imagen y proporciona un análisis técnico detallado.
+            Como experto en análisis técnico industrial de Postventa, 
+            analiza las {len(image_parts)} imagen(es) proporcionada(s) y genera un análisis detallado.
             
-            CONTEXTO: {context if context else 'Análisis de falla en sistema de tuberías'}
-            DESCRIPCIÓN ADICIONAL: {description if description else 'Ninguna'}
+            CONTEXTO: {context if context else 'Análisis técnico general'}
+            INSTRUCCIÓN ESPECÍFICA: {description if description else 'Realiza un diagnóstico integral de lo que se observa en las imágenes.'}
             
-            Proporciona tu análisis en el siguiente formato JSON:
+            Responde ÚNICAMENTE en formato JSON con la siguiente estructura:
             {{
-                "observations": "Descripción detallada de lo que observas en la imagen",
-                "possible_causes": ["Lista de posibles causas técnicas identificadas"],
-                "recommendations": ["Recomendaciones técnicas específicas"],
-                "corrective_actions": ["Acciones correctivas sugeridas"],
-                "severity_level": "Baja/Media/Alta/Crítica",
-                "material_identification": "Identificación del material o componente",
-                "failure_type": "Tipo específico de falla observada",
-                "environmental_factors": "Factores ambientales que pudieron contribuir",
-                "technical_notes": "Notas técnicas adicionales"
+                "observations": "Descripción detallada de los hallazgos visuales",
+                "possible_causes": ["Lista de posibles causas si es una falla, o factores detectados"],
+                "recommendations": ["Recomendaciones técnicas o pasos a seguir"],
+                "corrective_actions": ["Acciones sugeridas"],
+                "severity_level": "Baja/Media/Alta/Crítica/Informativa",
+                "material_identification": "Componentes o materiales identificados",
+                "failure_type": "Categoría del hallazgo (ej: Desgaste, Instalación, Informativo, etc.)",
+                "environmental_factors": "Factores del entorno detectados",
+                "technical_notes": "Correlación entre las múltiples imágenes y conclusiones finales"
             }}
             
-            Sé técnico, preciso y profesional en tu análisis. Enfócate en aspectos técnicos 
-            observables y proporciona recomendaciones prácticas.
+            Sé profesional, preciso y directo.
             """
             
             # Verificar cliente
             if not self.client:
                 raise ValueError("API Key no configurada.")
             
-            # Preparar parte con imagen
-            image_part = types.Part.from_bytes(
-                data=img_byte_arr,
-                mime_type="image/jpeg"
-            )
+            logger.info(f"Enviando {len(image_parts)} imágenes a Gemini para análisis (ID: {analysis_id})")
             
-            logger.info(f"Enviando imagen a Gemini para análisis (ID: {analysis_id})")
+            # Generar análisis con nueva API (imágenes + prompt)
+            contents = image_parts + [prompt]
             
-            # Generar análisis con nueva API
             response = self.client.models.generate_content(
                 model='gemini-2.0-flash-exp',
-                contents=[image_part, prompt]
+                contents=contents
             )
             
             processing_time = round(time.time() - start_time, 2)
@@ -234,29 +255,29 @@ class GeminiService:
             except json.JSONDecodeError:
                 # Si no es JSON válido, crear estructura manual
                 analysis = {
-                    "observations": response.text[:300] + "...",
-                    "possible_causes": ["Análisis detallado en proceso"],
-                    "recommendations": ["Revisar análisis completo"],
-                    "corrective_actions": ["Implementar monitoreo continuo"],
+                    "observations": response.text[:500] + "...",
+                    "possible_causes": ["Análisis de múltiples imágenes en proceso"],
+                    "recommendations": ["Revisar análisis completo en texto"],
+                    "corrective_actions": ["Evaluación integral requerida"],
                     "severity_level": "Media",
-                    "material_identification": "Por determinar",
-                    "failure_type": "Análisis general",
+                    "material_identification": "Multicomponente",
+                    "failure_type": "Análisis complejo",
                     "environmental_factors": "Por evaluar",
-                    "technical_notes": "Análisis técnico en proceso"
+                    "technical_notes": "Respuesta en formato texto libre"
                 }
             
             return {
                 'success': True,
                 'analysis': analysis,
-                'confidence_score': 0.85,  # Score estimado
+                'confidence_score': 0.90,
                 'processing_time': processing_time,
-                'tokens_used': len(response.text) // 4,  # Estimación aproximada
-                'model_used': 'gemini-flash-latest',
+                'tokens_used': len(response.text) // 4,
+                'model_used': 'gemini-2.0-flash-exp',
                 'analysis_id': analysis_id
             }
             
         except Exception as e:
-            logger.error(f"Error al analizar imagen real: {e}")
+            logger.error(f"Error al analizar imágenes reales: {e}")
             return {
                 'success': False,
                 'error': str(e),
@@ -418,6 +439,74 @@ class GeminiService:
                 'redaction': None
             }
     
+    def generate_technical_report(self, analysis_data: Dict[str, Any], chat_history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Generar un reporte técnico profesional basado en datos de análisis y chat
+        """
+        import time
+        import datetime
+        import json
+        
+        start_time = time.time()
+        
+        try:
+            # Construir contexto para el reporte
+            context_str = f"Datos de Análisis: {json.dumps(analysis_data, ensure_ascii=False)}\n"
+            if chat_history:
+                history_str = "\n".join([f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in chat_history[-10:]])
+                context_str += f"\nHistorial de Chat (Contexto adicional):\n{history_str}"
+            
+            prompt = f"""
+            Actúa como un Ingeniero Senior de Calidad y Postventa.
+            Genera un REPORTE TÉCNICO PROFESIONAL en formato HTML (solo el contenido del body, con estilos inline elegantes y modernos) basado en la siguiente información.
+            
+            INFORMACIÓN:
+            {context_str}
+            
+            ESTRUCTURA DEL REPORTE (HTML):
+            1.  **Encabezado**: Título "Informe Técnico de Inspección", Fecha ({datetime.datetime.now().strftime('%d/%m/%Y')}), ID de Reporte (generar uno ficticio tipo RPT-2026-XXXX).
+            2.  **Resumen Ejecutivo**: Breve descripción del problema y conclusión principal.
+            3.  **Hallazgos Técnicos**: Lista detallada de observaciones (usa <ul> y <li>).
+            4.  **Análisis de Causas**: Causas probables identificadas.
+            5.  **Recomendaciones y Plan de Acción**: Pasos a seguir (usa tablas si es necesario).
+            6.  **Nota de Confidencialidad**: Pie de página estándar.
+            
+            ESTILO (CSS Inline):
+            - Usa fuentes sans-serif (Arial, Helvetica), color de texto #333.
+            - Títulos en color #2c3e50, bordes inferiores sutiles.
+            - Tablas con bordes colapsados, padding 8px, y header con background #f2f2f2.
+            - El diseño debe ser limpio, corporativo e industrial.
+            
+            Salida esperada: Solo el código HTML (sin ```html ... ```).
+            """
+            
+            # Verificar cliente
+            if not self.client:
+                 raise ValueError("API Key no configurada para generar reporte.")
+
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=prompt
+            )
+            
+            report_html = response.text.strip()
+            # Limpiar markdown si existe
+            if report_html.startswith('```'):
+                report_html = report_html.replace('```html', '').replace('```', '').strip()
+                
+            return {
+                'success': True,
+                'report_html': report_html,
+                'generated_at': datetime.datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generando reporte técnico: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def get_analysis_statistics(self) -> Dict[str, Any]:
         """
         Obtener estadísticas de uso del servicio (sin exponer información sensible)

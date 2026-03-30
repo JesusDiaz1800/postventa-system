@@ -37,18 +37,18 @@ C:\Users\jdiaz\Desktop\postventa-system\backend\documentos\
 
 ---
 
-## 🔄 Scripts de Auto-Inicio (PENDIENTE EJECUTAR)
+## 🔄 Script de Inicio Principal
 
-| Script | Ruta | Función |
-|--------|------|---------|
-| `start_postventa.bat` | `C:\Users\jdiaz\Desktop\postventa-system\` | Inicia Backend + Frontend |
-| `stop_postventa.bat` | `C:\Users\jdiaz\Desktop\postventa-system\` | Detiene servicios |
-| `configurar_inicio_automatico.bat` | `C:\Users\jdiaz\Desktop\postventa-system\` | Crea tarea programada |
+| Script | Función |
+|--------|---------|
+| `INICIAR_PM2.bat` | Inicia Backend + Frontend con PM2 |
+| `INICIAR_PM2.bat stop` | Detiene todos los servicios |
+| `INICIAR_PM2.bat restart` | Reinicia servicios |
+| `INICIAR_PM2.bat status` | Ver estado de los procesos |
+| `INICIAR_PM2.bat logs` | Ver logs en tiempo real |
+| `INICIAR_PM2.bat monit` | Dashboard de monitoreo PM2 |
 
-### Pasos para Activar Auto-Inicio:
-1. Clic derecho en `configurar_inicio_automatico.bat`
-2. "Ejecutar como administrador"
-3. Verificar que se creó la tarea en `taskschd.msc`
+**Requisito:** PM2 instalado (`npm install -g pm2`)
 
 ---
 
@@ -78,18 +78,18 @@ netsh advfirewall firewall add rule name="Postventa Backend" dir=in action=allow
 ## 🔧 Comandos Útiles
 
 ```bash
-# Iniciar manualmente
+# Iniciar con PM2
 cd C:\Users\jdiaz\Desktop\postventa-system
-start_postventa.bat
+INICIAR_PM2.bat start
 
 # Detener
-stop_postventa.bat
+INICIAR_PM2.bat stop
 
-# Ver tareas programadas
-taskschd.msc
+# Ver estado
+INICIAR_PM2.bat status
 
-# Ver servicios
-services.msc
+# Logs en tiempo real
+INICIAR_PM2.bat logs
 ```
 
 ---

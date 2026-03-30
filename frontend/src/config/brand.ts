@@ -8,7 +8,7 @@ export const brandConfig = {
     name: 'Control de Calidad',
     fullName: 'Sistema de Gestión de Incidencias Postventa',
     description: 'Control de Calidad y Postventa',
-    version: '1.0.0',
+    version: '3.0.0',
     year: '2024',
   },
 

@@ -11,6 +11,11 @@ from django.db.models import Q
 from django.utils import timezone
 from apps.incidents.models import Incident
 import logging
+import json
+import threading
+from apps.core.thread_local import get_current_country
+from .services.report_sync_service import ReportSyncService
+
 
 from .models import VisitReport, LabReport, SupplierReport
 from .serializers import (
@@ -83,10 +88,17 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
 
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
-            logger.error(f"VisitReport validation errors: {serializer.errors}")
+            logger.error(f"VisitReport VALIDATION FAILED")
+            logger.error(f"Errors: {json.dumps(serializer.errors)}")
+            logger.error(f"Data received: {request.data}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        self.perform_create(serializer)
+        try:
+            self.perform_create(serializer)
+        except Exception as e:
+            logger.exception(f"CRITICAL ERROR in VisitReport perform_create: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -127,6 +139,22 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
         # Set default status if not provided  
         if not serializer.validated_data.get('status'):
             save_kwargs['status'] = 'completed'
+            
+        # Inherit sap_call_id from incident if available
+        if related_incident and related_incident.sap_doc_num:
+            save_kwargs['sap_call_id'] = related_incident.sap_doc_num
+            logger.info(f"Inheriting sap_call_id {related_incident.sap_doc_num} from Incident {related_incident.code}")
+
+        # --- HERENCIA DE TÉCNICO ---
+        if related_incident and not serializer.validated_data.get('technician'):
+            # Prioridad 1: Responsable del área técnica (Responsible model)
+            if hasattr(related_incident, 'responsable') and related_incident.responsable:
+                save_kwargs['technician'] = related_incident.responsable.name
+                logger.info(f"Inheriting technician '{save_kwargs['technician']}' from Incident Responsible")
+            # Prioridad 2: Usuario asignado (User model)
+            elif hasattr(related_incident, 'assigned_to') and related_incident.assigned_to:
+                save_kwargs['technician'] = related_incident.assigned_to.full_name or related_incident.assigned_to.username
+                logger.info(f"Inheriting technician '{save_kwargs['technician']}' from Incident Assigned User")
         
         # PRE-GENERATE report_number para evitar IntegrityError
         # Usar SECUENCIAL PURO - simple, robusto y predecible
@@ -161,138 +189,47 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
         report = serializer.save(**save_kwargs)
         logger.info(f"✅ Report created successfully with report_number = {report.report_number}")
         
-        # IMPORTANTE: Importar adjuntos de SAP automáticamente
-        # Si el reporte tiene un ID de llamada SAP, intentamos traer los adjuntos
-        if report.sap_call_id:
-            try:
-                # Obtener descripciones personalizadas si fueron enviadas
-                image_descriptions_json = self.request.data.get('image_descriptions', '{}')
-                # Deserializar el JSON a diccionario
-                import json
-                image_descriptions = json.loads(image_descriptions_json) if isinstance(image_descriptions_json, str) else image_descriptions_json
-                self._import_sap_attachments(report, image_descriptions)
-                
-                # REGENERACIÓN FORZADA DEL PDF
-                # El signal post_save generó el PDF ANTES de importar los adjuntos SAP.
-                # Debemos regenerarlo ahora para que incluya las imágenes de SAP.
-                try:
-                    logger.info(f"Regenerando PDF tras importación SAP para reporte {report.report_number}")
-                    from .services.professional_pdf_generator import ProfessionalPDFGenerator
-                    from .serializers import VisitReportSerializer as VisitReportSerializerRegen
-                    from django.core.files.base import ContentFile
-                    import io
-                    
-                    # Refrescar para asegurar que los adjuntos son visibles
-                    report.refresh_from_db()
-                    
-                    # Serializar datos actualizados
-                    # Asegurar que el serializer incluye los attachments recién creados
-                    serializer_regen = VisitReportSerializerRegen(report)
-                    report_data = serializer_regen.data
-                    
-                    # Regenerar
-                    generator = ProfessionalPDFGenerator()
-                    pdf_buffer = io.BytesIO()
-                    success = generator.generate_visit_report_pdf(report_data, pdf_buffer)
-                    
-                    if success:
-                        filename = f"reporte_visita_{report.report_number}.pdf"
-                        report.pdf_file.save(filename, ContentFile(pdf_buffer.getvalue()), save=True)
-                        logger.info(f"PDF regenerado exitosamente con imágenes SAP para {report.report_number}")
-                except Exception as pdf_error:
-                    logger.error(f"Error regenerando PDF post-SAP: {pdf_error}", exc_info=True)
-                    
-            except Exception as e:
-                logger.error(f"Error importando adjuntos SAP para reporte {report.report_number}: {e}")
-        
-        # Verificar si se subió un archivo directamente
-        uploaded_file = self.request.FILES.get('uploaded_pdf') or self.request.FILES.get('file')
-        
-        # Procesar imágenes adjuntas (para incluirlas en el PDF generado)
+        # 1. Guardar adjuntos manuales LOCALMENTE
         uploaded_images = self.request.FILES.getlist('images')
-        if uploaded_images:
-            try:
-                from apps.documents.models import DocumentAttachment
-                import json
-                
-                # Obtener descripciones personalizadas para imágenes manuales
-                image_descriptions_json = self.request.data.get('image_descriptions', '{}')
-                image_descriptions = json.loads(image_descriptions_json) if isinstance(image_descriptions_json, str) else image_descriptions_json
-                
-                logger.info(f"Procesando {len(uploaded_images)} imágenes adjuntas para el reporte {report.report_number}")
-                logger.info(f"Descripciones disponibles: {list(image_descriptions.keys())}")
-                
-                for image in uploaded_images:
-                    # Obtener descripción personalizada o usar default
-                    custom_description = image_descriptions.get(image.name, "Evidencia Fotográfica")
-                    
-                    DocumentAttachment.objects.create(
-                        document_type='visit_report',
-                        document_id=report.id,
-                        file=image,
-                        filename=image.name,
-                        file_type=image.content_type,
-                        file_size=image.size,
-                        description=custom_description,  # Usar descripción personalizada
-                        uploaded_by=self.request.user
-                    )
-                logger.info("Imágenes guardadas exitosamente con descripciones personalizadas")
-                
-            except Exception as e:
-                logger.error(f"Error guardando imágenes adjuntas: {str(e)}", exc_info=True)
-                
-            # IMPORTANTE: Regenerar el PDF para incluir las imágenes recién subidas
-            # El signal post_save ya generó un PDF, pero sin las imágenes porque aún no existían
-            try:
-                from .services.professional_pdf_generator import ProfessionalPDFGenerator
-                from django.core.files.base import ContentFile
-                import io
-                from apps.documents.serializers import VisitReportSerializer
-                
-                # Recargar instancia para asegurar que trae los adjuntos
-                report.refresh_from_db()
-                
-                # Serializar datos actualizados (incluyendo attachments)
-                serializer_updated = VisitReportSerializer(report)
-                report_data = serializer_updated.data
-                
-                # Regenerar PDF
-                generator = ProfessionalPDFGenerator()
-                pdf_buffer = io.BytesIO()
-                success = generator.generate_visit_report_pdf(report_data, pdf_buffer)
-                
-                if success:
-                    # Guardar el nuevo PDF (sobrescribiendo el anterior)
-                    filename = f"reporte_visita_{report.report_number}.pdf"
-                    report.pdf_file.save(filename, ContentFile(pdf_buffer.getvalue()), save=True)
-                    logger.info(f"PDF regenerado exitosamente con imágenes para reporte {report.report_number}")
-                else:
-                    logger.warning(f"No se pudo regenerar el PDF con imágenes para reporte {report.report_number}")
-                    
-            except Exception as e:
-                logger.error(f"Error regenerando PDF con imágenes: {str(e)}", exc_info=True)
-
-        # Verificar si se subió un archivo PDF directamente
         uploaded_file = self.request.FILES.get('uploaded_pdf') or self.request.FILES.get('file')
+        
+        # Diccionario seguro de descripciones
+        image_descriptions_json = self.request.data.get('image_descriptions', '{}')
+        try:
+            image_descriptions = json.loads(image_descriptions_json) if isinstance(image_descriptions_json, str) else image_descriptions_json
+        except:
+            image_descriptions = {}
         
         if uploaded_file:
-            # IMPORTANTE: Si el usuario sube un PDF, usar ESE archivo en lugar de generar uno nuevo
-            try:
-                from django.core.files.base import ContentFile
-                
-                # Guardar el archivo subido directamente en el campo pdf_file
-                # Esto REEMPLAZA el PDF generado automáticamente por el signal
-                filename = uploaded_file.name or f"reporte_visita_{report.report_number}.pdf"
-                
-                # Leer el contenido del archivo
-                file_content = uploaded_file.read()
-                
-                # Guardar en pdf_file (FileField)
-                report.pdf_file.save(filename, ContentFile(file_content), save=True)
-                logger.info(f"Archivo PDF adjuntado directamente y guardado en pdf_file: {filename}")
-                
-            except Exception as e:
-                logger.error(f"Error guardando archivo PDF adjuntado: {str(e)}", exc_info=True)
+            from django.core.files.base import ContentFile
+            filename = uploaded_file.name or f"reporte_visita_{report.report_number}.pdf"
+            report.pdf_file.save(filename, ContentFile(uploaded_file.read()), save=True)
+            
+        local_attachments = []
+        if uploaded_images:
+            from apps.documents.models import DocumentAttachment
+            for image in uploaded_images:
+                custom_description = image_descriptions.get(image.name, "Evidencia Fotográfica")
+                doc_attachment = DocumentAttachment.objects.create(
+                    document_type='visit_report',
+                    document_id=report.id,
+                    file=image,
+                    filename=image.name,
+                    file_type=image.content_type,
+                    file_size=image.size,
+                    description=custom_description,
+                    uploaded_by=self.request.user
+                )
+                local_attachments.append(doc_attachment.id)
+
+        # 2. Iniciar Sincronización SAP y Regeneración de PDF (Centralizado)
+        ReportSyncService.sync_report_async(
+            report_id=report.id,
+            attachments_ids=local_attachments,
+            img_descriptions=image_descriptions,
+            has_manual_pdf=bool(uploaded_file),
+            user=self.request.user
+        )
 
         # NOTA: Este bloque else está comentado porque es redundante.
         # El PDF ya se genera correctamente mediante:
@@ -526,6 +463,53 @@ class VisitReportRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView
             return VisitReportCreateSerializer
         return VisitReportSerializer
 
+    def perform_update(self, serializer):
+        # 1. Guardar cambios
+        report = serializer.save()
+        
+        # 2. Auditoría
+        try:
+            from apps.audit.audit_logger import audit_logger
+            audit_logger.log_document_action(
+                user=self.request.user,
+                action='update',
+                document=report,
+                details={'fields_updated': list(self.request.data.keys())}
+            )
+        except Exception as audit_err:
+            logger.error(f"Audit log failed: {audit_err}")
+
+        # 3. Procesar adjuntos nuevos si existen
+        uploaded_images = self.request.FILES.getlist('images')
+        image_descriptions_json = self.request.data.get('image_descriptions', '{}')
+        image_descriptions = json.loads(image_descriptions_json) if isinstance(image_descriptions_json, str) else image_descriptions_json
+        
+        local_attachments = []
+        if uploaded_images:
+            from apps.documents.models import DocumentAttachment
+            for image in uploaded_images:
+                custom_description = image_descriptions.get(image.name, "Evidencia Fotográfica (Edit)")
+                doc_attachment = DocumentAttachment.objects.create(
+                    document_type='visit_report',
+                    document_id=report.id,
+                    file=image,
+                    filename=image.name,
+                    file_type=image.content_type,
+                    file_size=image.size,
+                    description=custom_description,
+                    uploaded_by=self.request.user
+                )
+                local_attachments.append(doc_attachment.id)
+
+        # 4. Sincronizar asíncronamente (SAP + PDF)
+        ReportSyncService.sync_report_async(
+            report_id=report.id,
+            attachments_ids=local_attachments,
+            img_descriptions=image_descriptions,
+            has_manual_pdf=False, # En edición usamos regeneración automática
+            user=self.request.user
+        )
+
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
@@ -557,21 +541,93 @@ def download_visit_report(request, pk):
         
         # Fallback: pdf_path (legacy)
         if report.pdf_path:
-            if not os.path.exists(report.pdf_path):
-                return Response(
-                    {'error': 'El archivo PDF no se encuentra en el servidor'},
-                    status=status.HTTP_404_NOT_FOUND
+            # Intento 1: Ruta absoluta almacenada
+            if os.path.exists(report.pdf_path):
+                file_handle = open(report.pdf_path, 'rb')
+                response = FileResponse(
+                    file_handle,
+                    content_type='application/pdf',
+                    as_attachment=False
                 )
+                response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
+                return response
             
-            # Abrir y servir el archivo
-            file_handle = open(report.pdf_path, 'rb')
-            response = FileResponse(
-                file_handle,
-                content_type='application/pdf',
-                as_attachment=False
+            # Intento 2: Reconstrucción de ruta (Fallback para cambios de entorno/Docker)
+            logger.warning(f"Ruta absoluta no encontrada: {report.pdf_path}. Intentando reconstrucción...")
+            try:
+                from django.conf import settings
+                filename = os.path.basename(report.pdf_path)
+                country = get_current_country()
+                
+                # Probar en MEDIA_ROOT/[country]/visit_reports/incident_{id}/...
+                reconstructed_path = os.path.join(
+                    settings.MEDIA_ROOT, 
+                    country,
+                    'visit_reports', 
+                    f'incident_{report.related_incident.id}', 
+                    filename
+                )
+                
+                if not os.path.exists(reconstructed_path):
+                    # Probar sin country (legacy)
+                    reconstructed_path = os.path.join(
+                        settings.MEDIA_ROOT,
+                        'visit_reports',
+                        f'incident_{report.related_incident.id}',
+                        filename
+                    )
+                
+                if os.path.exists(reconstructed_path):
+                    logger.info(f"Archivo encontrado en ruta reconstruida: {reconstructed_path}")
+                    file_handle = open(reconstructed_path, 'rb')
+                    response = FileResponse(
+                        file_handle,
+                        content_type='application/pdf',
+                        as_attachment=False
+                    )
+                    response['Content-Disposition'] = f'inline; filename="{filename}"'
+                    return response
+                
+                # Probar en SHARED_DOCUMENTS_PATH si existe
+                shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
+                if shared_path:
+                    # Probar con country
+                    shared_reconstructed = os.path.join(
+                        shared_path, 
+                        country,
+                        'visit_reports', 
+                        f'incident_{report.related_incident.id}', 
+                        filename
+                    )
+                    
+                    if not os.path.exists(shared_reconstructed):
+                        # Probar sin country
+                        shared_reconstructed = os.path.join(
+                            shared_path,
+                            'visit_reports',
+                            f'incident_{report.related_incident.id}',
+                            filename
+                        )
+                        
+                    if os.path.exists(shared_reconstructed):
+                        logger.info(f"Archivo encontrado en ruta compartida: {shared_reconstructed}")
+
+                        file_handle = open(shared_reconstructed, 'rb')
+                        response = FileResponse(
+                            file_handle,
+                            content_type='application/pdf',
+                            as_attachment=False
+                        )
+                        response['Content-Disposition'] = f'inline; filename="{filename}"'
+                        return response
+                        
+            except Exception as reconstruction_error:
+                logger.error(f"Error en reconstrucción de ruta: {reconstruction_error}")
+                
+            return Response(
+                {'error': 'El archivo PDF no se encuentra en el servidor (Rutas verificadas)'},
+                status=status.HTTP_404_NOT_FOUND
             )
-            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
-            return response
         
         # No hay PDF disponible
         return Response(
@@ -777,15 +833,17 @@ def upload_supplier_report_document(request):
         if not uploaded_file:
             return Response({'error': 'Archivo requerido'}, status=status.HTTP_400_BAD_REQUEST)
         
-        incident = get_object_or_404(Incident, id=incident_id)
+        incident = get_object_or_404(Incident.objects.select_related('categoria'), id=incident_id)
         
         # Verificar si ya existe un reporte de proveedor para esta incidencia
         existing_report = SupplierReport.objects.filter(related_incident=incident).first()
         
         # Determinar ruta de guardado
         shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
-        incident_folder = os.path.join(shared_path, 'supplier_reports', f'incident_{incident.id}')
+        country = get_current_country()
+        incident_folder = os.path.join(shared_path, country, 'supplier_reports', f'incident_{incident.id}')
         os.makedirs(incident_folder, exist_ok=True)
+
         
         # Guardar archivo
         file_name = uploaded_file.name
@@ -840,7 +898,7 @@ def generate_supplier_report_document(request, pk):
         from .services.professional_pdf_generator import ProfessionalPDFGenerator
         import os
         
-        report = get_object_or_404(SupplierReport, id=pk)
+        report = get_object_or_404(SupplierReport.objects.select_related('related_incident'), id=pk)
         incident = report.related_incident
         
         # Preparar datos para el PDF
@@ -866,8 +924,10 @@ def generate_supplier_report_document(request, pk):
         pdf_generator = ProfessionalPDFGenerator()
         
         shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
-        incident_folder = os.path.join(shared_path, 'supplier_reports', f'incident_{incident.id}' if incident else 'general')
+        country = get_current_country()
+        incident_folder = os.path.join(shared_path, country, 'supplier_reports', f'incident_{incident.id}' if incident else 'general')
         os.makedirs(incident_folder, exist_ok=True)
+
         
         pdf_filename = f"{report.report_number}.pdf"
         pdf_path = os.path.join(incident_folder, pdf_filename)
@@ -916,21 +976,65 @@ def download_supplier_report(request, pk):
                 status=status.HTTP_404_NOT_FOUND
             )
             
-        if not os.path.exists(report.pdf_path):
-            return Response(
-                {'error': 'El archivo físico no se encuentra en el servidor'}, 
-                status=status.HTTP_404_NOT_FOUND
+        # Intento 1: Ruta absoluta almacenada
+        if os.path.exists(report.pdf_path):
+            file_handle = open(report.pdf_path, 'rb')
+            response = FileResponse(
+                file_handle,
+                content_type='application/pdf',
+                as_attachment=False
+            )
+            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
+            return response
+            
+        # Intento 2: Reconstrucción de ruta (Fallback Regionalizado)
+        logger.warning(f"Ruta absoluta no encontrada: {report.pdf_path}. Intentando reconstrucción regionalizada...")
+        try:
+            from django.conf import settings
+            filename = os.path.basename(report.pdf_path)
+            country = get_current_country()
+            incident_id = report.related_incident.id if report.related_incident else 'general'
+            
+            # Determinar base path (Shared o Media)
+            shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
+            
+            # Intentar primero con prefijo de país
+            reconstructed_path = os.path.join(
+                shared_path, 
+                country,
+                'supplier_reports', 
+                f'incident_{incident_id}', 
+                filename
             )
             
-        # Abrir y servir el archivo
-        file_handle = open(report.pdf_path, 'rb')
-        response = FileResponse(
-            file_handle,
-            content_type='application/pdf',
-            as_attachment=False
+            if not os.path.exists(reconstructed_path):
+                # Intentar sin prefijo de país (legacy)
+                reconstructed_path = os.path.join(
+                    shared_path,
+                    'supplier_reports',
+                    f'incident_{incident_id}',
+                    filename
+                )
+            
+            if os.path.exists(reconstructed_path):
+                logger.info(f"Archivo encontrado en ruta reconstruida: {reconstructed_path}")
+
+                file_handle = open(reconstructed_path, 'rb')
+                response = FileResponse(
+                    file_handle,
+                    content_type='application/pdf',
+                    as_attachment=False
+                )
+                response['Content-Disposition'] = f'inline; filename="{filename}"'
+                return response
+                
+        except Exception as reconstruction_error:
+            logger.error(f"Error en reconstrucción de ruta: {reconstruction_error}")
+            
+        return Response(
+            {'error': 'El archivo físico no se encuentra en el servidor'}, 
+            status=status.HTTP_404_NOT_FOUND
         )
-        response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
-        return response
         
     except Exception as e:
         logger.error(f"Error descargando reporte de proveedor: {str(e)}", exc_info=True)
@@ -982,11 +1086,25 @@ def available_incidents(request):
     try:
         from apps.incidents.models import Incident
         from apps.incidents.serializers import IncidentListSerializer
+        from django.db.models import Q
         
-        # Obtener incidencias abiertas o en proceso
-        incidents = Incident.objects.filter(
-            Q(status='open') | Q(status='in_progress')
-        ).order_by('-created_at')
+        # Obtener incidencias que NO tengan un reporte de visita ya generado
+        reported_incident_ids = VisitReport.objects.values_list('related_incident_id', flat=True)
+        
+        # Filtrar por estados abiertos (abierto, reporte_visita, calidad, proveedor)
+        # Excluimos 'cerrado'
+        incidents = Incident.objects.exclude(estado='cerrado').exclude(id__in=reported_incident_ids)
+        
+        # Aplicar búsqueda si existe
+        search_query = request.query_params.get('search')
+        if search_query:
+            incidents = incidents.filter(
+                Q(code__icontains=search_query) |
+                Q(cliente__icontains=search_query) |
+                Q(obra__icontains=search_query)
+            )
+            
+        incidents = incidents.order_by('-created_at')[:50] # Limitar para rendimiento
         
         serializer = IncidentListSerializer(incidents, many=True)
         return Response(serializer.data)

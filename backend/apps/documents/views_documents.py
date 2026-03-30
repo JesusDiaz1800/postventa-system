@@ -11,6 +11,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from rest_framework.response import Response
+from apps.core.thread_local import get_current_country
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,15 @@ def get_document_info(request, document_type, incident_id, document_id):
             )
         
         folder_name = document_type.replace('-', '_')
-        document_folder = os.path.join(shared_base, folder_name, f'incident_{incident_id}')
+        country = get_current_country()
+        document_folder = os.path.join(shared_base, country, folder_name, f'incident_{incident_id}')
+        
+        # Fallback a ruta legacy si no existe la regionalizada
+        if not os.path.exists(document_folder):
+            legacy_folder = os.path.join(shared_base, folder_name, f'incident_{incident_id}')
+            if os.path.exists(legacy_folder):
+                document_folder = legacy_folder
+
         
         # Buscar archivos en la carpeta
         if not os.path.exists(document_folder):
@@ -84,8 +94,17 @@ def open_document_direct(request, document_type, incident_id, filename):
             shared_base = settings.MEDIA_ROOT
         
         folder_name = document_type.replace('-', '_')
-        base_target_folder = os.path.join(shared_base, folder_name, f'incident_{incident_id}')
+        country = get_current_country()
+        base_target_folder = os.path.join(shared_base, country, folder_name, f'incident_{incident_id}')
+        
+        # Fallback a ruta legacy si no existe el archivo en la regionalizada
+        if not os.path.exists(os.path.join(base_target_folder, filename)):
+            legacy_folder = os.path.join(shared_base, folder_name, f'incident_{incident_id}')
+            if os.path.exists(os.path.join(legacy_folder, filename)):
+                base_target_folder = legacy_folder
+        
         file_path = os.path.join(base_target_folder, filename)
+
         
         # --- Protección contra Path Traversal ---
         # Normalizar rutas para evitar '..'
@@ -98,12 +117,16 @@ def open_document_direct(request, document_type, incident_id, filename):
             raise Http404("Acceso denegado")
             
         if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            logger.warning(f"Archivo no encontrado en open_document_direct: {file_path}")
+            logger.info(f"Busqueda realizada en: {base_target_folder}")
+            logger.info(f"Shared Base: {shared_base}")
+            logger.info(f"Document Type: {document_type}")
             raise Http404("Archivo no encontrado")
         
         return FileResponse(open(file_path, 'rb'), as_attachment=False)
         
     except Http404 as e:
-        logger.warning(f"Archivo no encontrado: {file_path} - {e}")
+        # Ya logueado si fue generado arriba
         raise
     except Exception as e:
         logger.error(f"Error al abrir documento: {str(e)}", exc_info=True)
@@ -135,10 +158,20 @@ def list_incident_documents(request, incident_id):
         
         document_types = ['visit_report', 'lab_report', 'supplier_report', 'quality_report', 'quality_reports_cliente', 'quality_reports_interno']
         all_documents = []
+        country = get_current_country()
         
         for doc_type in document_types:
-            folder_path = os.path.join(shared_base, doc_type, f'incident_{incident_id}')
+            # Intentar ruta regionalizada
+            folder_path = os.path.join(shared_base, country, doc_type, f'incident_{incident_id}')
+            
+            # Si no existe o está vacía, intentar ruta legacy
+            if not os.path.exists(folder_path) or not os.listdir(folder_path):
+                legacy_folder = os.path.join(shared_base, doc_type, f'incident_{incident_id}')
+                if os.path.exists(legacy_folder):
+                    folder_path = legacy_folder
+            
             logger.info(f"Buscando en carpeta: {folder_path}")
+
             logger.info(f"Carpeta existe: {os.path.exists(folder_path)}")
             
             if os.path.exists(folder_path):

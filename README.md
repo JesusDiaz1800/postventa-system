@@ -1,12 +1,24 @@
-<<<<<<< HEAD
-# ADVERTENCIA Y GUÍA DE MIGRACIÓN
+# Sistema de Gestión de Incidencias Postventa
+
+## 🚀 Inicio rápido (Windows)
+
+- **Iniciar:** `INICIAR_PM2.bat` (o `INICIAR_PM2.bat start`)
+- **URL:** https://localhost:5173 o https://{IP}:5173
+- **Admin:** `jdiaz` / `adminJDR`
+
+Ver: `GUIA_DESPLIEGUE.md`, `GUIA_PRODUCCION.md`
+
+---
 
 ## Migración futura a SQL Server
+
 Actualmente el sistema usa SQL Express. Para migrar a SQL Server empresarial, revisa los modelos y migraciones para compatibilidad total (evita ArrayField, usa ManyToManyField para listas, revisa tipos de datos).
 
 ## Gestión centralizada de documentos
+
 Todos los documentos adjuntos y generados se guardan en la carpeta `documentos/` en la raíz del proyecto. Asegúrate de que esta carpeta tenga permisos de lectura/escritura para todos los usuarios del escritorio remoto.
-# Sistema de Gestión de Incidencias Postventa
+
+---
 
 ## 🎯 Descripción
 
@@ -260,47 +272,3 @@ Este proyecto está bajo la licencia MIT. Ver el archivo `LICENSE` para más det
 ---
 
 **¡Sistema listo para producción y presentación a gerencia!** 🎉
-=======
-# SISTEMA POSTVENTA - INICIO RÁPIDO
-
-## 🚀 INICIAR EL SISTEMA
-
-**Ejecutar:** `INICIAR_SISTEMA.bat`
-
-## 🌐 ACCESO AL SISTEMA
-
-**URL:** http://192.168.1.234:5173
-
-## 🔐 CREDENCIALES PRINCIPALES
-
-**Administrador:**
-- Usuario: `jdiaz`
-- Contraseña: `adminJDR`
-
-## 👥 OTROS USUARIOS
-
-Ver archivo: `USUARIOS_SIMPLIFICADOS_FINALES.md`
-
-## 📋 INSTRUCCIONES RÁPIDAS
-
-1. **Ejecutar:** `INICIAR_SISTEMA.bat`
-2. **Esperar** a que ambos servicios inicien
-3. **Abrir navegador:** http://192.168.1.234:5173
-4. **Hacer login** con jdiaz/adminJDR
-
-## 🛠️ SOLUCIÓN DE PROBLEMAS
-
-### Error 400 en /api/incidents/:
-- Ejecutar nuevamente: `INICIAR_SISTEMA.bat`
-
-### Error de conexión:
-- Verificar que ambos servicios estén ejecutándose
-- Verificar firewall de Windows
-
-### Usuarios:
-- Ver: `USUARIOS_SIMPLIFICADOS_FINALES.md`
-- Ver: `CREDENCIALES_SIMPLIFICADAS.md`
-
----
-Sistema PostVenta - Inicio Rápido
->>>>>>> 674c244 (tus cambios)

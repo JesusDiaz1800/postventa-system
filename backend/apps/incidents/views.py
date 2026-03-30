@@ -52,10 +52,14 @@ class IncidentListCreateView(generics.ListCreateAPIView):
             # Providers can only see incidents related to their products
             queryset = queryset.filter(provider__icontains=user.username)
         
-        # Apply state filter if provided
+        # Ocultar canceladas por defecto (Soft Delete / Papelera)
+        # Solo se muestran las canceladas si se solicita explícitamente vía filtro de estado
         estado = self.request.query_params.get('estado')
         if estado:
             queryset = queryset.filter(estado=estado)
+        else:
+            # Si no hay filtro de estado, excluimos las canceladas (comportamiento por defecto)
+            queryset = queryset.exclude(estado='cancelada')
 
         # Optimize query to prevent N+1 problems
         return queryset.select_related(
@@ -64,9 +68,77 @@ class IncidentListCreateView(generics.ListCreateAPIView):
             images_count=Count('images', distinct=True),
             documents_count=Count('attachments', distinct=True)
         )
-    
+    def create(self, request, *args, **kwargs):
+        """Sobrescribimos create para retornar la data fresca con sap_doc_num incluido"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # Al finalizar perform_create, la BD ya tiene los Folios SAP
+        incident = serializer.instance
+        headers = self.get_success_headers(serializer.data)
+        
+        # Re-serializamos para capturar 'sap_doc_num' y 'sap_call_id' generados
+        refresh_serializer = self.get_serializer(incident)
+        return Response(refresh_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         incident = serializer.save()
+        
+        # Sincronización con SAP Service Layer (Síncrona para feedback inmediato)
+        try:
+            from apps.sap_integration.sap_transaction_service import SAPTransactionService
+            from apps.incidents.models import IncidentTimeline
+            
+            if incident.customer_code:
+                sap_service = SAPTransactionService()
+                # 1. Prioridad: el ID técnico asignado explícitamente a la incidencia (capturado del UI)
+                technician_code = incident.technician_code
+                # 2. Respaldo histórico: si está vacío, intentar deducirlo del responsable asignado
+                if not technician_code and incident.responsable and hasattr(incident.responsable, 'sap_technician_id'):
+                    technician_code = incident.responsable.sap_technician_id
+                problem_type = incident.categoria.sap_problem_type_id if incident.categoria and incident.categoria.sap_problem_type_id else 1
+                
+                result = sap_service.create_service_call(
+                    customer_code=incident.customer_code,
+                    subject=f"Incidencia App: {incident.code}",
+                    description=incident.descripcion or "Generada desde App Postventa",
+                    priority=incident.prioridad,
+                    technician_code=technician_code,
+                    problem_type=problem_type,
+                    bp_project_code=incident.project_code,
+                    salesperson_code=incident.salesperson_code,
+                    salesperson_name=incident.salesperson,
+                    ship_address=incident.direccion_cliente,
+                    obra_name=incident.obra,
+                    start_date=incident.fecha_deteccion,
+                    start_time=incident.hora_deteccion.strftime('%H%M') if incident.hora_deteccion else None,
+                    category_name=incident.categoria.name if incident.categoria else None,
+                    subcategory_name=incident.subcategoria,
+                )
+                
+                if result.get('success'):
+                    incident.sap_call_id = result.get('service_call_id')
+                    incident.sap_doc_num = result.get('doc_num')
+                    incident.save(update_fields=['sap_call_id', 'sap_doc_num'])
+                    
+                    IncidentTimeline.objects.create(
+                        incident=incident,
+                        action='sap_synced',
+                        description=f'Sincronizado con SAP exitosamente. Folio SAP (DocNum): {incident.sap_doc_num}',
+                        user=incident.created_by,
+                        metadata={'sap_id': incident.sap_call_id, 'sap_doc_num': incident.sap_doc_num}
+                    )
+                else:
+                    IncidentTimeline.objects.create(
+                        incident=incident,
+                        action='sap_sync_failed',
+                        description=f'Error al sincronizar con SAP: {result.get("error")}',
+                        user=incident.created_by,
+                        metadata={'error': result.get('error')}
+                    )
+        except Exception as e:
+            logger.error(f"Error en sincronización síncrona con SAP: {e}")
 
 
 class IncidentRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -95,15 +167,31 @@ class IncidentRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     
     def perform_update(self, serializer):
         old_incident = self.get_object()
+        
+        # PRE-SAVE: Capturar valores antiguos antes de que serializer.save() mute la instancia en memoria
+        old_values = {}
+        for field in serializer.validated_data:
+            val = getattr(old_incident, field, None)
+            # Extraer IDs para llaves foráneas para comparación segura
+            old_values[field] = val.pk if hasattr(val, 'pk') else val
+
         incident = serializer.save()
         
         # Create timeline entry for updates
         changes = []
         for field in serializer.validated_data:
-            old_value = getattr(old_incident, field)
-            new_value = getattr(incident, field)
+            old_value = old_values.get(field)
+            new_val_obj = getattr(incident, field, None)
+            new_value = new_val_obj.pk if hasattr(new_val_obj, 'pk') else new_val_obj
+            
             if old_value != new_value:
-                changes.append(f"{field}: {old_value} → {new_value}")
+                # Para el log en BD, humanizamos un poco si es un objeto
+                old_display = getattr(old_incident, field, None)
+                new_display = getattr(incident, field, None)
+                old_str = old_display.name if hasattr(old_display, 'name') else old_value
+                new_str = new_display.name if hasattr(new_display, 'name') else new_value
+                
+                changes.append(f"{field}: {old_str} → {new_str}")
         
         if changes:
             IncidentTimeline.objects.create(
@@ -113,19 +201,126 @@ class IncidentRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
                 user=self.request.user,
                 metadata={'changes': changes}
             )
+            
+            # Sincronizar Cambios Hacia SAP SL si existe llamada
+            if incident.sap_call_id:
+                try:
+                    from apps.sap_integration.sap_transaction_service import SAPTransactionService
+                    sap = SAPTransactionService(request_user=self.request.user)
+                    # Parchearemos algunos campos básicos que impactan en SAP:
+                    # Priority, Subject, Description
+                    update_payload = {}
+                    
+                    for field in serializer.validated_data:
+                        if field == 'prioridad':
+                            prio_map = {'baja': 'scp_Low', 'media': 'scp_Medium', 'alta': 'scp_High'}
+                            update_payload["Priority"] = prio_map.get(incident.prioridad, 'scp_Low')
+                        elif field == 'descripcion':
+                            update_payload["Description"] = incident.descripcion
+                    
+                    logger.info(f"== PATCH TO SAP ATTEMPT == Validated_Data: {list(serializer.validated_data.keys())} | Payload generado: {update_payload}")
+                    if update_payload:
+                        from apps.sap_integration.sap_query_service import SAPQueryService
+                        sap_query = SAPQueryService()
+                        internal_call_id = incident.sap_call_id
+                        call_data = sap_query.get_service_call(incident.sap_call_id)
+                        if call_data and 'call_id' in call_data:
+                            internal_call_id = call_data['call_id']
+                            
+                        res = sap.update_service_call(internal_call_id, update_payload)
+                        logger.info(f"SAP Patch response: {res}")
+                except Exception as e:
+                    logger.error(f"Error sincronizando actualización de incidencia con SAP: {e}")
     
     def destroy(self, request, *args, **kwargs):
-        """Standard destroy method override for safe deletion"""
+        """Override destroy to perform 'Soft Delete' (Cancellation)"""
         try:
+            # 1. Permisos de eliminación/cancelación
+            if request.user.role not in ['admin', 'administrador', 'coordinador']:
+                 return Response(
+                     {"error": "No tienes permisos suficientes para cancelar esta incidencia."},
+                     status=status.HTTP_403_FORBIDDEN
+                 )
+
             instance = self.get_object()
-            self.perform_destroy(instance)
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            
+            # 2. Preparar mensaje de resolución
+            resolution_text = request.data.get('resolution_text', 'Sin motivo especificado.')
+            resolution_msg = f"Cancelada por eliminacion de la app. Motivo: {resolution_text}"
+
+            # 3. Cancelar en SAP si aplica
+            if instance.sap_call_id:
+                try:
+                    from apps.sap_integration.sap_transaction_service import SAPTransactionService
+                    from apps.sap_integration.sap_query_service import SAPQueryService
+                    
+                    sap = SAPTransactionService()
+                    sap_query = SAPQueryService()
+                    
+                    internal_call_id = instance.sap_call_id
+                    call_data = sap_query.get_service_call(instance.sap_call_id)
+                    if call_data and 'call_id' in call_data:
+                        internal_call_id = call_data['call_id']
+                        
+                    # Sincronizar cancelación (Status 1)
+                    res = sap.cancel_service_call(internal_call_id, resolution=resolution_msg)
+                    if not res.get('success'):
+                         logger.warning(f"No se pudo cancelar en SAP la llamada {instance.sap_call_id}: {res.get('error')}")
+                    else:
+                         logger.info(f"Cancelacion SAP exitosa para incidencia {instance.ticket_number}")
+                         
+                except Exception as sap_err:
+                    logger.error(f"Excepcion al intentar cancelar servicio SAP {instance.sap_call_id}: {sap_err}")
+
+            # 4. Aplicar Soft Delete (Cancelación) en DB Local
+            instance.estado = 'cancelada'
+            instance.closure_summary = resolution_msg
+            instance.closed_at = timezone.now()
+            instance.closed_by = request.user
+            instance.save()
+            
+            # 5. Registrar en timeline
+            from .models import IncidentTimeline
+            IncidentTimeline.objects.create(
+                incident=instance,
+                user=request.user,
+                action='cancelled',
+                description=resolution_msg
+            )
+
+            # 5. Crear DeletedItem para que aparezca en Auditoría -> Papelera
+            try:
+                from apps.audit.models import DeletedItem
+                from django.core import serializers
+                import json
+                
+                # Serializar el estado actual (cancelado)
+                serialized_data = serializers.serialize('json', [instance])
+                json_data = json.loads(serialized_data)
+                
+                # Eliminar backup previo si existiera para este ID
+                DeletedItem.objects.filter(original_id=str(instance.pk), model_name='incident').delete()
+                
+                DeletedItem.objects.create(
+                    original_id=str(instance.pk),
+                    model_name='incident',
+                    app_label='incidents',
+                    object_repr=str(instance),
+                    serialized_data=json_data,
+                    deleted_by=request.user
+                )
+            except Exception as e:
+                logger.error(f"Error creating DeletedItem for soft-delete: {e}")
+
+            # Usamos el serializer de detalle para retornar la instancia actualizada
+            serializer = IncidentDetailSerializer(instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
         except Exception as e:
             import traceback
-            logger.error(f"Error deleting incident {kwargs.get('pk')}: {str(e)}\n{traceback.format_exc()}")
-            from rest_framework.exceptions import ValidationError
+            logger.error(f"Error cancelling incident {kwargs.get('pk')}: {str(e)}\n{traceback.format_exc()}")
             return Response(
-                {"error": f"Error eliminando incidencia: {str(e)}"},
+                {"error": f"Error al procesar la cancelación: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -166,12 +361,15 @@ def upload_incident_image(request, incident_id):
         )
     
     try:
-        # Define relative path and absolute path
-        relative_path = f"incidents/{incident_id}/images/{image_file.name}"
+        from apps.core.thread_local import get_current_country
+        country = get_current_country()
+        
+        # Define relative path and absolute path per country
+        relative_path = f"{country}/incidents/{incident_id}/images/{image_file.name}"
         
         # Ensure directory exists in SHARED_DOCUMENTS_PATH
         from django.conf import settings
-        full_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, "incidents", str(incident_id), "images")
+        full_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, country, "incidents", str(incident_id), "images")
         os.makedirs(full_path, exist_ok=True)
         
         # Save file physically
@@ -184,7 +382,7 @@ def upload_incident_image(request, incident_id):
         incident_image = IncidentImage.objects.create(
             incident=incident,
             filename=image_file.name,
-            path=relative_path, # Guardamos el path relativo
+            path=relative_path, # Guardamos el path relativo con país
             file_size=image_file.size,
             mime_type=image_file.content_type,
             uploaded_by=request.user
@@ -292,7 +490,8 @@ def close_incident(request, incident_id):
             user=request.user,
             stage=serializer.validated_data['stage'],
             summary=serializer.validated_data['closure_summary'],
-            attachment_path=serializer.validated_data.get('closure_attachment', '')
+            attachment_path=serializer.validated_data.get('closure_attachment', ''),
+            technician_code=serializer.validated_data.get('technician_code')
         )
         
         # Create detailed timeline entry
@@ -404,11 +603,23 @@ def create_lab_report(request, incident_id):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated, CanViewIncidents])
+@cache_page(60 * 15) # Cache for 15 minutes
 def incident_dashboard(request):
-    """Get dashboard data for incidents"""
+    """Get dashboard data for incidents - Returns data structure for ReportsPage"""
+    from django.db.models.functions import TruncMonth, ExtractYear, ExtractMonth
+    from collections import defaultdict
+    import calendar
+    
     user = request.user
+    
+    # Get query parameters
+    year_param = request.GET.get('year')
+    category_param = request.GET.get('category')
     
     # Base queryset
     if user.role == 'provider':
@@ -416,32 +627,210 @@ def incident_dashboard(request):
     else:
         incidents = Incident.objects.all()
     
-    # KPIs
-    total_incidents = incidents.count()
-    open_incidents = incidents.filter(estado__in=['abierto', 'triage', 'inspeccion']).count()
-    closed_incidents = incidents.filter(estado='cerrado').count()
-    # lab_required field removed
+    # Filter by year if provided
+    if year_param:
+        try:
+            year_int = int(year_param)
+            incidents = incidents.filter(fecha_deteccion__year=year_int)
+        except ValueError:
+            pass
     
-    # Incidents by status
-    status_counts = incidents.values('estado').annotate(count=Count('id')).order_by('estado')
+    # Filter by category if provided (for drill-down)
+    if category_param:
+        incidents = incidents.filter(categoria__name__icontains=category_param)
     
-    # Incidents by priority
-    priority_counts = incidents.values('prioridad').annotate(count=Count('id')).order_by('prioridad')
+    # KPIs by Estado
+    abiertos = incidents.filter(estado__in=['abierto', 'triage', 'inspeccion']).count()
+    laboratorio = incidents.filter(estado__in=['laboratorio', 'calidad', 'en_calidad']).count()
+    proveedor = incidents.filter(estado='proveedor').count()
+    cerrados = incidents.filter(estado='cerrado').count()
     
-    # Recent incidents (separate query to avoid SQL Server issues)
-    recent_incidents = incidents.order_by('-created_at')[:10]
+    # Monthly Stats (for current year or selected year)
+    # Si no hay filtro, usar el año más reciente con datos
+    if year_param:
+        current_year = int(year_param)
+    else:
+        # Obtener el año más reciente que tenga incidencias
+        latest_incident = incidents.order_by('-fecha_deteccion').first()
+        current_year = latest_incident.fecha_deteccion.year if latest_incident else timezone.now().year
+    
+    monthly_data = incidents.filter(
+        fecha_deteccion__year=current_year
+    ).annotate(
+        month=ExtractMonth('fecha_deteccion')
+    ).values('month').annotate(
+        total=Count('id')
+    ).order_by('month')
+    
+    # Create monthly stats array with all 12 months
+    monthly_stats = []
+    month_counts = {item['month']: item['total'] for item in monthly_data}
+    for m in range(1, 13):
+        monthly_stats.append({
+            'name': calendar.month_abbr[m],
+            'total': month_counts.get(m, 0)
+        })
+    
+    # Yearly Stats - TODO el histórico disponible
+    yearly_data = Incident.objects.all().annotate(
+        year=ExtractYear('fecha_deteccion')
+    ).values('year').annotate(
+        count=Count('id')
+    ).order_by('year')
+    
+    # Crear array con todos los años que tienen datos
+    yearly_stats_data = []
+    for item in yearly_data:
+        if item['year']:  # Ignorar nulls
+            yearly_stats_data.append({
+                'name': str(item['year']),
+                'value': item['count']
+            })
+    
+    # Get available years for dropdown
+    all_years = Incident.objects.annotate(
+        year=ExtractYear('fecha_deteccion')
+    ).values_list('year', flat=True).distinct().order_by('-year')
+    years = list(all_years)
+    
+    # Top Clients (by incident count)
+    top_clients_data = incidents.values('cliente').annotate(
+        count=Count('id')
+    ).order_by('-count')[:10]
+    top_clients = [[item['cliente'] or 'Sin Cliente', item['count']] for item in top_clients_data]
+    
+    # Top Providers (by incident count)
+    top_providers_data = incidents.values('provider').annotate(
+        count=Count('id')
+    ).order_by('-count')[:10]
+    top_providers = [[item['provider'] or 'Sin Proveedor', item['count']] for item in top_providers_data]
+    
+    # Category Tree (for drill-down)
+    category_tree = {}
+    if not category_param:
+        # Top-level categories
+        categories_data = incidents.values('categoria__name').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        for item in categories_data:
+            cat_name = item['categoria__name'] or 'Sin Categoría'
+            category_tree[cat_name] = {
+                'count': item['count'],
+                'total': item['count'],  # Compatibilidad con PieChart
+                'subcategories': {}
+            }
+    else:
+        # Subcategories for selected category
+        subcategories_data = incidents.values('subcategoria').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        for item in subcategories_data:
+            subcat_name = item['subcategoria'] or 'Sin Subcategoría'
+            category_tree[subcat_name] = {
+                'count': item['count']
+            }
     
     return Response({
-        'kpis': {
-            'total_incidents': total_incidents,
-            'open_incidents': open_incidents,
-            'closed_incidents': closed_incidents,
-            # 'lab_required': lab_required,  # Field removed
-        },
-        'status_distribution': list(status_counts),
-        'priority_distribution': list(priority_counts),
-        'recent_incidents': IncidentListSerializer(recent_incidents, many=True).data
+        'abiertos': abiertos,
+        'laboratorio': laboratorio,
+        'proveedor': proveedor,
+        'cerrados': cerrados,
+        'monthlyStats': monthly_stats,
+        'yearlyStatsData': yearly_stats_data,
+        'years': years,
+        'topClients': top_clients,
+        'topProviders': top_providers,
+        'categoryTree': category_tree
     })
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def global_search(request):
+    """
+    Búsqueda global multi-tipo para el componente GlobalSearch del frontend.
+    Busca en Incidencias, Reportes de Visita, Reportes de Calidad y Reportes de Proveedor.
+    Acepta: ?q=<query>
+    """
+    q = request.GET.get('q', '').strip()
+    if not q or len(q) < 2:
+        return Response({'results': []})
+
+    results = []
+    limit_each = 5  # Máximo 5 por tipo
+
+    # Incidencias
+    try:
+        incidents = Incident.objects.filter(
+            Q(code__icontains=q) | Q(cliente__icontains=q) | Q(obra__icontains=q) | Q(sku__icontains=q)
+        ).order_by('-created_at')[:limit_each]
+        for inc in incidents:
+            results.append({
+                'id': inc.id,
+                'type': 'incident',
+                'title': f'{inc.code} - {inc.cliente}',
+                'subtitle': inc.obra or inc.descripcion[:60] if inc.descripcion else 'Sin descripción',
+                'url': f'/incidents/{inc.id}',
+            })
+    except Exception as e:
+        logger.warning(f"GlobalSearch error (incidents): {e}")
+
+    # Reportes de visita
+    try:
+        from apps.documents.models import VisitReport
+        visit_reports = VisitReport.objects.filter(
+            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q) | Q(incident__obra__icontains=q)
+        ).select_related('incident').order_by('-created_at')[:limit_each]
+        for vr in visit_reports:
+            results.append({
+                'id': vr.id,
+                'type': 'visit_report',
+                'title': f'Reporte Visita #{vr.report_number}',
+                'subtitle': vr.incident.cliente if vr.incident else 'Sin cliente',
+                'url': f'/visit-reports/{vr.id}',
+            })
+    except Exception as e:
+        logger.warning(f"GlobalSearch error (visit_reports): {e}")
+
+    # Reportes de calidad (QualityReport)
+    try:
+        from apps.documents.models import QualityReport
+        q_reports = QualityReport.objects.filter(
+            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q)
+        ).select_related('incident').order_by('-created_at')[:limit_each]
+        for qr in q_reports:
+            results.append({
+                'id': qr.id,
+                'type': 'quality_report',
+                'title': f'Reporte Calidad #{qr.report_number}',
+                'subtitle': qr.incident.cliente if qr.incident else 'Sin cliente',
+                'url': f'/quality-reports/{qr.id}',
+            })
+    except Exception as e:
+        logger.warning(f"GlobalSearch error (quality_reports): {e}")
+
+    # Reportes de proveedor (SupplierReport)
+    try:
+        from apps.documents.models import SupplierReport
+        s_reports = SupplierReport.objects.filter(
+            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q) | Q(supplier_name__icontains=q)
+        ).select_related('incident').order_by('-created_at')[:limit_each]
+        for sr in s_reports:
+            results.append({
+                'id': sr.id,
+                'type': 'supplier_report',
+                'title': f'Reporte Proveedor #{sr.report_number}',
+                'subtitle': sr.supplier_name or (sr.incident.cliente if sr.incident else 'Sin proveedor'),
+                'url': f'/supplier-reports/{sr.id}',
+            })
+    except Exception as e:
+        logger.warning(f"GlobalSearch error (supplier_reports): {e}")
+
+    return Response({'results': results[:20]})  # máximo 20 total
+
+
 
 
 @api_view(['GET'])
@@ -515,6 +904,46 @@ def view_incident_image(request, incident_id, image_id):
         logger.error(f"Error viewing image: {e}")
         return Response(
             {'error': 'Error interno del servidor'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated, CanManageIncidents])
+def delete_incident_image(request, incident_id, image_id):
+    """Delete an incident image"""
+    try:
+        image = get_object_or_404(IncidentImage, id=image_id, incident_id=incident_id)
+        
+        # Store info for logging
+        filename = image.filename
+        
+        # Delete physical file
+        if image.path:
+            from django.conf import settings
+            full_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, image.path)
+            # Normalize path to prevent issues
+            full_path = os.path.normpath(full_path)
+            if os.path.exists(full_path):
+                os.remove(full_path)
+                
+        # Delete record
+        image.delete()
+        
+        # Log action
+        IncidentTimeline.objects.create(
+            incident=image.incident,
+            action='image_deleted',
+            description=f'Imagen eliminada: {filename}',
+            user=request.user
+        )
+        
+        return Response({'message': 'Imagen eliminada exitosamente'}, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error deleting image: {e}")
+        return Response(
+            {'error': 'Error interno al eliminar la imagen'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -753,7 +1182,7 @@ def fix_escalation(request, incident_id):
         except Exception as e:
             logger.error(f"Error logging timeline for fix_escalation: {e}")
         
-        logger.info(f"Escalamiento corregido (paso atrás) por admin {request.user.username} para incidencia {incident.code}. Estado: {old_status} -> {incident.estado}. Accion: {msg}")
+        logger.info(f"Escalamiento corregido (paso atrás) por admin {request.user.username} para incidencia {incident.code}. Estado: {old_status} -> {incident.estado}. Acción: {msg}")
         
         return Response({
             'success': True,

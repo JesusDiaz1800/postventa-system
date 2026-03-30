@@ -11,32 +11,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='notificationpreferences',
-            name='categories',
-        ),
-        migrations.RemoveField(
-            model_name='notificationpreferences',
-            name='user',
-        ),
-        migrations.RemoveIndex(
-            model_name='notification',
-            name='notification_notifica_2a4584_idx',
-        ),
-        migrations.RemoveIndex(
-            model_name='notification',
-            name='notification_user_id_d4c27a_idx',
-        ),
-        migrations.RemoveIndex(
-            model_name='notification',
-            name='notification_categor_1b5f3a_idx',
-        ),
-        migrations.AlterField(
-            model_name='notification',
-            name='category',
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_notifications', to='notifications.notificationcategory'),
-        ),
-        migrations.DeleteModel(
-            name='NotificationPreferences',
-        ),
+        # This migration was trying to clean up 0003's mess, but due to conflicts, 
+        # we are neutralizing it. 
+        # The result will be that NotificationPreferences (from 0002) remains in DB 
+        # but unused by the app (which uses 0001). Acceptable for now.
     ]
