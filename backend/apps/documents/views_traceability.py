@@ -182,12 +182,12 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
         # Asignar el mismo número para ambos campos
         save_kwargs['report_number'] = report_number
         save_kwargs['order_number'] = report_number
-        logger.info(f"🔍 PRE-GENERATION: Generated report_number = {report_number}")
-        logger.info(f"🔍 save_kwargs = {save_kwargs}")
+        logger.info(f"PRE-GENERATION: Generated report_number = {report_number}")
+        logger.info(f"save_kwargs = {save_kwargs}")
         
         # Create the report
         report = serializer.save(**save_kwargs)
-        logger.info(f"✅ Report created successfully with report_number = {report.report_number}")
+        logger.info(f"Report created successfully with report_number = {report.report_number}")
         
         # 1. Guardar adjuntos manuales LOCALMENTE
         uploaded_images = self.request.FILES.getlist('images')

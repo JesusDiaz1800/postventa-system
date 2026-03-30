@@ -1,66 +1,61 @@
 import os
 import django
-import sys
+import logging
 
-# Setup Django
-sys.path.append(os.path.join(os.getcwd(), 'backend'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.core.settings')
+import sys
+sys.path.append(os.path.join(os.getcwd(), 'backend'))
 django.setup()
 
 from django.db import connections
 
 def thorough_inspection():
-    db_alias = 'sap_db_co'
-    print(f"Thoroughly inspecting {db_alias}...")
-    
     try:
-        connection = connections[db_alias]
-        with connection.cursor() as cursor:
-            # 1. Get all tables and their row counts
-            print("\nTable Row Counts (Top 30):")
-            query = """
-                SELECT 
-                    t.NAME AS TableName,
-                    p.rows AS RowCounts
-                FROM 
-                    sys.tables t
-                INNER JOIN      
-                    sys.indexes i ON t.OBJECT_ID = i.object_id
-                INNER JOIN 
-                    sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-                WHERE 
-                    t.is_ms_shipped = 0
-                    AND i.index_id IN (0,1)
-                    AND p.rows > 0
-                ORDER BY 
-                    p.rows DESC
-            """
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            for row in rows[:30]:
-                print(f" - {row[0]}: {row[1]}")
-            
-            # 2. Specifically look for OHEM and OSCL even if 0 rows
-            print("\nSpecific Table Check:")
-            for tbl in ['OHEM', 'OSCL', 'OCRD', 'OITM', 'OCTG']:
-                try:
-                    cursor.execute(f"SELECT COUNT(*) FROM {tbl}")
-                    count = cursor.fetchone()[0]
-                    print(f" - {tbl}: {count} rows")
-                except:
-                    print(f" - {tbl}: NOT FOUND or Error")
+        with connections['sap_db_co'].cursor() as cursor:
+            print("--- INSPECCIONANDO REGISTRO CALLID 6 (S screenshot) ---")
+            cursor.execute("SELECT callID, docNum, origin, callType, problemTyp, technician, assignee FROM OSCL WHERE callID = 6")
+            row = cursor.fetchone()
+            if row:
+                cols = [d[0] for d in cursor.description]
+                print(f"Columns: {cols}")
+                print(f"Values: {row}")
+            else:
+                print("Record callID = 6 not found.")
 
-            # 3. Check for any table containing 'Employee' or 'Call' or 'Tech'
-            print("\nSearching for related tables by name:")
-            cursor.execute("SELECT name FROM sys.tables WHERE name LIKE '%Emp%' OR name LIKE '%Call%' OR name LIKE '%Tech%'")
-            matches = [r[0] for r in cursor.fetchall()]
-            for m in matches:
-                cursor.execute(f"SELECT COUNT(*) FROM [{m}]")
-                c = cursor.fetchone()[0]
-                print(f" - {m}: {c} rows")
+            print("\n--- BUSCANDO TODAS LAS TABLAS QUE TENGAN PRB O TYP ---")
+            cursor.execute("SELECT name FROM sys.tables WHERE name LIKE '%PRB%' OR name LIKE '%TYP%' OR name LIKE '%CALL%' OR name LIKE '%ORIGIN%'")
+            tables = [r[0] for r in cursor.fetchall()]
+            print(f"Tables found: {tables}")
+            
+            for t in tables:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {t}")
+                    count = cursor.fetchone()[0]
+                    print(f"  Table {t}: {count} records")
+                    if count > 0:
+                        cursor.execute(f"SELECT TOP 3 * FROM {t}")
+                        print(f"    Sample: {cursor.fetchone()}")
+                except:
+                    pass
+
+            print("\n--- METADATA DE OSCL EN CUFD ---")
+            try:
+                cursor.execute("SELECT AliasID, Descr, TypeID FROM CUFD WHERE TableID = 'OSCL' AND (AliasID LIKE '%Typ%' OR AliasID LIKE '%Ori%')")
+                for r in cursor.fetchall(): print(f"  Field: {r[0]}, Descr: {r[1]}, Type: {r[2]}")
+            except:
+                print("  CUFD query failed.")
+
+            print("\n--- METADATA DE PROBLEM EN OPRB O SIMILAR ---")
+            # En algunas localizaciones se usa OPRB o OSCLPR
+            for t in ['OPRB', 'OSCLPR', 'OOSC', 'OSCP', 'OKTP', 'OTYP', 'OCTP']:
+                try:
+                    cursor.execute(f"SELECT * FROM {t}")
+                    print(f"  Table {t} found content: {cursor.fetchone()}")
+                except:
+                    pass
 
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"Error general: {e}")
 
 if __name__ == "__main__":
     thorough_inspection()

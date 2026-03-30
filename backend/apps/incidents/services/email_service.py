@@ -48,9 +48,9 @@ class EmailService:
         """
         Envía correo de escalamiento a calidad
         """
-        # Destinatarios (Hardcoded por requerimiento existente)
-        to_emails = ['vlutz@polifusion.cl', 'cmunizaga@polifusion.cl']
-        cc_emails = ['jdiaz@polifusion.cl', 'mmiranda@polifusion.cl', 'rcruz@polifusion.cl', 'pestay@polifusion.cl']
+        # Destinatarios (MODO PRUEBA: Solo jdiaz)
+        to_emails = ['jdiaz@polifusion.cl']
+        cc_emails = []
         
         subject = f'[ESCALAMIENTO A CALIDAD] {incident.code} - {incident.cliente}'
         html_content = self._generate_quality_escalation_body(incident)
@@ -68,9 +68,9 @@ class EmailService:
         """
         Envía correo de escalamiento a proveedor
         """
-        # Destinatarios
-        to_emails = ['vlutz@polifusion.cl', 'cmunizaga@polifusion.cl']
-        cc_emails = ['jdiaz@polifusion.cl', 'mmiranda@polifusion.cl', 'rcruz@polifusion.cl', 'pestay@polifusion.cl']
+        # Destinatarios (MODO PRUEBA: Solo jdiaz)
+        to_emails = ['jdiaz@polifusion.cl']
+        cc_emails = []
         
         subject = f'[ESCALAMIENTO A PROVEEDOR] {incident.code} - {incident.cliente}'
         html_content = self._generate_supplier_escalation_body(incident)
@@ -101,7 +101,7 @@ class EmailService:
         <body>
             <div class="header">
                 <h2>🚨 ESCALAMIENTO A CALIDAD - INCIDENCIA {incident.code}</h2>
-                <p><strong>Fecha:</strong> {timezone.now().strftime('%d/%m/%Y %H:%M')}</p>
+                <p><strong>Fecha:</strong> {timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M')}</p>
             </div>
             
             <div class="content">
@@ -133,7 +133,6 @@ class EmailService:
                     <li>Revisar el reporte de visita adjunto</li>
                     <li>Analizar las muestras del producto</li>
                     <li>Determinar si se requiere análisis de laboratorio</li>
-                    <li>Evaluar si es necesario escalar al proveedor</li>
                 </ul>
                 
                 <p>Por favor, mantengan informado al equipo técnico sobre el progreso del análisis.</p>
@@ -167,7 +166,7 @@ class EmailService:
         <body>
             <div class="header">
                 <h2>📤 ESCALAMIENTO A PROVEEDOR - INCIDENCIA {incident.code}</h2>
-                <p><strong>Fecha:</strong> {timezone.now().strftime('%d/%m/%Y %H:%M')}</p>
+                <p><strong>Fecha:</strong> {timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M')}</p>
             </div>
             
             <div class="content">

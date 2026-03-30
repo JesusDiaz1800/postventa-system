@@ -67,88 +67,40 @@ def escalate_to_quality(request, incident_id):
             else:
                 visit_report = VisitReport.objects.filter(related_incident=incident).first()
             
-            if visit_report and visit_report.pdf_path:
-                # Verificar que el archivo existe
-                if os.path.exists(visit_report.pdf_path):
+            if visit_report:
+                # 1. Priorizar pdf_file.path (FileField) que es el estándar actual
+                if visit_report.pdf_file and os.path.exists(visit_report.pdf_file.path):
+                    visit_report_path = visit_report.pdf_file.path
+                    logger.info(f"PDF de reporte de visita (file) encontrado: {visit_report_path}")
+                # 2. Fallback a pdf_path (CharField) para compatibilidad
+                elif visit_report.pdf_path and os.path.exists(visit_report.pdf_path):
                     visit_report_path = visit_report.pdf_path
-                    logger.info(f"PDF de reporte de visita encontrado: {visit_report_path}")
+                    logger.info(f"PDF de reporte de visita (path) encontrado: {visit_report_path}")
                 else:
-                    logger.warning(f"PDF de reporte de visita no encontrado en: {visit_report.pdf_path}")
+                    logger.warning(f"No se encontró archivo PDF físico en pdf_file ni en pdf_path para {visit_report.report_number}")
             else:
                 logger.info(f"No se encontró reporte de visita para la incidencia {incident.code}")
         except Exception as pdf_error:
             logger.warning(f"Error buscando PDF de reporte de visita: {str(pdf_error)}")
         
         
-        # Generar archivo .eml para que el usuario lo abra en Outlook
+        # Enviar correo de notificación usando EmailService centralizado
         email_sent = False
         try:
-            from django.core.mail import EmailMessage, get_connection
-            import os
-            
-            # Configurar conexión SMTP estática a Office365 según requerimiento del cliente
-            connection = get_connection(
-                host='smtp.office365.com',
-                port=587,
-                username='sapbopolifusion@polifusion.cl',
-                password='Sb_Plfsn_3875002',
-                use_tls=True
+            email_service = EmailService()
+            # Pasar la ruta del reporte de visita si existe
+            email_sent = email_service.send_escalation_to_quality_email(
+                incident=incident,
+                visit_report_path=visit_report_path
             )
             
-            # Destinatarios
-            to_emails = ['vlutz@polifusion.cl', 'jdiaz@polifusion.cl', 'cmunizaga@polifusion.cl']
-            cc_emails = ['rcruz@polifusion.cl', 'srojas@polifusion.cl']
-            
-            subject = custom_subject or f"Escalación a Calidad: {incident.code}"
-            
-            # Cuerpo del mensaje
-            if custom_message:
-                body = custom_message
+            if email_sent:
+                logger.info(f"Correo de escalamiento enviado vía EmailService a los responsables de Calidad.")
             else:
-                body = f"""Estimado equipo de Calidad,
-
-Por medio del presente, se informa que la incidencia {incident.code} ha sido escalada al Departamento de Calidad para su revisión y gestión correspondiente.
-
-A continuación se detallan los antecedentes del caso:
-
-    Código de Incidencia: {incident.code}
-    Cliente: {incident.cliente or 'No especificado'}
-    Proveedor: {incident.provider or 'No especificado'}
-
-Motivo de escalación:
-{incident.escalation_reason or 'Se requiere revisión de calidad según reporte adjunto.'}
-
-Para mayor detalle técnico y antecedente visual, favor revisar el Reporte de Visita adjunto a este correo.
-Adicionalmente puede dirigirse a la Plataforma de Postventa en la sección Interna de Reportes.
-
-Se solicita revisar la información y coordinar las acciones correctivas que correspondan. Quedamos atentos a su respuesta.
-
-Saludos cordiales,
-Sistema de Gestión de Incidencias
-Polifusión S.A."""
-            
-            # Preparar email
-            email = EmailMessage(
-                subject=subject,
-                body=body,
-                from_email='sapbopolifusion@polifusion.cl',
-                to=to_emails,
-                cc=cc_emails,
-                connection=connection,
-            )
-            
-            # Adjuntar PDF del reporte de visita si existe
-            if visit_report_path and os.path.exists(visit_report_path):
-                email.attach_file(visit_report_path)
-                logger.info(f"PDF adjuntado al correo SMTP: {visit_report_path}")
-            
-            # Enviar directamente
-            email.send(fail_silently=False)
-            logger.info(f"Correo de escalamiento enviado vía SMTP a {to_emails}")
-            email_sent = True
-            
-        except Exception as smtp_error:
-            logger.warning(f"Error enviando correo SMTP de escalamiento: {str(smtp_error)}")
+                logger.warning(f"EmailService falló al enviar el correo para {incident.code}")
+                
+        except Exception as email_err:
+            logger.error(f"Error crítico en EmailService: {str(email_err)}")
             email_sent = False
         
         if email_sent:

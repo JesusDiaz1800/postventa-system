@@ -1,46 +1,38 @@
 import os
 import django
-import sys
+import logging
 
-# Setup Django
-sys.path.append(os.path.join(os.getcwd(), 'backend'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.core.settings')
+import sys
+sys.path.append(os.path.join(os.getcwd(), 'backend'))
 django.setup()
 
 from django.db import connections
 
-def list_dbs_and_check():
-    db_alias = 'sap_db_co'
-    print(f"Connecting via {db_alias}...")
-    
+def find_real_co_db():
     try:
-        connection = connections[db_alias]
-        with connection.cursor() as cursor:
-            # 1. List all POL databases
-            print("\nSearching for POL databases:")
-            cursor.execute("SELECT name FROM sys.databases WHERE name LIKE '%POL%'")
-            dbs = [row[0] for row in cursor.fetchall()]
-            for db in dbs:
-                print(f" - {db}")
+        # 1. Listar todas las bases de datos en el servidor
+        with connections['sap_db_co'].cursor() as cursor:
+            print("--- BASES DE DATOS EN EL SERVIDOR ---")
+            cursor.execute("SELECT name FROM sys.databases")
+            for r in cursor.fetchall(): print(f"  DB: {r[0]}")
             
-            # 2. For each relevant DB, check OHEM and OSCL count
-            for db in dbs:
-                print(f"\n--- Checking DB: {db} ---")
-                try:
-                    cursor.execute(f"SELECT COUNT(*) FROM [{db}].dbo.OHEM")
-                    ohem = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT COUNT(*) FROM [{db}].dbo.OSCL")
-                    oscl = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT COUNT(*) FROM [{db}].dbo.OCRD")
-                    ocrd = cursor.fetchone()[0]
-                    print(f"Employees (OHEM): {ohem}")
-                    print(f"Service Calls (OSCL): {oscl}")
-                    print(f"Customers (OCRD): {ocrd}")
-                except Exception as e:
-                    print(f"Error querying {db}: {e}")
+            # 2. Confirmar en qué DB estamos
+            cursor.execute("SELECT DB_NAME()")
+            print(f"\nESTAMOS EN LA DB: {cursor.fetchone()[0]}")
+
+            # 3. Listar todas las tablas con sus esquemas
+            print("\n--- TABLAS CON SCHEMAS ---")
+            cursor.execute("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('OTYP', 'OCTP', 'OSCL')")
+            for r in cursor.fetchall(): print(f"  Schema: {r[0]}, Table: {r[1]}")
+
+            # 4. Inspeccionar la tabla CUFD para campos de OSCL
+            print("\n--- CAMPOS DE OSCL EN CUFD ---")
+            cursor.execute("SELECT AliasID, Descr FROM CUFD WHERE TableID = 'OSCL'")
+            for r in cursor.fetchall(): print(f"  UDF: {r[0]} ({r[1]})")
 
     except Exception as e:
-        print(f"Root ERROR: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    list_dbs_and_check()
+    find_real_co_db()
