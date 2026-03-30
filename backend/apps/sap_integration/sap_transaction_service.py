@@ -33,7 +33,7 @@ class SAPTransactionService:
             self.series = getattr(settings, 'SAP_SL_SERIES_PE', 36)
         elif country == 'CO':
             self.company_db = settings.SAP_SL_COMPANY_DB_CO
-            self.series = -1
+            self.series = 36
         else:
             self.company_db = getattr(settings, 'SAP_SL_COMPANY_DB', 'TESTPOLIFUSION')
             self.series = -1
@@ -138,30 +138,49 @@ class SAPTransactionService:
             "ServiceBPType": "srvcSales",
         }
         
-        # Series y Origin son problemáticos en algunas versiones de SAP (CL)
-        if country != 'CL':
+        # 1. Configuración de Base (Series, Origin)
+        if country == 'CL':
+            # Chile se queda como está (sin Series ni Origin por ahora)
+            pass
+        elif country == 'CO':
+            payload["Series"] = self.series # Usualmente -1
+            payload["Origin"] = -1 # Web (según OSCO de TSTPOLCOLOMBIA_2)
+        else:
+            # Otros países (PE)
             payload["Series"] = self.series
             payload["Origin"] = 1
         
         # 2. Configuración de Roles (Assignee vs Technician)
         if country == 'PE':
-            # En Perú, el campo del formulario (Responsable) mapea al 'Tratado por' (AssigneeCode)
-            # El técnico para la creación de la incidencia es Luis Custodio (ID 1)
+            # En Perú, el Responsable del formulario mapea al 'Tratado por' (AssigneeCode)
             try:
                 resp_id = None
                 if final_tech_code:
                     try: resp_id = int(final_tech_code)
                     except: pass
                 
-                # Fallback a Percy Luey (31) si no hay responsable seleccionado
                 payload["AssigneeCode"] = resp_id if resp_id else 31
                 payload["TechnicianCode"] = 1 # Luis Custodio
             except Exception as pe_err:
                 logger.error(f"SAP SL PE: Error mapping roles: {pe_err}")
                 payload["AssigneeCode"] = 31
                 payload["TechnicianCode"] = 1
+        elif country == 'CO':
+            # En Colombia, el Responsable del formulario mapea al 'Tratado por' (AssigneeCode)
+            try:
+                resp_id = None
+                if final_tech_code:
+                    try: resp_id = int(final_tech_code)
+                    except: pass
+                
+                payload["AssigneeCode"] = resp_id if resp_id else 22
+                payload["TechnicianCode"] = 2 # Técnico (empID) predeterminado rastreado en OHEM
+            except Exception as co_err:
+                logger.error(f"SAP SL CO: Error mapping roles: {co_err}")
+                payload["AssigneeCode"] = 2
+                payload["TechnicianCode"] = 2
         else:
-            # Lógica estándar para otros países (Chile)
+            # Lógica estándar (Chile)
             if final_tech_code:
                 try: 
                     payload["TechnicianCode"] = int(final_tech_code)
@@ -182,7 +201,7 @@ class SAPTransactionService:
             payload["CallType"] = 2
         elif country == 'CO':
             payload["ProblemType"] = 33
-            payload["CallType"] = 13
+            payload["CallType"] = 1 # 'Post-Vent' (ID Confirmado en SAP)
         else:
             if not payload.get("ProblemType"): payload["ProblemType"] = 33
             payload["CallType"] = 1

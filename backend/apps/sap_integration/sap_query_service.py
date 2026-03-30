@@ -219,15 +219,23 @@ class SAPQueryService:
         try:
             technicians = []
             with connections[self._get_db_alias()].cursor() as cursor:
-                if country in ('PE', 'CO'):
-                    # Para Perú y Colombia, filtrar por posición para asegurar que SAP los acepte en Service Calls
-                    # En PE: 1 (Ventas), 3 (Coordinación), 5 (SERTEC)
+                if country == 'PE':
+                    # En Perú filtrar por posición para asegurar que SAP los acepte en Service Calls
+                    # IDs: 1 (Ventas), 3 (Coordinación), 5 (SERTEC)
                     query = """
                         SELECT empID, (firstName + ' ' + lastName) as Name, email 
                         FROM OHEM 
                         WHERE Active = 'Y' 
                         AND (position IS NOT NULL OR empID = 13)
                         ORDER BY firstName, lastName
+                    """
+                elif country == 'CO':
+                    # En Colombia (TSTPOLCOLOMBIA_2), los 'Responsables' en SAP (Tratado por)
+                    # se alimentan de la tabla de Usuarios (OUSR), no solo de Empleados.
+                    query = """
+                        SELECT USERID, U_NAME as Name, E_Mail 
+                        FROM OUSR 
+                        ORDER BY U_NAME
                     """
                 else:
                     # Chile suele tener el flag 'technician' habilitado nativamente
@@ -738,7 +746,16 @@ class SAPQueryService:
                     logger.info(f"[SAPQueryService] Técnico de respaldo encontrado (HEM6-Tech): {row[0]}")
                     return row[0]
                 
-                # 2. Fallback PE: Buscar por posición SERTEC (5) o Ventas con rol (1)
+                # 2. Fallback CO: Buscar cualquier empleado con ROL en HEM6 (visto en debug con RoleID -2)
+                if country_code == 'CO':
+                    query = "SELECT TOP 1 empID FROM HEM6 ORDER BY empID ASC"
+                    cursor.execute(query)
+                    row = cursor.fetchone()
+                    if row:
+                        logger.info(f"[SAPQueryService] Técnico de respaldo encontrado (Cualquier HEM6 CO): {row[0]}")
+                        return row[0]
+
+                # 3. Fallback PE: Buscar por posición SERTEC (5) o Ventas con rol (1)
                 if country_code == 'PE':
                     # Probar 31 (Percy Luey - SERTEC) o 13 (Albert - Pos 1)
                     query = "SELECT TOP 1 empID FROM OHEM WHERE Active = 'Y' AND position IN (5, 1) ORDER BY (CASE WHEN position=5 THEN 0 ELSE 1 END), empID ASC"
@@ -748,7 +765,7 @@ class SAPQueryService:
                         logger.info(f"[SAPQueryService] Técnico de respaldo encontrado (Position PE): {row[0]}")
                         return row[0]
 
-                # 3. Fallback General: Empleado con posición cualquiera
+                # 4. Fallback General: Empleado con posición cualquiera
                 query = "SELECT TOP 1 empID FROM OHEM WHERE Active = 'Y' AND position IS NOT NULL ORDER BY empID ASC"
                 cursor.execute(query)
                 row = cursor.fetchone()

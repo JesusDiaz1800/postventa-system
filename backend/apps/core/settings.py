@@ -190,9 +190,9 @@ SAP_SL_SERIES_PE = int(os.getenv('SAP_SL_SERIES_PE', 36))
 SAP_SL_ASSIGNEE_NAME_PE = os.getenv('SAP_SL_ASSIGNEE_NAME_PE', 'PERCY LUEY') # Nombre del Responsable
 
 # --- SAP Service Layer CO ---
-SAP_SL_COMPANY_DB_CO = os.getenv('SAP_SL_COMPANY_DB_CO', 'PRDPOLCOLOMBIA')
-SAP_SL_USER_CO = os.getenv('SAP_SL_USER_CO', 'ccalidad')
-SAP_SL_PASSWORD_CO = os.getenv('SAP_SL_PASSWORD_CO')
+SAP_SL_COMPANY_DB_CO = os.getenv('SAP_SL_COMPANY_DB_CO', 'TSTPOLCOLOMBIA_2')
+SAP_SL_USER_CO = os.getenv('SAP_SL_USER_CO', 'jefsertec_pco')
+SAP_SL_PASSWORD_CO = os.getenv('SAP_SL_PASSWORD_CO', 'Js2024**')
 
 DATABASES = {
     'default': _build_database_config_from_env(),
@@ -222,9 +222,9 @@ DATABASES = {
     },
     'sap_db_co': {
         'ENGINE': 'mssql',
-        'NAME': os.getenv('SAP_SL_COMPANY_DB_CO', 'TSTPOLFCOLOMBIA'),
-        'USER': os.getenv('SAP_DB_USER_CO', os.getenv('SAP_SL_USER_CO', 'ccalidad')),
-        'PASSWORD': os.getenv('SAP_DB_PASSWORD_CO', os.getenv('SAP_SL_PASSWORD_CO', os.getenv('SAP_DB_PASSWORD', 'Plf2025**'))),
+        'NAME': os.getenv('SAP_SL_COMPANY_DB_CO', 'TSTPOLCOLOMBIA_2'),
+        'USER': os.getenv('SAP_DB_USER_CO', os.getenv('SAP_SL_USER_CO', 'jefsertec_pco')),
+        'PASSWORD': os.getenv('SAP_DB_PASSWORD_CO', os.getenv('SAP_SL_PASSWORD_CO', os.getenv('SAP_DB_PASSWORD', 'Js2024**'))),
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': '',
         'OPTIONS': {
