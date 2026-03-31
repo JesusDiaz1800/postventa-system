@@ -431,7 +431,7 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 # --- AI Model Configurations ---
 AI_OPENAI_MODEL = os.getenv('AI_OPENAI_MODEL', 'gpt-4o')
 AI_ANTHROPIC_MODEL = os.getenv('AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
-AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-flash-latest')
+AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-2.0-flash')
 
 
 

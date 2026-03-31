@@ -250,24 +250,35 @@ class IncidentRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
             # 3. Cancelar en SAP si aplica
             if instance.sap_call_id:
+                import logging
+                logger = logging.getLogger(__name__)
                 try:
                     from apps.sap_integration.sap_transaction_service import SAPTransactionService
                     from apps.sap_integration.sap_query_service import SAPQueryService
+                    from apps.core.thread_local import get_current_country
                     
+                    country = get_current_country()
                     sap = SAPTransactionService()
                     sap_query = SAPQueryService()
                     
+                    # 1. Resolver el CallID Interno (DocEntry) a partir del DocNum guardado
                     internal_call_id = instance.sap_call_id
-                    call_data = sap_query.get_service_call(instance.sap_call_id)
-                    if call_data and 'call_id' in call_data:
-                        internal_call_id = call_data['call_id']
+                    try:
+                        call_data = sap_query.get_service_call(instance.sap_call_id)
+                        if call_data and 'call_id' in call_data:
+                            internal_call_id = call_data['call_id']
+                            logger.info(f"SAP-TX: DocNum {instance.sap_call_id} resuelto a DocEntry {internal_call_id} para cancelacion en {country}")
+                        else:
+                            logger.warning(f"SAP-TX: No se pudo resolver DocEntry para {instance.sap_call_id} en {country}. Usando {internal_call_id} como fallback.")
+                    except Exception as e:
+                        logger.error(f"SAP-TX: Error resolviendo CallID interno: {e}")
                         
-                    # Sincronizar cancelación (Status 1)
+                    # Sincronizar cancelación
                     res = sap.cancel_service_call(internal_call_id, resolution=resolution_msg)
                     if not res.get('success'):
-                         logger.warning(f"No se pudo cancelar en SAP la llamada {instance.sap_call_id}: {res.get('error')}")
+                         logger.warning(f"No se pudo cancelar en SAP ({country}) la llamada {instance.sap_call_id}: {res.get('error')}")
                     else:
-                         logger.info(f"Cancelacion SAP exitosa para incidencia {instance.ticket_number}")
+                         logger.info(f"Cancelacion SAP ({country}) exitosa para incidencia {instance.code}")
                          
                 except Exception as sap_err:
                     logger.error(f"Excepcion al intentar cancelar servicio SAP {instance.sap_call_id}: {sap_err}")

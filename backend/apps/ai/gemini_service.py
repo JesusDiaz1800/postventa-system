@@ -45,10 +45,13 @@ class GeminiService:
             self.client = None
         else:
             # Configurar el cliente con la nueva API
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = genai.Client(
+                api_key=self.api_key,
+                http_options={'api_version': 'v1'}
+            )
+            logger.info("GeminiService inicializado correctamente con google.genai (API v1)")
         
         self.cache_timeout = 3600  # 1 hora de cache
-        logger.info("GeminiService inicializado correctamente con google.genai")
 
     # ... (rest of methods need to check if self.model is None) ...
 
@@ -90,8 +93,9 @@ class GeminiService:
                 max_output_tokens=max_tokens if max_tokens else 2048
             )
             
+            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=model_name,
                 contents=prompt,
                 config=config
             )
@@ -125,9 +129,10 @@ class GeminiService:
                 mime_type=mime_type
             )
             
+            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
             logger.info(f"Enviando archivo {mime_type} a Gemini para análisis multimodal...")
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=model_name,
                 contents=[file_part, prompt]
             )
             
@@ -237,8 +242,9 @@ class GeminiService:
             # Generar análisis con nueva API (imágenes + prompt)
             contents = image_parts + [prompt]
             
+            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=model_name,
                 contents=contents
             )
             
@@ -272,7 +278,7 @@ class GeminiService:
                 'confidence_score': 0.90,
                 'processing_time': processing_time,
                 'tokens_used': len(response.text) // 4,
-                'model_used': 'gemini-2.0-flash-exp',
+                'model_used': getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash'),
                 'analysis_id': analysis_id
             }
             
@@ -484,8 +490,9 @@ class GeminiService:
             if not self.client:
                  raise ValueError("API Key no configurada para generar reporte.")
 
+            model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model=model_name,
                 contents=prompt
             )
             

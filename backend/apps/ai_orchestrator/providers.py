@@ -306,8 +306,11 @@ class GoogleAdapter(AIProviderAdapter):
         super().__init__(provider_config)
         try:
             from google import genai
-            self.client = genai.Client(api_key=self.api_key)
-            self.model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash-exp')
+            self.client = genai.Client(
+                api_key=self.api_key,
+                http_options={'api_version': 'v1'}
+            )
+            self.model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
         except ImportError:
             logger.error("Google GenAI SDK not installed")
             self.client = None

@@ -230,13 +230,23 @@ class SAPQueryService:
                         ORDER BY firstName, lastName
                     """
                 elif country == 'CO':
-                    # En Colombia (TSTPOLCOLOMBIA_2), los 'Responsables' en SAP (Tratado por)
-                    # se alimentan de la tabla de Usuarios (OUSR), no solo de Empleados.
-                    query = """
-                        SELECT USERID, U_NAME as Name, E_Mail 
-                        FROM OUSR 
-                        ORDER BY U_NAME
-                    """
+                    if only_technical_role:
+                        # En Colombia, el flag 'technician' no existe en OHEM. 
+                        # Filtramos por aquellos que tienen un rol asignado en HEM6 (Técnicos).
+                        query = """
+                            SELECT e.empID, (e.firstName + ' ' + e.lastName) as Name, e.email 
+                            FROM OHEM e
+                            JOIN HEM6 h ON e.empID = h.empID
+                            WHERE e.Active = 'Y'
+                            ORDER BY e.firstName, e.lastName
+                        """
+                    else:
+                        # Para asignación general (Responsables/Atendido por), Colombia usa OUSR
+                        query = """
+                            SELECT USERID, U_NAME as Name, E_Mail 
+                            FROM OUSR 
+                            ORDER BY U_NAME
+                        """
                 else:
                     # Chile suele tener el flag 'technician' habilitado nativamente
                     where_clause = "WHERE Active = 'Y'"

@@ -47,18 +47,31 @@ class AuditLogger:
             # Sanitize details to remove sensitive information
             sanitized_details = self._sanitize_details(details) if details else {}
             
-            # Create audit log entry
+            # Map advanced fields to the simplified AuditLog model
+            full_details = {
+                **sanitized_details,
+                'resource_type': resource_type,
+                'resource_id': resource_id,
+                'resource_name': resource_name,
+                'user_agent': user_agent,
+                'success': success,
+                'error_message': error_message
+            }
+            
+            # Generate a human-readable description
+            description = f"{action.replace('_', ' ').capitalize()} on {resource_type}"
+            if resource_name:
+                description += f": {resource_name}"
+            if not success:
+                description += f" (FAILED: {error_message})"
+            
+            # Create audit log entry - only with fields supported by models.py
             audit_log = AuditLog.objects.create(
                 user=user,
                 action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                resource_name=resource_name,
-                details=sanitized_details,
+                description=description,
+                details=full_details,
                 ip_address=ip_address,
-                user_agent=user_agent,
-                success=success,
-                error_message=error_message,
                 timestamp=timezone.now()
             )
             
@@ -112,16 +125,22 @@ class AuditLogger:
     
     def log_document_action(self, user, action: str, document, details: Dict = None, ip_address: str = None, user_agent: str = None):
         """Log document-related action"""
+        # Intentar obtener un nombre descriptivo robusto para evitar AttributeError
+        res_name = getattr(document, 'report_number', 
+                   getattr(document, 'title', 
+                   getattr(document, 'name', f"Document {document.id}")))
+        
         self.log_action(
             user=user,
             action=action,
             resource_type='document',
             resource_id=str(document.id),
-            resource_name=document.name,
+            resource_name=res_name,
             details=details,
             ip_address=ip_address,
             user_agent=user_agent
         )
+
     
     def log_user_action(self, user, action: str, target_user, details: Dict = None, ip_address: str = None, user_agent: str = None):
         """Log user management action"""
@@ -210,18 +229,20 @@ class AuditLogger:
     def _log_to_file(self, audit_log: AuditLog):
         """Log to file for additional backup"""
         try:
+            # Extraer campos de details para el log de archivo
+            details = audit_log.details or {}
             log_entry = {
                 'timestamp': audit_log.timestamp.isoformat(),
                 'user': audit_log.user.username if audit_log.user else 'Anonymous',
                 'action': audit_log.action,
-                'resource_type': audit_log.resource_type,
-                'resource_id': audit_log.resource_id,
-                'resource_name': audit_log.resource_name,
-                'details': audit_log.details,
+                'resource_type': details.get('resource_type'),
+                'resource_id': details.get('resource_id'),
+                'resource_name': details.get('resource_name'),
+                'details': sanitized_details if hasattr(self, 'sanitized_details') else details,
                 'ip_address': audit_log.ip_address,
-                'user_agent': audit_log.user_agent,
-                'success': audit_log.success,
-                'error_message': audit_log.error_message
+                'user_agent': details.get('user_agent'),
+                'success': details.get('success', True),
+                'error_message': details.get('error_message')
             }
             
             # Log to file
@@ -238,10 +259,10 @@ class AuditLogger:
             queryset = AuditLog.objects.all()
             
             if resource_type:
-                queryset = queryset.filter(resource_type=resource_type)
+                queryset = queryset.filter(details__resource_type=resource_type)
             
             if resource_id:
-                queryset = queryset.filter(resource_id=resource_id)
+                queryset = queryset.filter(details__resource_id=resource_id)
             
             if user_id:
                 queryset = queryset.filter(user_id=user_id)
@@ -283,7 +304,7 @@ class AuditLogger:
             start_date = timezone.now() - timedelta(days=days)
             
             return AuditLog.objects.filter(
-                resource_type='security',
+                details__resource_type='security',
                 timestamp__gte=start_date
             ).order_by('-timestamp')
             
@@ -298,7 +319,7 @@ class AuditLogger:
             start_date = timezone.now() - timedelta(days=days)
             
             return AuditLog.objects.filter(
-                success=False,
+                details__success=False,
                 timestamp__gte=start_date
             ).order_by('-timestamp')
             
@@ -316,14 +337,14 @@ class AuditLogger:
             
             stats = {
                 'total_actions': queryset.count(),
-                'successful_actions': queryset.filter(success=True).count(),
-                'failed_actions': queryset.filter(success=False).count(),
+                'successful_actions': queryset.filter(details__success=True).count(),
+                'failed_actions': queryset.filter(details__success=False).count(),
                 'unique_users': queryset.values('user').distinct().count(),
                 'actions_by_type': {},
                 'actions_by_user': {},
-                'security_events': queryset.filter(resource_type='security').count(),
+                'security_events': queryset.filter(details__resource_type='security').count(),
                 'login_attempts': queryset.filter(action='login').count(),
-                'failed_logins': queryset.filter(action='login', success=False).count()
+                'failed_logins': queryset.filter(action='login', details__success=False).count()
             }
             
             # Actions by type
@@ -369,16 +390,17 @@ class AuditLogger:
                 
                 # Write data
                 for log in logs:
+                    det = log.details or {}
                     writer.writerow([
                         log.timestamp.isoformat(),
                         log.user.username if log.user else 'Anonymous',
                         log.action,
-                        log.resource_type,
-                        log.resource_id,
-                        log.resource_name,
+                        det.get('resource_type'),
+                        det.get('resource_id'),
+                        det.get('resource_name'),
                         log.ip_address,
-                        log.success,
-                        log.error_message
+                        det.get('success'),
+                        det.get('error_message')
                     ])
                 
                 return output.getvalue()

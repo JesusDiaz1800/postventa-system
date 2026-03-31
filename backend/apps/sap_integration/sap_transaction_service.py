@@ -265,8 +265,8 @@ class SAPTransactionService:
                 # IDENTIFICAR Y APLICAR REPARACIONES
                 repaired = False
 
-                # A. Reparación de Técnico (-6101, -6103, oscl.technician, -2028)
-                if any(x in last_error for x in ['technician', 'tecnico', 'técnico', '-6103', 'assignee', 'role', '10000673', '2028']):
+                # A. Reparación de Técnico (-6101, -6103, -5002, -2028)
+                if any(x in last_error for x in ['technician', 'tecnico', 'técnico', '-6103', '-5002', 'assignee', 'role', '10000673', '2028']):
                     logger.warning("SAP SL Repair: Cambiando técnico por falla de rol o posición.")
                     if country == 'PE':
                         if payload.get('AssigneeCode') != 31:
@@ -347,20 +347,64 @@ class SAPTransactionService:
         except Exception as e: return {'success': False, 'error': str(e)}
 
     def close_service_call(self, call_id, resolution, visit_date=None, technician_code=None):
-        payload = {"Status": -1, "Resolution": resolution or "Cerrada desde Postventa."}
+        """
+        Cierra una Llamada de Servicio en SAP.
+        """
+        country = get_current_country()
+        # Mapeo según requerimiento y confirmación de usuario:
+        # Chile (CL): -1 = Pendiente (uso histórico)
+        # Colombia (CO): -1 = Cerrado (confirmado por usuario)
+        if country in ('CL', 'CO'):
+            status_code = -1
+        else:
+            status_code = -2 # Fallback estándar (PE, etc)
+        
+        payload = {"Status": status_code, "Resolution": resolution or "Cerrada desde Postventa."}
         if visit_date: payload["U_NX_FECHAVISITA"] = visit_date
         if technician_code:
             try: payload["TechnicianCode"] = int(technician_code)
             except: pass
-        return self.update_service_call(call_id, payload)
+            
+        logger.info(f"[SAP-TX] [{country}] Cerrando SC {call_id} con Status {status_code}")
+        result = self.update_service_call(call_id, payload)
+        
+        # --- RESILIENCIA PARA ERROR -5002 (Técnico sin rol) ---
+        if not result.get('success'):
+            error_msg = result.get('error', '')
+            if "-5002" in error_msg:
+                # Intento 1: Fallback a técnico predeterminado si es Colombia
+                if country == 'CO':
+                    logger.warning(f"[SAP-TX] [CO] Reintentando cierre con técnico fallback (ID 2)")
+                    payload["TechnicianCode"] = 2
+                    result = self.update_service_call(call_id, payload)
+                    if result.get('success'): return result
+                    error_msg = result.get('error', '')
+
+                # Intento 2: Cierre sin técnico (último recurso) para todos los países
+                if "-5002" in error_msg:
+                    logger.warning(f"[SAP-TX] [{country}] Reintentando cierre eliminando TechnicianCode")
+                    payload.pop("TechnicianCode", None)
+                    result = self.update_service_call(call_id, payload)
+        
+        return result
+
 
     def cancel_service_call(self, call_id, resolution=None):
         """
         Cancela una Llamada de Servicio en SAP. 
-        En este sistema específico, el ID 1 corresponde al estado 'Cancelada'.
         """
-        # Usamos Status 1 para 'Cancelada' según requerimiento del usuario (Chile).
-        payload = {"Status": 1}
+        country = get_current_country()
+        # Chile (CL) usa Status 1 para 'Cancelada'.
+        # Colombia (CO) usa -1 (Cerrado) como fallback.
+        # Otros usan -2 (estándar).
+        if country == 'CL':
+            status_code = 1
+        elif country == 'CO':
+            status_code = -1
+        else:
+            status_code = -2
+        
+        payload = {"Status": status_code}
         
         if resolution:
             # Asegurar mensaje limpio (ASCII) para evitar rechazos parciales de SAP
@@ -370,8 +414,9 @@ class SAPTransactionService:
         else:
             payload["Resolution"] = "Cancelada desde la App Postventa."
 
-        logger.info(f"[SAP-TX] Cancelando SC {call_id}. Payload: {payload}")
+        logger.info(f"[SAP-TX] [{country}] Cancelando SC {call_id} con Status {status_code}. Payload: {payload}")
         return self.update_service_call(call_id, payload)
+
 
     def get_technicians(self):
         if not self.session_cookies and not self._login(): return []

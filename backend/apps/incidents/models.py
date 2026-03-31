@@ -561,23 +561,32 @@ class Incident(models.Model):
         
         # --- SINCRONIZACIÓN CON SAP SERVICE LAYER ---
         if self.sap_call_id:
+            import logging
+            logger = logging.getLogger(__name__)
             try:
                 from apps.sap_integration.sap_transaction_service import SAPTransactionService
-                sap_service = SAPTransactionService(request_user=user)
-                # === Sincronizar resolución en SAP ===
                 from apps.sap_integration.sap_query_service import SAPQueryService
+                from apps.core.thread_local import get_current_country
+                
+                country = get_current_country()
+                sap_service = SAPTransactionService(request_user=user)
+                q_srv = SAPQueryService()
                 
                 # 1. Resolver el CallID Interno (DocEntry) a partir del DocNum guardado
+                # IMPORTANTE: SL requiere DocEntry en la URL, no DocNum.
                 internal_call_id = self.sap_call_id
+                
+                # Intentamos resolver el CallID interno solo si parece ser un DocNum (ej. < 10000000)
+                # O simplemente intentamos resolver siempre para estar seguros.
                 try:
-                    q_srv = SAPQueryService()
                     sc_data = q_srv.get_service_call(self.sap_call_id)
                     if sc_data and 'call_id' in sc_data:
                         internal_call_id = sc_data['call_id']
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"No se pudo resolver el CallID interno para DocNum {self.sap_call_id}: {e}")
+                        logger.info(f"SAP-TX: DocNum {self.sap_call_id} resuelto a DocEntry {internal_call_id} para cierre en {country}")
+                    else:
+                        logger.warning(f"SAP-TX: No se pudo resolver DocEntry para {self.sap_call_id} en {country}. Usando {internal_call_id} como fallback.")
+                except Exception as res_err:
+                    logger.error(f"SAP-TX: Error resolviendo CallID interno para {self.sap_call_id}: {res_err}")
 
                 # 2. Generar Fecha de Visita requerida por Transaction Notification en PE/CO
                 visit_date_str = timezone.now().strftime('%Y-%m-%d')
@@ -595,14 +604,12 @@ class Incident(models.Model):
                     IncidentTimeline.objects.create(
                         incident=self,
                         action='updated',
-                        description=f"Resolución sincronizada en SAP (Status: Cerrado, CallID: {internal_call_id}).",
+                        description=f"Resolución sincronizada en SAP (País: {country}, CallID: {internal_call_id}).",
                         metadata={'sap_doc_num': self.sap_doc_num, 'sap_call_id_interno': internal_call_id}
                     )
                 else:
-                    import logging
-                    logger = logging.getLogger(__name__)
                     err_msg = sap_res.get('error', 'Error desconocido')
-                    logger.error(f"Error sincronizando cierre en SAP para {self.code}: {err_msg}")
+                    logger.error(f"Error sincronizando cierre en SAP ({country}) para {self.code}: {err_msg}")
                     
                     # REGISTRO EN AUDITORÍA PARA EL USUARIO
                     try:
@@ -622,10 +629,9 @@ class Incident(models.Model):
                         logger.error(f"No se pudo crear log de auditoría para error SAP: {audit_err}")
 
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 err_msg = str(e)
                 logger.error(f"Excepción al sincronizar cierre en SAP para {self.code}: {err_msg}")
+
                 
                 # REGISTRO EN AUDITORÍA PARA EL USUARIO (EXCEPCIÓN)
                 try:
