@@ -14,7 +14,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-from .models import Incident, IncidentImage, LabReport, IncidentTimeline
+from .models import Incident, IncidentImage, LabReport, IncidentTimeline, IncidentAttachment
 from .serializers import (
     IncidentListSerializer, IncidentDetailSerializer, IncidentCreateUpdateSerializer,
     IncidentImageSerializer, LabReportSerializer, IncidentTimelineSerializer,
@@ -496,12 +496,61 @@ def close_incident(request, incident_id):
     serializer = IncidentCloseSerializer(data=request.data)
     
     if serializer.is_valid():
+        closure_attachment = serializer.validated_data.get('closure_attachment')
+        attachment_path = ""
+        
+        # Procesar archivo si se proporciona
+        if closure_attachment and not isinstance(closure_attachment, str):
+            try:
+                from apps.core.thread_local import get_current_country
+                country = get_current_country()
+                
+                # Definir rutas
+                from django.conf import settings
+                filename = closure_attachment.name
+                
+                # Evitar colisiones de nombres si es necesario (mejor usar timestamp o UUID)
+                import uuid
+                safe_filename = f"{uuid.uuid4().hex[:8]}_{filename}"
+                
+                relative_path = f"{country}/documents/attachments/{safe_filename}"
+                full_dir_path = os.path.join(settings.SHARED_DOCUMENTS_PATH, country, "documents", "attachments")
+                os.makedirs(full_dir_path, exist_ok=True)
+                
+                full_file_path = os.path.join(full_dir_path, safe_filename)
+                
+                # Guardar archivo físicamente
+                with open(full_file_path, 'wb+') as destination:
+                    for chunk in closure_attachment.chunks():
+                        destination.write(chunk)
+                
+                # Crear registro de adjunto
+                IncidentAttachment.objects.create(
+                    incident=incident,
+                    file_name=filename,
+                    file_path=relative_path,
+                    file_size=closure_attachment.size,
+                    file_type='document',
+                    mime_type=getattr(closure_attachment, 'content_type', 'application/octet-stream'),
+                    description=f"Adjunto de cierre - Etapa: {serializer.validated_data['stage']}",
+                    uploaded_by=request.user
+                )
+                
+                attachment_path = relative_path
+                
+            except Exception as e:
+                logger.error(f"Error saving closure attachment: {e}")
+                # Continuamos con el cierre incluso si falla el adjunto, o podemos fallar aquí?
+                # Por ahora, dejaremos que continúe pero guardamos el error en el log.
+        elif isinstance(closure_attachment, str):
+            attachment_path = closure_attachment
+
         # Call the improved close method with all parameters
         incident.close(
             user=request.user,
             stage=serializer.validated_data['stage'],
             summary=serializer.validated_data['closure_summary'],
-            attachment_path=serializer.validated_data.get('closure_attachment', ''),
+            attachment_path=attachment_path,
             technician_code=serializer.validated_data.get('technician_code')
         )
         
@@ -514,7 +563,7 @@ def close_incident(request, incident_id):
             metadata={
                 'stage': serializer.validated_data['stage'],
                 'closure_summary': serializer.validated_data['closure_summary'],
-                'closure_attachment': serializer.validated_data.get('closure_attachment', ''),
+                'closure_attachment': attachment_path,
                 'closed_at': incident.closed_at.isoformat(),
                 'resolution_time_hours': incident.resolution_time_hours,
                 'sla_breached': incident.sla_breached
@@ -530,7 +579,8 @@ def close_incident(request, incident_id):
                 'closed_at': incident.closed_at,
                 'closed_at_stage': incident.closed_at_stage,
                 'resolution_time_hours': incident.resolution_time_hours,
-                'sla_breached': incident.sla_breached
+                'sla_breached': incident.sla_breached,
+                'attachment': attachment_path
             }
         })
     

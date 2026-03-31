@@ -353,10 +353,10 @@ class IncidentCloseSerializer(serializers.Serializer):
         help_text="Resumen obligatorio de acciones, conclusiones y decisiones tomadas",
         min_length=10
     )
-    closure_attachment = serializers.CharField(
+    closure_attachment = serializers.FileField(
         required=False, 
-        allow_blank=True,
-        help_text="Ruta del archivo adjunto con información de cierre (opcional)"
+        allow_null=True,
+        help_text="Archivo adjunto con información de cierre (opcional)"
     )
     technician_code = serializers.CharField(
         required=False, 

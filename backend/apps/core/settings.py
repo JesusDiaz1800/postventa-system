@@ -433,6 +433,11 @@ AI_OPENAI_MODEL = os.getenv('AI_OPENAI_MODEL', 'gpt-4o')
 AI_ANTHROPIC_MODEL = os.getenv('AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
 AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-2.0-flash')
 
+# --- Ollama Configuration (Local AI) ---
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+OLLAMA_DEFAULT_MODEL = os.getenv('OLLAMA_DEFAULT_MODEL', 'llama3')
+OLLAMA_VISION_MODEL = os.getenv('OLLAMA_VISION_MODEL', 'llama3.2-vision')
+
 
 
 # Suppress Google API key warning

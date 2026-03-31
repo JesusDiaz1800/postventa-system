@@ -9,6 +9,7 @@ import logging
 import hashlib
 import json
 from typing import Dict, Any, Optional, List
+from .ollama_service import OllamaService
 
 # Importación de Google Generative AI (nueva API)
 try:
@@ -109,9 +110,33 @@ class GeminiService:
             
         except Exception as e:
             error_msg = str(e)
-            if "429" in error_msg or "quota" in error_msg.lower():
-                logger.warning(f"Límite de cuota de Gemini alcanzado: {e}")
-                raise PermissionError("GEMINI_QUOTA_EXCEEDED")
+            if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+                logger.warning(f"Límite de cuota de Gemini 2.0 alcanzado. Intentando fallback a Gemini 1.5 Flash...")
+                
+                # Nivel 1: Fallback a Gemini 1.5 Flash (Suele tener cuota independiente o mayor)
+                try:
+                    response = self.client.models.generate_content(
+                        model='gemini-1.5-flash-latest',
+                        contents=prompt,
+                        config=config
+                    )
+                    if use_cache:
+                        self._cache_response(cache_key, response.text)
+                    return response.text
+                except Exception as e15:
+                    logger.warning(f"Gemini 1.5 Flash también falló o sin cuota: {e15}. Intentando fallback final a Ollama Local...")
+                    
+                    # Nivel 2: Fallback a Ollama Local (Gratis e ilimitado)
+                    try:
+                        ollama = OllamaService()
+                        result = ollama.generate_content(prompt)
+                        if use_cache:
+                            self._cache_response(cache_key, result)
+                        return result
+                    except Exception as eo:
+                        logger.error(f"Fallback final a Ollama falló: {eo}")
+                        raise PermissionError("AI_QUOTA_EXCEEDED_ALL_PROVIDERS")
+            
             logger.error(f"Error al generar contenido con Gemini: {e}")
             raise
 
@@ -283,6 +308,20 @@ class GeminiService:
             }
             
         except Exception as e:
+            error_msg = str(e).lower()
+            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
+                logger.warning(f"Cuota Gemini agotada para análisis visual. Intentando con Ollama Local...")
+                try:
+                    ollama = OllamaService()
+                    return ollama.analyze_real_image(
+                        image_files=image_files,
+                        analysis_type=analysis_type,
+                        description=description,
+                        context=context
+                    )
+                except Exception as eo:
+                    logger.error(f"Fallback visual a Ollama falló: {eo}")
+            
             logger.error(f"Error al analizar imágenes reales: {e}")
             return {
                 'success': False,

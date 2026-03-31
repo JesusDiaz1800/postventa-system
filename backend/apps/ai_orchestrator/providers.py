@@ -415,65 +415,102 @@ class GoogleAdapter(AIProviderAdapter):
 
 
 class LocalAdapter(AIProviderAdapter):
-    """Adapter for local AI models (fallback)"""
+    """Adapter for local AI models (fallback) using Ollama"""
     
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
         self.enabled = True  # Local models are always available
+        try:
+            from apps.ai.ollama_service import OllamaService
+            self.ollama = OllamaService()
+        except ImportError:
+            logger.error("OllamaService not found. Standard Local fallback will be used.")
+            self.ollama = None
     
     def is_available(self) -> bool:
-        """Local adapter is always available as fallback"""
+        """Local adapter is always available as fallback if Ollama is accessible"""
         return self.enabled
     
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
-        """Analyze image using local models (basic heuristics)"""
-        try:
-            # Basic image analysis using heuristics
-            analysis_data = {
-                'description': 'Análisis básico de imagen realizado con modelo local',
-                'possible_causes': [
-                    'Posible defecto de fabricación',
-                    'Daño durante transporte o almacenamiento',
-                    'Condiciones de instalación inadecuadas'
-                ],
-                'recommendations': [
-                    'Revisar especificaciones del producto',
-                    'Verificar condiciones de instalación',
-                    'Consultar con técnico especializado'
-                ]
-            }
-            
-            return {
-                'success': True,
-                'data': analysis_data,
-                'tokens_used': 0,
-                'provider': 'local'
-            }
-            
-        except Exception as e:
-            logger.error(f"Local image analysis error: {str(e)}")
-            return {'error': str(e)}
+        """Analyze image using Ollama (Llama 3.2 Vision)"""
+        if self.ollama:
+            try:
+                result = self.ollama.analyze_real_image(
+                    image_files=[image_data],
+                    analysis_type='standard_inspection',
+                    description='Analiza esta imagen industrial e identifica posibles problemas o estados del producto.',
+                )
+                if result.get('success'):
+                    # Transform Ollama result to orchestrator format
+                    analysis = result.get('analysis', {})
+                    return {
+                        'success': True,
+                        'data': {
+                            'description': analysis.get('observations', 'Sin observaciones'),
+                            'possible_causes': analysis.get('possible_causes', []),
+                            'recommendations': analysis.get('recommendations', []),
+                            'severity': analysis.get('severity_level', 'Media')
+                        },
+                        'tokens_used': 0,
+                        'provider': 'ollama-local'
+                    }
+            except Exception as e:
+                logger.error(f"Ollama local analysis failed: {e}")
+
+        # Basic image analysis using heuristics (Final Fallback)
+        analysis_data = {
+            'description': 'Análisis heurístico básico (Ollama no disponible)',
+            'possible_causes': [
+                'Posible defecto de fabricación',
+                'Daño durante transporte o almacenamiento'
+            ],
+            'recommendations': [
+                'Revisar especificaciones del producto',
+                'Consultar con técnico especializado'
+            ]
+        }
+        
+        return {
+            'success': True,
+            'data': analysis_data,
+            'tokens_used': 0,
+            'provider': 'local-heuristics'
+        }
     
     def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate text using local models (basic templates)"""
+        """Generate text using Ollama (Local AI)"""
+        if self.ollama:
+            try:
+                # Use standard generate_content from OllamaService
+                content = self.ollama.generate_content(prompt)
+                if content:
+                    return {
+                        'success': True,
+                        'text': content,
+                        'tokens_used': 0,
+                        'provider': 'ollama-local'
+                    }
+            except Exception as e:
+                logger.error(f"Ollama local text generation failed: {e}")
+
+        # Basic text generation using templates (Final Fallback)
         try:
-            # Basic text generation using templates
             if 'cliente' in prompt.lower():
-                text = "Estimado cliente, hemos revisado la situación reportada y estamos trabajando en una solución."
+                text = "Estimado cliente, hemos revisado la situación reportada y estamos trabajando en una solución (IA Local básica)."
             elif 'proveedor' in prompt.lower():
-                text = "Estimado proveedor, solicitamos su colaboración para revisar el lote mencionado."
+                text = "Estimado proveedor, solicitamos su colaboración para revisar el lote mencionado (IA Local básica)."
             else:
-                text = "Texto generado con modelo local. Se recomienda revisión manual."
+                text = "Respuesta generada por el sistema local de emergencia. Los servicios de IA en la nube no están disponibles actualmente."
             
             return {
                 'success': True,
                 'text': text,
                 'tokens_used': 0,
-                'provider': 'local'
+                'provider': 'local-heuristics'
             }
             
         except Exception as e:
-            logger.error(f"Local text generation error: {str(e)}")
+            logger.error(f"Heuristic fallback generation failed: {str(e)}")
             return {'error': str(e)}
     
     def analyze_document(self, document_text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
