@@ -425,17 +425,13 @@ LOGGING = {
 
 SHARED_DOCUMENTS_PATH = os.getenv('SHARED_DOCUMENTS_PATH', os.path.join(BASE_DIR, 'shared'))
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 # --- AI Model Configurations ---
-AI_OPENAI_MODEL = os.getenv('AI_OPENAI_MODEL', 'gpt-4o')
-AI_ANTHROPIC_MODEL = os.getenv('AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620')
-AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-2.0-flash')
+AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-2.5-flash')
 
 # --- Ollama Configuration (Local AI) ---
-OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_DEFAULT_MODEL = os.getenv('OLLAMA_DEFAULT_MODEL', 'llama3')
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://nb-jdiaz26:11434')
+OLLAMA_DEFAULT_MODEL = os.getenv('OLLAMA_DEFAULT_MODEL', 'llama3:latest')
 OLLAMA_VISION_MODEL = os.getenv('OLLAMA_VISION_MODEL', 'llama3.2-vision')
 
 

@@ -51,252 +51,7 @@ class AIProviderAdapter(ABC):
         return self.enabled and bool(self.api_key)
 
 
-class OpenAIAdapter(AIProviderAdapter):
-    """Adapter for OpenAI API"""
-    
-    def __init__(self, provider_config: dict[str, Any]):
-        super().__init__(provider_config)
-        try:
-            import openai
-            import httpx
-            # Fix for httpx 0.28+ breaking older openai versions due to 'proxies' param removal
-            self.client = openai.OpenAI(
-                api_key=self.api_key,
-                http_client=httpx.Client()
-            )
-        except ImportError:
-            logger.error("OpenAI library not installed")
-            self.client = None
-    
-    def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
-        """Analyze image using OpenAI Vision API"""
-        if not self.client:
-            return {'error': 'OpenAI client not available'}
-        
-        try:
-            import base64
-            base64_image = base64.b64encode(image_data).decode('utf-8')
-            
-            response = self.client.chat.completions.create(
-                model=getattr(settings, 'AI_OPENAI_MODEL', 'gpt-4o'),
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Analiza esta imagen de un producto industrial (tubería, accesorio, llave) y proporciona: 1) Una descripción detallada de lo que ves, 2) Tres posibles causas técnicas del problema observado, ordenadas por probabilidad, 3) Recomendaciones de inspección adicional. Responde en español y en formato JSON."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{image_type};base64,{base64_image}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=1000
-            )
-            
-            content = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens
-            
-            # Try to parse JSON response
-            try:
-                analysis_data = json.loads(content)
-            except json.JSONDecodeError:
-                # If not JSON, create structured response
-                analysis_data = {
-                    'description': content,
-                    'possible_causes': [],
-                    'recommendations': []
-                }
-            
-            return {
-                'success': True,
-                'data': analysis_data,
-                'tokens_used': tokens_used,
-                'provider': 'openai'
-            }
-            
-        except Exception as e:
-            logger.error(f"OpenAI image analysis error: {str(e)}")
-            return {'error': str(e)}
-    
-    def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate text using OpenAI API"""
-        if not self.client:
-            return {'error': 'OpenAI client not available'}
-        
-        try:
-            messages = [{"role": "user", "content": prompt}]
-            
-            response = self.client.chat.completions.create(
-                model=getattr(settings, 'AI_OPENAI_MODEL', 'gpt-4o'),
-                messages=messages,
-                max_tokens=1000
-            )
-            
-            content = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens
-            
-            return {
-                'success': True,
-                'text': content,
-                'tokens_used': tokens_used,
-                'provider': 'openai'
-            }
-            
-        except Exception as e:
-            logger.error(f"OpenAI text generation error: {str(e)}")
-            return {'error': str(e)}
-    
-    def estimate_tokens(self, text: str) -> int:
-        """Estimate token count (rough approximation)"""
-        return len(text.split()) * 1.3  # Rough estimate
 
-
-    def analyze_document(self, document_text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Análisis de documento optimizado para Gemini"""
-        prompt = f"Analiza el siguiente texto de un documento de incidencia y extrae los datos en formato JSON:\n\n{document_text}"
-        return self.generate_text(prompt, context)
-
-    def analyze_file(self, file_bytes: bytes, mime_type: str, document_text: str = "") -> Dict[str, Any]:
-        """Análisis multimodal usando Gemini"""
-        if not self.client:
-            return {'error': 'Gemini client not available'}
-        
-        try:
-            prompt = "Analiza este documento y extrae la información técnica en formato JSON."
-            if document_text:
-                prompt += f"\nContexto del texto extraído:\n{document_text}"
-            
-            content = [
-                {"mime_type": mime_type, "data": file_bytes},
-                prompt
-            ]
-            
-            response = self.client.generate_content(content)
-            return {
-                'success': True,
-                'data': response.text,
-                'provider': 'google'
-            }
-        except Exception as e:
-            if "429" in str(e):
-                from .models import AIProvider
-                try:
-                    p = AIProvider.objects.get(name='google')
-                    next_reset = p.get_next_reset_time().isoformat()
-                except:
-                    next_reset = None
-                return {'error': 'Quota Exceeded', 'code': 429, 'next_reset': next_reset}
-            return {'error': str(e)}
-
-class AnthropicAdapter(AIProviderAdapter):
-    """Adapter for Anthropic Claude API"""
-    
-    def __init__(self, provider_config: dict[str, Any]):
-        super().__init__(provider_config)
-        try:
-            import anthropic
-            import httpx
-            # Fix for httpx 0.28+ breaking older anthropic versions due to 'proxies' param removal
-            self.client = anthropic.Anthropic(
-                api_key=self.api_key,
-                http_client=httpx.Client()
-            )
-        except ImportError:
-            logger.error("Anthropic library not installed")
-            self.client = None
-    
-    def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
-        """Analyze image using Anthropic Claude API"""
-        if not self.client:
-            return {'error': 'Anthropic client not available'}
-        
-        try:
-            import base64
-            base64_image = base64.b64encode(image_data).decode('utf-8')
-            
-            response = self.client.messages.create(
-                model=getattr(settings, 'AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620'),
-                max_tokens=1000,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Analiza esta imagen de un producto industrial (tubería, accesorio, llave) y proporciona: 1) Una descripción detallada de lo que ves, 2) Tres posibles causas técnicas del problema observado, ordenadas por probabilidad, 3) Recomendaciones de inspección adicional. Responde en español y en formato JSON."
-                            },
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": image_type,
-                                    "data": base64_image
-                                }
-                            }
-                        ]
-                    }
-                ]
-            )
-            
-            content = response.content[0].text
-            tokens_used = response.usage.input_tokens + response.usage.output_tokens
-            
-            # Try to parse JSON response
-            try:
-                analysis_data = json.loads(content)
-            except json.JSONDecodeError:
-                analysis_data = {
-                    'description': content,
-                    'possible_causes': [],
-                    'recommendations': []
-                }
-            
-            return {
-                'success': True,
-                'data': analysis_data,
-                'tokens_used': tokens_used,
-                'provider': 'anthropic'
-            }
-            
-        except Exception as e:
-            logger.error(f"Anthropic image analysis error: {str(e)}")
-            return {'error': str(e)}
-    
-    def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate text using Anthropic Claude API"""
-        if not self.client:
-            return {'error': 'Anthropic client not available'}
-        
-        try:
-            response = self.client.messages.create(
-                model=getattr(settings, 'AI_ANTHROPIC_MODEL', 'claude-3-5-sonnet-20240620'),
-                max_tokens=1000,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            content = response.content[0].text
-            tokens_used = response.usage.input_tokens + response.usage.output_tokens
-            
-            return {
-                'success': True,
-                'text': content,
-                'tokens_used': tokens_used,
-                'provider': 'anthropic'
-            }
-            
-        except Exception as e:
-            logger.error(f"Anthropic text generation error: {str(e)}")
-            return {'error': str(e)}
-    
-    def estimate_tokens(self, text: str) -> int:
-        """Estimate token count (rough approximation)"""
-        return len(text.split()) * 1.3
 
 
 class GoogleAdapter(AIProviderAdapter):
@@ -304,112 +59,86 @@ class GoogleAdapter(AIProviderAdapter):
     
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
-        try:
-            from google import genai
-            self.client = genai.Client(
-                api_key=self.api_key,
-                http_options={'api_version': 'v1'}
-            )
-            self.model_name = getattr(settings, 'AI_GOOGLE_MODEL', 'gemini-2.0-flash')
-        except ImportError:
-            logger.error("Google GenAI SDK not installed")
-            self.client = None
+        self._service = None
+        
+    @property
+    def service(self):
+        """Lazy load GeminiService"""
+        if self._service is None:
+            try:
+                from apps.ai.gemini_service import get_gemini_service
+                self._service = get_gemini_service()
+            except Exception as e:
+                logger.error(f"Failed to initialize GeminiService: {e}")
+        return self._service
+
     
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
-        """Analyze image using Google Gemini API"""
-        if not self.client:
-            return {'error': 'Google Gemini client not available'}
+        """Analyze image using unified GeminiService"""
+        service = self.service
+        if not service:
+            return {'error': 'GeminiService not available'}
         
         try:
-            import io
-            from PIL import Image
-            from google.genai import types
-            
-            # Optimization: Resize image to max 1024px
-            image = Image.open(io.BytesIO(image_data))
-            if max(image.size) > 1024:
-                image.thumbnail((1024, 1024))
-            
-            # Optimization: Compact prompt to save tokens
-            prompt = """
-            Rol: Auditor Calidad Industrial. Tarea: Análisis técnico imagen. Formato: JSON.
-            JSON Schema:
-            {
-                "description": "Descripción técnica (materiales, anomalías)",
-                "possible_causes": ["Causa 1", "Causa 2", "Causa 3"],
-                "recommendations": ["Acción 1", "Acción 2", "Norma"]
-            }
-            Restricciones: Sin saludos. Vocabulario técnico preciso.
-            """
-            
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=[prompt, image],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
+            # We use the advanced analyze_real_image for better results
+            result = service.analyze_real_image(
+                image_files=[image_data],
+                analysis_type='orchestrator_inspection',
+                description='Análisis técnico detallado de la imagen para auditoría de calidad.'
             )
             
-            content = response.text
-            tokens_used = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
-            
-            # Try to parse JSON response
-            try:
-                analysis_data = json.loads(content)
-            except json.JSONDecodeError:
-                analysis_data = {
-                    'description': content,
-                    'possible_causes': [],
-                    'recommendations': []
+            if result.get('success'):
+                # Map GeminiService format to Orchestrator format
+                analysis = result.get('analysis', {})
+                return {
+                    'success': True,
+                    'data': {
+                        'description': analysis.get('observations', 'Sin observaciones'),
+                        'possible_causes': analysis.get('possible_causes', []),
+                        'recommendations': analysis.get('recommendations', []),
+                        'severity': analysis.get('severity_level', 'Media')
+                    },
+                    'tokens_used': result.get('tokens_used', 2000),
+                    'provider': 'google'
                 }
             
-            return {
-                'success': True,
-                'data': analysis_data,
-                'tokens_used': tokens_used,
-                'provider': 'google'
-            }
+            return {'error': result.get('error', 'Error en el análisis de imagen')}
             
         except Exception as e:
-            # Check for Quota Error (429) via message string or attribute
             error_msg = str(e).lower()
             if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
-                 logger.warning("Gemini Quota Exceeded (429).")
                  return {'error': 'Quota Exceeded', 'code': 429}
-                 
-            logger.error(f"Google Gemini image analysis error: {str(e)}")
+            logger.error(f"Google Gemini analysis error: {str(e)}")
             return {'error': str(e)}
+
     
     def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate text using Google Gemini API"""
-        if not self.client:
-            return {'error': 'Google Gemini client not available'}
+        """Generate text using simplified generate_content from GeminiService"""
+        service = self.service
+        if not service:
+            return {'error': 'GeminiService not available'}
         
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            content = response.text
-            tokens_used = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
+            # GeminiService.generate_content handles cache and fallbacks internally
+            content = service.generate_content(prompt, use_cache=True)
             
             return {
                 'success': True,
                 'text': content,
-                'tokens_used': tokens_used,
+                'tokens_used': len(content) // 4, # Rough estimate
                 'provider': 'google'
             }
             
         except Exception as e:
-            # Check for Quota Error (429)
             error_msg = str(e).lower()
             if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
                  return {'error': 'Quota Exceeded', 'code': 429}
-
+            
             logger.error(f"Google Gemini text generation error: {str(e)}")
             return {'error': str(e)}
-    
+
     def estimate_tokens(self, text: str) -> int:
+
         """Estimate token count (rough approximation)"""
         return len(text.split()) * 1.3
 
@@ -428,8 +157,8 @@ class LocalAdapter(AIProviderAdapter):
             self.ollama = None
     
     def is_available(self) -> bool:
-        """Local adapter is always available as fallback if Ollama is accessible"""
-        return self.enabled
+        """Local adapter is always available as the ultimate fallback"""
+        return True
     
     def analyze_image(self, image_data: bytes, image_type: str) -> Dict[str, Any]:
         """Analyze image using Ollama (Llama 3.2 Vision)"""
@@ -482,7 +211,8 @@ class LocalAdapter(AIProviderAdapter):
         if self.ollama:
             try:
                 # Use standard generate_content from OllamaService
-                content = self.ollama.generate_content(prompt)
+                # Increment timeout for local generation under load
+                content = self.ollama.generate_content(prompt, timeout=90)
                 if content:
                     return {
                         'success': True,
@@ -565,7 +295,13 @@ class AIOrchestrator:
             # Get providers from database
             db_providers = AIProvider.objects.filter(enabled=True).order_by('priority')
             
+            if not db_providers.exists():
+                from apps.core.thread_local import get_current_country
+                country = get_current_country() or 'default'
+                logger.warning(f"No explicit AI providers found in DB ({country}), using defaults.")
+                
             for provider in db_providers:
+
                 logger.debug(f"Loading provider: {provider.name}")
                 config = {
                     'name': provider.name,
@@ -575,11 +311,7 @@ class AIOrchestrator:
                 }
                 
                 try:
-                    if provider.name == 'openai':
-                        self.providers['openai'] = OpenAIAdapter(config)
-                    elif provider.name == 'anthropic':
-                        self.providers['anthropic'] = AnthropicAdapter(config)
-                    elif provider.name == 'google':
+                    if provider.name == 'google':
                         self.providers['google'] = GoogleAdapter(config)
                     elif provider.name == 'local':
                         self.providers['local'] = LocalAdapter(config)
@@ -589,6 +321,16 @@ class AIOrchestrator:
         except Exception as e:
             # Silently fail if DB is not ready (e.g. during migrations)
             logger.warning(f"AI Providers could not be loaded: {e}")
+        
+        # ENSURE LOCAL FALLBACK: Always have a local provider as last resort
+        if 'local' not in self.providers:
+            logger.info("Initializing default local fallback provider")
+            self.providers['local'] = LocalAdapter({
+                'name': 'local',
+                'api_key': '',
+                'enabled': True,
+                'priority': 99
+            })
 
     def analyze_document(self, document_text: str, file_bytes: bytes = None, mime_type: str = None) -> Dict[str, Any]:
         """
@@ -607,7 +349,7 @@ class AIOrchestrator:
                     logger.warning("Gemini Quota Exceeded. Falling back to text-based analysis with other providers.")
 
         # 2. Fallback a análisis basado en texto con otros proveedores (incluyendo Gemini si solo falló multimodal)
-        for name in ['openai', 'anthropic', 'google', 'local']:
+        for name in ['google', 'local']:
             if name not in self.providers:
                 continue
             
@@ -718,12 +460,13 @@ class AIOrchestrator:
         
         # If all providers failed, return error
         return {
-            'error': 'Todos los proveedores de IA no están disponibles. Intente nuevamente más tarde.',
+            'success': False,
+            'error': 'Capacidad de IA agotada o servicios no disponibles localmente.',
             'processing_time': time.time() - start_time
         }
     
     def generate_text(self, prompt: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Generate text using available providers"""
+        """Generate text using available providers with robust error handling"""
         start_time = time.time()
         quota_warning = None
         
@@ -738,14 +481,15 @@ class AIOrchestrator:
                 try:
                     db_provider = AIProvider.objects.get(name=provider_name)
                     if not db_provider.has_quota():
-                        logger.warning(f"Provider {provider_name} quota exceeded")
+                        logger.warning(f"Provider {provider_name} quota exceeded in DB check")
                         if not quota_warning:
                             quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
                         continue
                 except AIProvider.DoesNotExist:
-                    continue
+                    pass
             
             try:
+                logger.info(f"AI Orchestrator: Generating text with {provider_name}...")
                 result = provider.generate_text(prompt, context)
                 
                 if result.get('success'):
@@ -758,7 +502,8 @@ class AIOrchestrator:
                         try:
                             db_provider = AIProvider.objects.get(name=provider_name)
                             db_provider.consume_quota(result['tokens_used'])
-                        except AIProvider.DoesNotExist:
+                        except Exception as quota_err:
+                            logger.error(f"Error updating quota for {provider_name}: {quota_err}")
                             pass
 
                     # Inject warning if we are in local mode but had quota failures
@@ -766,6 +511,7 @@ class AIOrchestrator:
                         if 'text' in result:
                             result['text'] += f"\n\n[{quota_warning}]"
                     
+                    logger.info(f"AI Orchestrator: Text generated successfully with {provider_name} in {processing_time:.2f}s")
                     return result
                 
                 # Handle Explicit Quota Error from Adapter
@@ -773,16 +519,21 @@ class AIOrchestrator:
                     logger.warning(f"Provider {provider_name} returned Quota Exceeded (429)")
                     if not quota_warning:
                         quota_warning = "⚠️ Sistema operando con capacidad reducida (Cuota IA agotada). Respuesta generada localmente."
+                else:
+                    logger.error(f"Provider {provider_name} returned error status: {result.get('error')}")
                 
             except Exception as e:
-                logger.error(f"Provider {provider_name} failed: {str(e)}")
+                logger.error(f"Provider {provider_name} failed with unhandled exception: {str(e)}", exc_info=True)
                 continue
         
-        # If all providers failed, return error
+        # Final fallback error if everything failed
+        logger.error("AI Orchestrator: All providers failed to generate text.")
         return {
-            'error': 'Todos los proveedores de IA no están disponibles. Intente nuevamente más tarde.',
+            'success': False,
+            'error': 'Generación de texto fallida (Servicios fuera de línea o sin cuota).',
             'processing_time': time.time() - start_time
         }
+
     
     def get_provider_status(self) -> List[Dict[str, Any]]:
         """Get status of all providers"""

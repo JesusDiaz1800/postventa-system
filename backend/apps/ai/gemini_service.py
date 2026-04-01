@@ -45,12 +45,11 @@ class GeminiService:
             logger.warning("GEMINI_API_KEY no configurada. El servicio funcionará pero fallará al generar contenido.")
             self.client = None
         else:
-            # Configurar el cliente con la nueva API
+            # Configurar el cliente con la nueva API (dejando que el SDK elija la mejor versión)
             self.client = genai.Client(
-                api_key=self.api_key,
-                http_options={'api_version': 'v1'}
+                api_key=self.api_key
             )
-            logger.info("GeminiService inicializado correctamente con google.genai (API v1)")
+            logger.info("GeminiService inicializado correctamente con google.genai")
         
         self.cache_timeout = 3600  # 1 hora de cache
 
@@ -109,22 +108,22 @@ class GeminiService:
             return response.text
             
         except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
-                logger.warning(f"Límite de cuota de Gemini 2.0 alcanzado. Intentando fallback a Gemini 1.5 Flash...")
+            error_msg = str(e).lower()
+            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg or "404" in error_msg:
+                logger.warning(f"Límite o Error Gemini. Intentando fallback Nivel 1: Gemini 2.0 Flash Lite...")
                 
-                # Nivel 1: Fallback a Gemini 1.5 Flash (Suele tener cuota independiente o mayor)
+                # Nivel 1: Fallback a Gemini 2.0 Flash Lite
                 try:
                     response = self.client.models.generate_content(
-                        model='gemini-1.5-flash-latest',
+                        model='gemini-2.0-flash-lite',
                         contents=prompt,
                         config=config
                     )
                     if use_cache:
                         self._cache_response(cache_key, response.text)
                     return response.text
-                except Exception as e15:
-                    logger.warning(f"Gemini 1.5 Flash también falló o sin cuota: {e15}. Intentando fallback final a Ollama Local...")
+                except Exception as e_fb1:
+                    logger.warning(f"Gemini 2.0 Flash Lite también falló o sin cuota: {e_fb1}. Intentando fallback final a Ollama Local...")
                     
                     # Nivel 2: Fallback a Ollama Local (Gratis e ilimitado)
                     try:
@@ -309,18 +308,49 @@ class GeminiService:
             
         except Exception as e:
             error_msg = str(e).lower()
-            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg:
-                logger.warning(f"Cuota Gemini agotada para análisis visual. Intentando con Ollama Local...")
+            if "429" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg or "404" in error_msg:
+                logger.warning(f"Límite o Error Gemini. Intentando fallback Nivel 1: Gemini 2.0 Flash Lite...")
                 try:
-                    ollama = OllamaService()
-                    return ollama.analyze_real_image(
-                        image_files=image_files,
-                        analysis_type=analysis_type,
-                        description=description,
-                        context=context
+                    # Configurar parámetros de generación para el fallback
+                    config_fallback = types.GenerateContentConfig(
+                        temperature=1.0,
+                        max_output_tokens=2048
                     )
-                except Exception as eo:
-                    logger.error(f"Fallback visual a Ollama falló: {eo}")
+                    
+                    # Usar el modelo 2.0 Flash Lite
+                    response_fallback = self.client.models.generate_content(
+                        model='gemini-2.0-flash-lite',
+                        contents=image_parts + [prompt],
+                        config=config_fallback
+                    )
+                    
+                    # Procesar respuesta del fallback (igual que el flujo principal)
+                    text_fallback = response_fallback.text.strip()
+                    if text_fallback.startswith('```'):
+                        text_fallback = text_fallback.replace('```json', '').replace('```', '').strip()
+                    
+                    analysis_fallback = json.loads(text_fallback)
+                    
+                    return {
+                        'success': True,
+                        'analysis': analysis_fallback,
+                        'confidence_score': 0.85,
+                        'processing_time': round(time.time() - start_time, 2),
+                        'model_used': 'gemini-2.0-flash-lite',
+                        'analysis_id': analysis_id + "-fb1"
+                    }
+                except Exception as e_fb:
+                    logger.warning(f"Fallback Nivel 1 (2.0 Lite) también falló o sin cuota: {e_fb}. Pasando a Ollama Local...")
+                    try:
+                        ollama = OllamaService()
+                        return ollama.analyze_real_image(
+                            image_files=image_files,
+                            analysis_type=analysis_type,
+                            description=description,
+                            context=context
+                        )
+                    except Exception as eo:
+                        logger.error(f"Fallback final a Ollama falló: {eo}")
             
             logger.error(f"Error al analizar imágenes reales: {e}")
             return {

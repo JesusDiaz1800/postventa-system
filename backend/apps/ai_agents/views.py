@@ -68,6 +68,7 @@ def agent_query(request):
             'reasoning': result['reasoning'],
             'iterations': result['iterations'],
             'analysis_data': result.get('analysis_data'),
+            'engine_provider': result.get('engine_provider', 'unknown'),
         })
         
     except Exception as e:

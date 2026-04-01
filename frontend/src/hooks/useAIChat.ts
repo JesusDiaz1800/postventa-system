@@ -1,6 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
 import { api, aiAgentsAPI } from '../services/api';
 
+export type EngineProvider =
+  | 'google'
+  | 'openai'
+  | 'anthropic'
+  | 'ollama-local'
+  | 'local-heuristics'
+  | 'local'
+  | 'unknown';
+
 export interface ChatMessage {
     id: string;
     role: 'user' | 'assistant' | 'system';
@@ -13,6 +22,7 @@ export interface ChatMessage {
         analysisData?: any;
         reportHtml?: string;
         sources?: string[];
+        engineProvider?: EngineProvider;
     };
 }
 
@@ -28,6 +38,7 @@ interface UseAIChatReturn {
     refreshHistory: () => void;
     provider: 'Gemini' | 'Ollama';
     setProvider: (provider: 'Gemini' | 'Ollama') => void;
+    lastEngineProvider: EngineProvider;
 }
 
 export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatReturn => {
@@ -36,6 +47,7 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
     const [error, setError] = useState<string | null>(null);
     const [lastAnalysisData, setLastAnalysisData] = useState<any | null>(null);
     const [provider, setProvider] = useState<'Gemini' | 'Ollama'>('Gemini');
+    const [lastEngineProvider, setLastEngineProvider] = useState<EngineProvider>('unknown');
 
     // Load from storage on mount
     useEffect(() => {
@@ -47,7 +59,12 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
                 // Try to recover last analysis data from history
                 const lastAssistantMsg = [...parsed].reverse().find((m: ChatMessage) => m.role === 'assistant' && m.metadata?.analysisData);
                 if (lastAssistantMsg) {
-                    setLastAnalysisData(lastAssistantMsg.metadata.analysisData);
+                    setLastAnalysisData(lastAssistantMsg.metadata!.analysisData);
+                }
+                // Recover last engine provider
+                const lastMsg = [...parsed].reverse().find((m: ChatMessage) => m.role === 'assistant' && m.metadata?.engineProvider);
+                if (lastMsg) {
+                    setLastEngineProvider(lastMsg.metadata!.engineProvider as EngineProvider);
                 }
             } else {
                 setMessages([{
@@ -63,13 +80,10 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
     }, [storageKey]);
 
     // Save to storage on change
-    // Save to storage on change
     useEffect(() => {
         if (messages.length > 0) {
             try {
-                // Optimization: Create a clean copy for storage
-                // 1. Strip base64 image previews (too large for localStorage)
-                // 2. Keep only the last 50 messages to stay within limits
+                // Strip base64 image previews (too large) and keep last 50 messages
                 const messagesToSave = messages.slice(-50).map(msg => ({
                     ...msg,
                     metadata: {
@@ -79,19 +93,17 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
                 }));
                 localStorage.setItem(storageKey, JSON.stringify(messagesToSave));
             } catch (e) {
-                console.warn("LocalStorage quota exceeded, attempting to save minimal history...", e);
+                console.warn("LocalStorage quota exceeded, attempting minimal save...", e);
                 try {
-                    // Fallback: Save only last 10 text-only messages
                     const minimalMessages = messages.slice(-10).map(msg => ({
                         id: msg.id,
                         role: msg.role,
                         content: msg.content,
                         timestamp: msg.timestamp,
-                        // Strip all metadata in worst case
                     }));
                     localStorage.setItem(storageKey, JSON.stringify(minimalMessages));
                 } catch (retryError) {
-                    console.error("Critical storage error: could not save chat history.", retryError);
+                    console.error("Critical storage error.", retryError);
                 }
             }
         }
@@ -122,27 +134,29 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
                 reader.readAsDataURL(file);
             }));
             userMessage.metadata!.imagePreviews = await Promise.all(promises);
-            // Default text if empty
-            if (!userMessage.content) userMessage.content = `[${files.length} Imágenes adjuntas]`;
+            if (!userMessage.content) userMessage.content = `[${files.length} Imágen${files.length > 1 ? 'es' : ''} adjunta${files.length > 1 ? 's' : ''}]`;
         }
 
         setMessages(prev => [...prev, userMessage]);
 
         try {
-            let responseData;
+            let responseData: any;
 
             if (files.length > 0) {
-                // Image Analysis (Multi-image) using standard API
+                // Image Analysis — uses analyze-image endpoint
                 const result = await aiAgentsAPI.analyzeImage(files, content, provider);
                 responseData = result.data;
             } else {
-                // Text Query
-                const result = await aiAgentsAPI.query({ 
+                // Text Query — uses query endpoint
+                const result = await aiAgentsAPI.query({
                     query: content,
-                    provider: provider 
+                    provider: provider
                 });
                 responseData = result.data;
             }
+
+            const engineProvider = (responseData.engine_provider ?? 'unknown') as EngineProvider;
+            setLastEngineProvider(engineProvider);
 
             // Process Assistant Response
             const assistantMessage: ChatMessage = {
@@ -154,7 +168,8 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
                     confidence: responseData.confidence,
                     reasoning: responseData.reasoning,
                     sources: responseData.sources,
-                    analysisData: responseData.analysis_data // Store structured data for reports
+                    analysisData: responseData.analysis_data,
+                    engineProvider: engineProvider,
                 }
             };
 
@@ -163,18 +178,21 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
 
         } catch (err: any) {
             console.error("AI Error:", err);
-            const errorMsg = err.response?.data?.error || err.message || "Error de conexión";
+            let errorMsg = err.response?.data?.error || err.message || "Error de conexión";
+            if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                errorMsg = "⏳ El análisis técnico es complejo y está tomando más tiempo de lo esperado. Por favor, reintenta en unos momentos.";
+            }
             setError(errorMsg);
             setMessages(prev => [...prev, {
                 id: crypto.randomUUID(),
                 role: 'assistant',
-                content: `Error: ${errorMsg}`,
+                content: `❌ ${errorMsg}`,
                 timestamp: new Date().toISOString()
             }]);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [provider]);
 
     const generateReport = useCallback(async () => {
         if (!lastAnalysisData && messages.length < 2) {
@@ -186,7 +204,7 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
         try {
             const payload = {
                 analysis_data: lastAnalysisData,
-                chat_history: messages.slice(-10) // Send context
+                chat_history: messages.slice(-10)
             };
 
             const response = await aiAgentsAPI.generateReport(payload);
@@ -220,6 +238,7 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
             timestamp: new Date().toISOString()
         }]);
         setLastAnalysisData(null);
+        setLastEngineProvider('unknown');
         localStorage.removeItem(storageKey);
     }, [storageKey]);
 
@@ -245,6 +264,7 @@ export const useAIChat = (storageKey: string = 'ai_chat_history_v3'): UseAIChatR
         setLastAnalysisData,
         refreshHistory,
         provider,
-        setProvider
+        setProvider,
+        lastEngineProvider,
     };
 };

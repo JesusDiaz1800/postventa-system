@@ -57,7 +57,7 @@ class OllamaService:
                 "stream": False
             }
 
-            response = requests.post(url, json=payload, timeout=120)
+            response = requests.post(url, json=payload, timeout=180)
             response.raise_for_status()
             return response.json().get('response', '')
         except Exception as e:
@@ -95,14 +95,14 @@ class OllamaService:
                 else:
                     continue
 
-                # Optimizar imagen para Ollama (Base64)
+                # Optimizar imagen para Ollama (Base64) - Redimensionamiento agresivo para velocidad
                 pil_image = Image.open(io.BytesIO(image_data))
                 if pil_image.mode != 'RGB':
                     pil_image = pil_image.convert('RGB')
                 
-                # Redimensionar ligeramente para velocidad si es necesario
-                if pil_image.width > 1280 or pil_image.height > 1280:
-                    pil_image.thumbnail((1280, 1280))
+                # Redimensionar a 800px max para que el PC local no sufra
+                if pil_image.width > 800 or pil_image.height > 800:
+                    pil_image.thumbnail((800, 800))
                 
                 img_byte_arr = io.BytesIO()
                 pil_image.save(img_byte_arr, format='JPEG', quality=80)
@@ -129,7 +129,7 @@ class OllamaService:
                 "stream": False
             }
 
-            logger.info(f"Enviando {len(image_bases64)} imágenes a Ollama Local ({model})")
+            logger.info(f"Enviando {len(image_bases64)} imágenes a Ollama Local ({model}) - Timeout 180s")
             response = requests.post(url, json=payload, timeout=180)
             response.raise_for_status()
             

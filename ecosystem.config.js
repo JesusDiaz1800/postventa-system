@@ -33,6 +33,7 @@ module.exports = {
             env: {
                 DJANGO_SETTINGS_MODULE: "apps.core.settings",
                 PYTHONUNBUFFERED: "1",
+                PATH: "C:\\Users\\jdiaz\\Desktop\\postventa-system;C:\\Users\\jdiaz\\Desktop\\postventa-system\\python312\\Scripts;" + process.env.PATH,
             },
 
             // Logging

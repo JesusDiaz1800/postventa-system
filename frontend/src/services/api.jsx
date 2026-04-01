@@ -24,7 +24,7 @@ export const API_ORIGIN = (() => {
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 seconds timeout for production stability
+  timeout: 120000, // 120 seconds timeout for long-running AI tasks
   headers: {}, // Removed default Content-Type: application/json
 });
 

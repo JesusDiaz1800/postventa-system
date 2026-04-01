@@ -8,10 +8,8 @@ class AIProvider(models.Model):
     Model for AI provider configuration and quota management
     """
     PROVIDER_CHOICES = [
-        ('openai', 'OpenAI'),
-        ('anthropic', 'Anthropic'),
         ('google', 'Google Gemini'),
-        ('local', 'Modelo Local'),
+        ('local', 'Modelo Local (Ollama)'),
     ]
     
     name = models.CharField(

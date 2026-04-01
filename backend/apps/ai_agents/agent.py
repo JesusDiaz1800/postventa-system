@@ -50,6 +50,7 @@ class AgentState(TypedDict):
     response: str
     confidence: float
     sources: List[str]
+    engine_provider: str  # 'google', 'ollama-local', 'local-heuristics', etc.
     
     # Control
     current_step: str
@@ -302,7 +303,9 @@ class PostventaAgent:
     # -------------------------------------------------------------------------
     def node_analyze_image(self, state: AgentState) -> AgentState:
         """Analyze images using Gemini Service"""
-        logger.info("[Agent] Analyzing images...")
+        import time
+        start_t = time.time()
+        logger.info(f"[Agent] [STEP: AnalyzeImage] Starting analysis of {len(state.get('images', []))} images...")
         
         if not state.get('images'):
             state['analysis_result'] = "No image provided for analysis"
@@ -315,8 +318,6 @@ class PostventaAgent:
             gemini = get_gemini_service()
             
             if gemini:
-                logger.info(f"[Agent] Sending {len(state['images'])} images to GeminiService")
-                
                 # GeminiService.analyze_real_image expects list of bytes or file-like objects
                 result = gemini.analyze_real_image(
                     image_files=state['images'],
@@ -335,21 +336,26 @@ class PostventaAgent:
                     except:
                         state['analysis_result'] = str(analysis_data)
                         
-                    state['reasoning'] += f" | {len(state['images'])} images analyzed successfully"
+                    elapsed = time.time() - start_t
+                    state['reasoning'] += f" | {len(state['images'])} images analyzed in {elapsed:.2f}s"
+                    logger.info(f"[Agent] [STEP: AnalyzeImage] Completed successfully in {elapsed:.2f}s")
                 else:
                     state['analysis_result'] = f"Analysis failed: {result.get('error')}"
                     state['error'] = result.get('error')
+                    logger.warning(f"[Agent] [STEP: AnalyzeImage] Failed: {result.get('error')}")
             else:
                 state['analysis_result'] = "Gemini Service not available"
+                logger.error("[Agent] [STEP: AnalyzeImage] Gemini Service not available")
                 
         except Exception as e:
-            logger.error(f"Image analysis error: {e}")
+            logger.error(f"[Agent] [STEP: AnalyzeImage] Exception: {e}", exc_info=True)
             state['analysis_result'] = f"Error analyzing image: {str(e)}"
             state['error'] = str(e)
         
         state['current_step'] = 'generate_response'
         state['iterations'] += 1
         return state
+
 
     # -------------------------------------------------------------------------
     # Node: Consult NotebookLM
@@ -411,7 +417,9 @@ class PostventaAgent:
     # -------------------------------------------------------------------------
     def node_generate_response(self, state: AgentState) -> AgentState:
         """Generate the final response using all gathered information"""
-        logger.info("[Agent] Generating response...")
+        import time
+        start_t = time.time()
+        logger.info("[Agent] [STEP: GenerateResponse] Starting response generation...")
         
         # Build context from gathered information
         context_parts = []
@@ -420,7 +428,8 @@ class PostventaAgent:
             context_parts.append("INFORMACIÓN DE BASE DE CONOCIMIENTO (Prioritaria):")
             for i, result in enumerate(state['knowledge_results'], 1):
                 context_parts.append(f"Fuente: {result.get('source')}\nContenido: {result['content']}\n")
-                state['sources'].append(result.get('source', 'Base de conocimiento'))
+                if result.get('source') not in state['sources']:
+                    state['sources'].append(result.get('source', 'Base de conocimiento'))
         
         if state.get('analysis_result'):
             context_parts.append(f"ANÁLISIS TÉCNICO DE IMAGEN (Estructurado):\n{state['analysis_result']}")
@@ -455,39 +464,51 @@ Instrucciones de Respuesta:
     * Conclusión / Siguiente paso sugerido.
 - Si no sabes la respuesta y no hay contexto, indícalo honestamente y sugiere consultar a un experto de área.
 """
-                result = self.provider_manager.generate_text(
-                    prompt
-                )
+                # The orchestrator handles multiple providers and timeouts
+                result = self.provider_manager.generate_text(prompt)
                 
-                logger.info(f"[Agent] Generate text result type: {type(result)}")
+                elapsed = time.time() - start_t
+                engine_provider = 'unknown'
+                response_text = ""
                 
-                # Robust handling of response types
+                # Robust handling of response types from unified AI Orchestrator
                 if isinstance(result, str):
                     response_text = result
                 elif isinstance(result, dict):
-                    response_text = result.get('generated_text') or result.get('text')
-                    if not response_text:
-                        # Fallback: if no expected keys, dump the whole dict as string
-                        logger.warning(f"[Agent] Unexpected dict structure: {result.keys()}")
-                        response_text = str(result)
-                else:
-                    response_text = str(result) if result is not None else "No se pudo generar respuesta"
-                    
+                    engine_provider = result.get('provider', 'unknown')
+                    if result.get('success') is False:
+                        error_msg = result.get('error', 'Error desconocido')
+                        logger.error(f"[Agent] [STEP: GenerateResponse] Orchestrator error: {error_msg}")
+                        response_text = f"Lo siento, el servicio de IA está experimentando dificultades técnicas ({error_msg})."
+                    else:
+                        response_text = result.get('text') or result.get('generated_text')
+                
+                if not response_text:
+                    logger.warning(f"[Agent] [STEP: GenerateResponse] Empty response from provider {engine_provider}")
+                    response_text = "No se pudo generar una respuesta válida. Por favor, intente con una consulta más específica."
+                
                 state['response'] = response_text
-                state['confidence'] = 0.85
+                # Confidence lower for local/heuristic providers
+                is_local = engine_provider in ('ollama-local', 'local-heuristics', 'local')
+                state['confidence'] = 0.70 if is_local else 0.88
+                state['engine_provider'] = engine_provider
+                
+                logger.info(f"[Agent] [STEP: GenerateResponse] Completed via {engine_provider} in {elapsed:.2f}s")
             else:
-                state['response'] = "El servicio de IA no está disponible en este momento."
+                logger.error("[Agent] [STEP: GenerateResponse] Provider Manager not available")
+                state['response'] = "El servicio de IA no está configurado correctamente."
                 state['confidence'] = 0.0
                 
         except Exception as e:
-            logger.error(f"Response generation error: {e}")
-            state['response'] = f"Error al generar respuesta: {str(e)}"
+            logger.error(f"[Agent] [STEP: GenerateResponse] Exception: {e}", exc_info=True)
+            state['response'] = f"Error crítico al generar respuesta: {str(e)}"
             state['confidence'] = 0.0
             state['error'] = str(e)
         
         state['current_step'] = 'done'
         state['iterations'] += 1
         return state
+
     
     # -------------------------------------------------------------------------
     # Main Execution
@@ -521,6 +542,7 @@ Instrucciones de Respuesta:
             'current_step': 'understand',
             'error': None,
             'iterations': 0,
+            'engine_provider': 'unknown',
         }
         
         # Node routing
@@ -549,6 +571,7 @@ Instrucciones de Respuesta:
             'reasoning': state['reasoning'],
             'iterations': state['iterations'],
             'analysis_data': state.get('analysis_data'),
+            'engine_provider': state.get('engine_provider', 'unknown'),
             'error': state['error'],
         }
 
