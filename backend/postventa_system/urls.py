@@ -24,9 +24,6 @@ urlpatterns = [
         path('api/notifications/', include('apps.notifications.urls')),
     path('api/integrations/', include('apps.integrations.urls')),
     path('api/sap/', include('apps.sap_integration.urls')),
-    # path('api/advanced-reports/', include('apps.advanced_reports.urls')),
-    # path('api/backup/', include('apps.backup.urls')),
-    # path('api/monitoring/', include('apps.monitoring.urls')),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

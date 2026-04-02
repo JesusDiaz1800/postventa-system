@@ -7,7 +7,6 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
-from apps.core.filters import SmartSearchFilter
 from django.http import FileResponse
 import logging
 import os
@@ -29,9 +28,9 @@ from .permissions import CanManageIncidents, CanViewIncidents
 class IncidentListCreateView(generics.ListCreateAPIView):
     """List and create incidents"""
     permission_classes = [permissions.IsAuthenticated, CanViewIncidents]
-    filter_backends = [DjangoFilterBackend, SmartSearchFilter, OrderingFilter]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = IncidentFilter
-    search_fields = ['code', 'cliente', 'provider', 'obra', 'sku', 'lote']
+    search_fields = ['code', 'cliente', 'provider', 'obra', 'lote', 'categoria__name', 'subcategoria']
     ordering_fields = ['created_at', 'fecha_reporte', 'fecha_deteccion', 'prioridad', 'estado']
     ordering = ['-fecha_deteccion', '-created_at']  # Primero por fecha de detección, luego por creación
     
@@ -812,7 +811,7 @@ def incident_dashboard(request):
 def global_search(request):
     """
     Búsqueda global multi-tipo para el componente GlobalSearch del frontend.
-    Busca en Incidencias, Reportes de Visita, Reportes de Calidad y Reportes de Proveedor.
+    Busca en Incidencias, Usuarios y diversos reportes del sistema.
     Acepta: ?q=<query>
     """
     q = request.GET.get('q', '').strip()
@@ -820,43 +819,56 @@ def global_search(request):
         return Response({'results': []})
 
     results = []
-    limit_each = 5  # Máximo 5 por tipo
+    limit_each = 8  # Aumentamos ligeramente el límite por tipo
 
-    # Incidencias
+    # 1. Incidencias (Prioridad Máxima)
     try:
+        sap_filter = Q()
+        if q.isdigit():
+            # Si es número, priorizamos coincidencias exactas en campos SAP
+            sap_filter = Q(sap_doc_num__icontains=q) | Q(sap_call_id__icontains=q)
+
         incidents = Incident.objects.filter(
-            Q(code__icontains=q) | Q(cliente__icontains=q) | Q(obra__icontains=q) | Q(sku__icontains=q)
-        ).order_by('-created_at')[:limit_each]
+            Q(code__icontains=q) | 
+            Q(cliente__icontains=q) | 
+            Q(obra__icontains=q) |
+            Q(cliente_rut__icontains=q) |
+            Q(subcategoria__icontains=q) |
+            Q(categoria__name__icontains=q) |
+            Q(descripcion__icontains=q) |
+            sap_filter
+        ).select_related('categoria').distinct().order_by('-created_at')[:limit_each]
+
         for inc in incidents:
             results.append({
                 'id': inc.id,
                 'type': 'incident',
+                'category': 'Expedientes de Incidencia',
                 'title': f'{inc.code} - {inc.cliente}',
-                'subtitle': inc.obra or inc.descripcion[:60] if inc.descripcion else 'Sin descripción',
+                'subtitle': f"{inc.obra} | SAP: {inc.sap_doc_num or inc.sap_call_id or 'S/F'}",
                 'url': f'/incidents/{inc.id}',
             })
     except Exception as e:
         logger.warning(f"GlobalSearch error (incidents): {e}")
 
-    # Reportes de visita
+    # 2. Reportes (Visita, Calidad, Proveedor) - Agrupados en una sola lógica visual
     try:
+        # Reportes de visita
         from apps.documents.models import VisitReport
         visit_reports = VisitReport.objects.filter(
-            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q) | Q(incident__obra__icontains=q)
+            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q)
         ).select_related('incident').order_by('-created_at')[:limit_each]
         for vr in visit_reports:
             results.append({
                 'id': vr.id,
                 'type': 'visit_report',
+                'category': 'Reportes y Documentos',
                 'title': f'Reporte Visita #{vr.report_number}',
-                'subtitle': vr.incident.cliente if vr.incident else 'Sin cliente',
+                'subtitle': f"Caso: {vr.incident.code if vr.incident else 'N/A'} | {vr.incident.cliente if vr.incident else ''}",
                 'url': f'/visit-reports/{vr.id}',
             })
-    except Exception as e:
-        logger.warning(f"GlobalSearch error (visit_reports): {e}")
 
-    # Reportes de calidad (QualityReport)
-    try:
+        # Reportes de calidad
         from apps.documents.models import QualityReport
         q_reports = QualityReport.objects.filter(
             Q(report_number__icontains=q) | Q(incident__cliente__icontains=q)
@@ -865,31 +877,33 @@ def global_search(request):
             results.append({
                 'id': qr.id,
                 'type': 'quality_report',
+                'category': 'Reportes y Documentos',
                 'title': f'Reporte Calidad #{qr.report_number}',
-                'subtitle': qr.incident.cliente if qr.incident else 'Sin cliente',
+                'subtitle': f"Caso: {qr.incident.code if qr.incident else 'N/A'} | {qr.incident.cliente if qr.incident else ''}",
                 'url': f'/quality-reports/{qr.id}',
             })
     except Exception as e:
-        logger.warning(f"GlobalSearch error (quality_reports): {e}")
+        logger.warning(f"GlobalSearch error (reports): {e}")
 
-    # Reportes de proveedor (SupplierReport)
+    # 3. Usuarios y Contactos
     try:
-        from apps.documents.models import SupplierReport
-        s_reports = SupplierReport.objects.filter(
-            Q(report_number__icontains=q) | Q(incident__cliente__icontains=q) | Q(supplier_name__icontains=q)
-        ).select_related('incident').order_by('-created_at')[:limit_each]
-        for sr in s_reports:
+        from apps.users.models import User
+        users = User.objects.filter(
+            Q(full_name__icontains=q) | Q(username__icontains=q) | Q(email__icontains=q)
+        )[:limit_each]
+        for u in users:
             results.append({
-                'id': sr.id,
-                'type': 'supplier_report',
-                'title': f'Reporte Proveedor #{sr.report_number}',
-                'subtitle': sr.supplier_name or (sr.incident.cliente if sr.incident else 'Sin proveedor'),
-                'url': f'/supplier-reports/{sr.id}',
+                'id': u.id,
+                'type': 'user',
+                'category': 'Usuarios y Contactos',
+                'title': u.full_name or u.username,
+                'subtitle': f"Rol: {u.role} | {u.email}",
+                'url': f'/users?user_id={u.id}',
             })
     except Exception as e:
-        logger.warning(f"GlobalSearch error (supplier_reports): {e}")
+        logger.warning(f"GlobalSearch error (users): {e}")
 
-    return Response({'results': results[:20]})  # máximo 20 total
+    return Response({'results': results[:25]})
 
 
 

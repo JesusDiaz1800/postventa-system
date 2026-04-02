@@ -1,12 +1,13 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, useMemo, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // PWA Components (keep eager - needed immediately)
 import PWAInstaller from './components/PWAInstaller';
 import PWAUpdate from './components/PWAUpdate';
 // OfflineIndicator removed
-import { PWAProvider } from './context/PWAContext'; // Import Provider
+import { PWAProvider } from './contexts/PWAContext'; // Import Provider
 
 // Core Components (keep eager - needed for layout)
 import { Header } from './components/Layout/Header';
@@ -22,8 +23,8 @@ const GlobalSearch = lazy(() => import('./components/GlobalSearch').then(module 
 
 // Lazy load all pages for code-splitting
 
-const Incidents = lazy(() => import('./pages/IncidentsControl.jsx'));
-const CreateIncident = lazy(() => import('./pages/CreateIncident.jsx'));
+const Incidents = lazy(() => import('./pages/IncidentsControl'));
+const CreateIncident = lazy(() => import('./pages/CreateIncident'));
 const AIPage = lazy(() => import('./pages/AIPage'));
 const AuditPage = lazy(() => import('./pages/AuditPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
@@ -164,28 +165,39 @@ function App() {
               <main className={`flex-1 relative z-0 transition-all duration-500 ${isAI ? 'p-0' : (isDashboard ? 'p-8 md:p-12 lg:p-14' : 'p-6 md:p-10 lg:p-12')}`}>
                 <div className={`relative z-10 ${isAI ? 'h-full' : ''}`}>
                   <Suspense fallback={<PageLoader />}>
-                    <Routes>
-                      <Route path="/" element={<Navigate to="/reports" replace />} />
-                      <Route path="/incidents" element={<Incidents />} />
-                      <Route path="/incidents/new" element={<CreateIncident />} />
-                      <Route path="/incidents/:id/edit" element={<CreateIncident />} />
-                      <Route path="/incidents/:id" element={<Incidents />} />
-                      <Route path="/reports" element={<ReportsPage />} />
-                      <Route path="/users" element={<Users />} />
-                      <Route path="/visit-reports" element={<VisitReportsPage />} />
-                      <Route path="/quality-reports/client" element={<ClientQualityReportsPage />} />
-                      <Route path="/quality-reports/internal" element={<InternalQualityReportsPage />} />
-                      <Route path="/supplier-reports" element={<SupplierReportsPage />} />
-                      <Route path="/documents" element={<Documents />} />
-                      <Route path="/visit-report-form" element={<VisitReportForm />} />
-                      <Route path="/visit-report-form/:id" element={<VisitReportForm />} />
-                      <Route path="/quality-report-form/:incidentId" element={<QualityReportForm />} />
-                      <Route path="/supplier-report-form/:incidentId" element={<SupplierReportForm />} />
-                      <Route path="/supplier-report-form" element={<SupplierReportForm />} />
-                      <Route path="/ai" element={<AIPage />} />
-                      <Route path="/audit" element={<AuditPage />} />
-                      <Route path="*" element={<Navigate to="/reports" replace />} />
-                    </Routes>
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={location.pathname}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                        className={isAI ? 'h-full' : ''}
+                      >
+                        <Routes location={location} key={location.pathname}>
+                          <Route path="/" element={<Navigate to="/reports" replace />} />
+                          <Route path="/incidents" element={<Incidents />} />
+                          <Route path="/incidents/new" element={<CreateIncident />} />
+                          <Route path="/incidents/:id/edit" element={<CreateIncident />} />
+                          <Route path="/incidents/:id" element={<Incidents />} />
+                          <Route path="/reports" element={<ReportsPage />} />
+                          <Route path="/users" element={<Users />} />
+                          <Route path="/visit-reports" element={<VisitReportsPage />} />
+                          <Route path="/quality-reports/client" element={<ClientQualityReportsPage />} />
+                          <Route path="/quality-reports/internal" element={<InternalQualityReportsPage />} />
+                          <Route path="/supplier-reports" element={<SupplierReportsPage />} />
+                          <Route path="/documents" element={<Documents />} />
+                          <Route path="/visit-report-form" element={<VisitReportForm />} />
+                          <Route path="/visit-report-form/:id" element={<VisitReportForm />} />
+                          <Route path="/quality-report-form/:incidentId" element={<QualityReportForm />} />
+                          <Route path="/supplier-report-form/:incidentId" element={<SupplierReportForm />} />
+                          <Route path="/supplier-report-form" element={<SupplierReportForm />} />
+                          <Route path="/ai" element={<AIPage />} />
+                          <Route path="/audit" element={<AuditPage />} />
+                          <Route path="*" element={<Navigate to="/reports" replace />} />
+                        </Routes>
+                      </motion.div>
+                    </AnimatePresence>
                   </Suspense>
                 </div>
               </main>

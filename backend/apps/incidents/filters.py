@@ -42,14 +42,14 @@ class IncidentFilter(django_filters.FilterSet):
         help_text='Prioridad de la incidencia'
     )
     
-    categoria = django_filters.ModelChoiceFilter(
-        queryset=Category.objects.all(),
-        help_text='Categoría del producto'
+    categoria = django_filters.CharFilter(
+        method='filter_categoria',
+        help_text='Categoría o área funcional'
     )
 
-    responsable = django_filters.ModelChoiceFilter(
-        queryset=Responsible.objects.all(),
-        help_text='Responsable técnico asignado'
+    responsable = django_filters.CharFilter(
+        method='filter_responsable',
+        help_text='Responsable técnico'
     )
     
     # Assignment filters
@@ -65,41 +65,31 @@ class IncidentFilter(django_filters.FilterSet):
     
     # lab_required field removed
     
-    # Text search filters
+    # Text search filters (con validación de vacío)
     cliente = django_filters.CharFilter(
-        field_name='cliente',
-        lookup_expr='icontains',
+        method='filter_by_field',
         help_text='Nombre del cliente'
     )
     
     provider = django_filters.CharFilter(
-        field_name='provider',
-        lookup_expr='icontains',
+        method='filter_by_field',
         help_text='Proveedor'
     )
     
     obra = django_filters.CharFilter(
-        field_name='obra',
-        lookup_expr='icontains',
+        method='filter_by_field',
         help_text='Obra o proyecto'
     )
     
-    sku = django_filters.CharFilter(
-        field_name='sku',
-        lookup_expr='icontains',
-        help_text='SKU del producto'
-    )
-    
     lote = django_filters.CharFilter(
-        field_name='lote',
-        lookup_expr='icontains',
+        method='filter_by_field',
         help_text='Número de lote'
     )
     
     # Complex search
     search = django_filters.CharFilter(
         method='filter_search',
-        help_text='Búsqueda general en código, cliente, proveedor, obra, SKU, lote'
+        help_text='Búsqueda general en código, cliente, obra, folio SAP, categoría, subcategoría y descripción'
     )
     
     class Meta:
@@ -108,20 +98,65 @@ class IncidentFilter(django_filters.FilterSet):
             'estado', 'prioridad', 'categoria', 'responsable', 'assigned_to', 'created_by',
             'fecha_deteccion_from', 'fecha_deteccion_to',
             'created_at_from', 'created_at_to', 'cliente', 'provider', 'obra',
-            'sku', 'lote', 'search'
+            'lote', 'search'
         ]
     
-    def filter_search(self, queryset, name, value):
-        """General search across multiple fields"""
+    def filter_categoria(self, queryset, name, value):
+        """Maneja IDs numéricos o nombres de categoría (slugs del frontend)"""
         if not value:
             return queryset
-        
-        return queryset.filter(
-            Q(code__icontains=value) |
-            Q(cliente__icontains=value) |
-            Q(provider__icontains=value) |
-            Q(obra__icontains=value) |
-            Q(sku__icontains=value) |
-            Q(lote__icontains=value) |
-            Q(descripcion__icontains=value)
-        )
+        if str(value).isdigit():
+            return queryset.filter(categoria_id=value)
+        # Si es texto, buscamos por nombre. Si no existe, no filtramos para no romper la vista
+        # Esto maneja el caso de 'postventa', 'seguridad' que no existen como categorías
+        qs = queryset.filter(categoria__name__icontains=value)
+        if not qs.exists() and value in ['postventa', 'seguridad', 'calidad_interna', 'calidad_cliente']:
+            return queryset # Ignorar filtros de áreas que no son categorías reales
+        return qs
+
+    def filter_responsable(self, queryset, name, value):
+        """Maneja IDs numéricos o nombres de responsable"""
+        if not value:
+            return queryset
+        if str(value).isdigit():
+            return queryset.filter(responsable_id=value)
+        return queryset.filter(responsable__name__icontains=value)
+
+    def filter_by_field(self, queryset, name, value):
+        """Evita filtrar por strings vacíos que rompen la búsqueda en SQL Server (campos NULL)"""
+        if not value or value == '':
+            return queryset
+        return queryset.filter(**{f"{name}__icontains": value})
+
+    def filter_search(self, queryset, name, value):
+        """
+        Búsqueda profesional por tokens:
+        Divide la consulta en palabras y asegura que cada palabra coincida con al menos un campo.
+        """
+        if not value or value == '':
+            return queryset
+            
+        tokens = value.split()
+        if not tokens:
+            return queryset
+            
+        # Aplicamos un filtro por cada token (AND entre palabras)
+        for token in tokens:
+            sap_filter = Q()
+            if token.isdigit():
+                sap_filter = Q(sap_doc_num__icontains=token) | Q(sap_call_id__icontains=token)
+                
+            queryset = queryset.filter(
+                Q(code__icontains=token) |
+                Q(cliente__icontains=token) |
+                Q(cliente_rut__icontains=token) |
+                Q(obra__icontains=token) |
+                Q(provider__icontains=token) |
+                Q(lote__icontains=token) |
+                Q(descripcion__icontains=token) |
+                Q(categoria__name__icontains=token) |
+                Q(subcategoria__icontains=token) |
+                sap_filter
+            )
+            
+        return queryset.distinct()

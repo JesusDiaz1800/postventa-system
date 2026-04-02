@@ -17,6 +17,8 @@ import {
   Moon
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
+import { useQueryClient } from '@tanstack/react-query';
+import { incidentsAPI, dashboardAPI } from '../services/api';
 
 interface SidebarProps {
   currentPath: string;
@@ -30,6 +32,23 @@ interface SidebarProps {
 // Versión limpia sin motor de temas - Estilo Oscuro Permanente Premium
 export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = true, onClose }: SidebarProps) {
   const { accessiblePages = [] } = usePermissions();
+  const queryClient = useQueryClient();
+
+  const prefetchData = (path: string) => {
+    if (path === '/reports') {
+      queryClient.prefetchQuery({
+        queryKey: ['dashboard-metrics'],
+        queryFn: () => dashboardAPI.getMetrics(),
+        staleTime: 60000
+      });
+    } else if (path === '/incidents') {
+      queryClient.prefetchQuery({
+        queryKey: ['incidents', { page: 1, page_size: 10, search: '', estado: '' }],
+        queryFn: () => incidentsAPI.list({ page: 1, page_size: 10, search: '', estado: '' }),
+        staleTime: 60000
+      });
+    }
+  };
 
   const operationsNav = [
     { name: 'Panel de Control', href: '/reports', icon: LayoutDashboard, roles: ['admin', 'administrador', 'management', 'technical_service', 'servicio_tecnico', 'tecnico', 'quality', 'supervisor', 'analyst', 'customer_service'] },
@@ -106,9 +125,12 @@ export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = 
   const renderNavItem = (item: typeof operationsNav[0]) => {
     const isActive = currentPath === item.href || (item.href !== '/reports' && currentPath.startsWith(item.href));
     return (
-      <button
+      <motion.button
         key={item.name}
         onClick={() => onNavigate(item.href)}
+        onMouseEnter={() => prefetchData(item.href)}
+        whileHover={{ x: 4 }}
+        whileTap={{ scale: 0.98 }}
         className={`group relative flex w-full items-center gap-3 px-3 py-2.5 my-1 rounded-xl transition-all duration-300 outline-none overflow-hidden
           ${isActive
             ? 'bg-blue-600/10 text-blue-400 font-bold border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
@@ -116,7 +138,10 @@ export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = 
           }`}
       >
         {isActive && (
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+          <motion.div 
+            layoutId="activeTab"
+            className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" 
+          />
         )}
         <item.icon
           size={18}
@@ -128,7 +153,7 @@ export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = 
 
         {/* Hover Glow Effect */}
         <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-      </button>
+      </motion.button>
     );
   };
 

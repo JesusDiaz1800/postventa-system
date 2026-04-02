@@ -391,7 +391,6 @@ class SupplierReportListSerializer(serializers.ModelSerializer):
     cliente = serializers.CharField(source='related_incident.cliente', read_only=True)
     provider = serializers.CharField(source='related_incident.provider', read_only=True)
     obra = serializers.CharField(source='related_incident.obra', read_only=True)
-    sku = serializers.CharField(source='related_incident.sku', read_only=True)
     categoria = serializers.SerializerMethodField()
     subcategoria = serializers.CharField(source='related_incident.subcategoria', read_only=True)
     incident_status = serializers.CharField(source='related_incident.estado', read_only=True)
@@ -421,7 +420,7 @@ class SupplierReportListSerializer(serializers.ModelSerializer):
             'id', 'report_number', 'report_date', 'related_incident',
             # Campos de incidencia expandidos
             'incident_id', 'incident_code', 'cliente', 'provider', 'obra', 
-            'sku', 'categoria', 'subcategoria', 'incident_status',
+            'categoria', 'subcategoria', 'incident_status',
             # Campos del reporte
             'supplier_name', 'supplier_contact', 'supplier_email', 'subject',
             'introduction', 'problem_description', 'technical_analysis',

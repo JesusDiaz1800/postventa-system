@@ -81,7 +81,7 @@ const VisitReportsPage = () => {
           params: {
             page: currentPage,
             page_size: pageSize,
-            search: normalizeText(debouncedSearchTerm)
+            search: debouncedSearchTerm
           }
         });
         return response.data;
@@ -535,22 +535,24 @@ const VisitReportsPage = () => {
         ))}
       </div>
 
-      {/* Search Bar - Más integrada y espaciosa */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-xl shadow-slate-200/50 p-6 border border-white/60">
+      {/* Search Bar - Diseño Premium */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-slate-200/40 p-6 border border-white/60">
         <div className="flex flex-col md:flex-row items-center gap-4">
-          <div className="flex-1 relative w-full">
-            <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <div className="flex-1 relative w-full group">
+            <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors">
+               <MagnifyingGlassIcon className="h-5 w-5" />
+            </div>
             <input
               type="text"
-              placeholder="Buscar por número de orden, cliente, proyecto..."
+              placeholder="Reporte, cliente, obra, categoría o folio SAP..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all text-sm font-medium text-slate-700 placeholder:text-slate-400"
+              className="block w-full pl-14 pr-12 py-4 bg-slate-100/50 border border-transparent rounded-[1.5rem] text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-inner"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                className="absolute right-5 top-1/2 -translate-y-1/2 p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>

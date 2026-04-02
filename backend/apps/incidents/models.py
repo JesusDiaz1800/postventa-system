@@ -109,6 +109,7 @@ class Incident(models.Model):
         blank=True,
         null=True,
         default='',
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='RUT del cliente'
     )
     
@@ -183,19 +184,14 @@ class Incident(models.Model):
         help_text='DocNum oficial de Llamada de Servicio en SAP'
     )
     
-    # Product information
-    sku = models.CharField(
-        max_length=100,
-        default='N/A',
-        db_index=True,  # ÍNDICE para búsqueda rápida
-        help_text='SKU del producto'
-    )
+    # Field 'sku' removed as it is not used in the real SAP context
     
     lote = models.CharField(
         max_length=100,
         blank=True,
         null=True,
         default='',
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='Número de lote'
     )
     
@@ -254,6 +250,7 @@ class Incident(models.Model):
         blank=True,
         null=True,
         default='',
+        db_index=True,  # ÍNDICE para búsqueda rápida
         help_text='Subcategoría específica'
     )
     

@@ -129,32 +129,22 @@ class DashboardMetrics:
             return {}
     
     def get_sku_analysis(self) -> Dict:
-        """Get SKU analysis and statistics"""
+        """Get product analysis and statistics (Legacy SKU replaced by Code)"""
         try:
-            # Top problematic SKUs (model uses resolution_time_hours)
-            top_problematic_skus = Incident.objects.values('sku').annotate(
+            # Top problematic products by Code
+            top_problematic_products = Incident.objects.values('code').annotate(
                 incident_count=Count('id'),
                 avg_resolution_time=Avg('resolution_time_hours')
             ).order_by('-incident_count')[:10]
             
-            # SKUs by incident count (is_re_incident not in model, simplified)
-            sku_reincident_rate = Incident.objects.values('sku').annotate(
-                total_incidents=Count('id')
-            ).order_by('-total_incidents')[:10]
-            
-            # SKUs by category
-            skus_by_category = Incident.objects.values('categoria', 'sku').annotate(
-                count=Count('id')
-            ).order_by('categoria', '-count')
-            
             return {
-                'top_problematic_skus': list(top_problematic_skus),
-                'sku_reincident_rates': list(sku_reincident_rate),
-                'skus_by_category': list(skus_by_category)
+                'top_problematic_skus': list(top_problematic_products),
+                'sku_reincident_rates': [],
+                'skus_by_category': []
             }
             
         except Exception as e:
-            logger.error(f"Error getting SKU analysis: {e}")
+            logger.error(f"Error getting product analysis: {e}")
             return {}
     
     def get_batch_analysis(self) -> Dict:
@@ -163,7 +153,7 @@ class DashboardMetrics:
             # Top problematic batches
             top_problematic_batches = Incident.objects.values('lote').annotate(
                 incident_count=Count('id'),
-                affected_skus=Count('sku', distinct=True)
+                affected_codes=Count('code', distinct=True)
             ).order_by('-incident_count')[:10]
             
             # Batch quality trends (categoria is FK, use categoria__name)
@@ -472,7 +462,7 @@ class DashboardMetrics:
             ).aggregate(avg_time=Avg('resolution_time_hours'))
             
             if avg_time['avg_time']:
-                return avg_time['avg_time'].total_seconds() / 3600  # Convert to hours
+                return float(avg_time['avg_time']) # Ya está en horas (FloatField)
             return 0
             
         except Exception as e:

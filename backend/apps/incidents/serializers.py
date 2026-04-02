@@ -57,7 +57,7 @@ class IncidentNestedSerializer(serializers.ModelSerializer):
         model = Incident
         fields = [
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente', 'cliente_rut',
-            'sku', 'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
+            'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'categoria', 'subcategoria', 'prioridad', 'estado', 'responsable',
             'escalated_to_quality', 'escalated_to_supplier', 'escalation_date',
             'escalation_reason', 'created_at', 'updated_at'
@@ -113,7 +113,7 @@ class IncidentListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente',
             'comuna', 'ciudad',
-            'sku', 'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
+            'lote', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'categoria', 'subcategoria', 'prioridad', 'estado', 'assigned_to',
             'responsable', 'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier', 'escalation_date',
             'escalation_reason', 'closed_by', 'closed_at', 'closed_at_stage', 'closure_summary',
@@ -158,7 +158,7 @@ class IncidentDetailSerializer(serializers.ModelSerializer):
         model = Incident
         fields = [
             'id', 'code', 'created_by', 'provider', 'obra', 'cliente',
-            'cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'sku', 'lote', 'factura_num',
+            'cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'lote', 'factura_num',
             'pedido_num', 'fecha_reporte', 'fecha_deteccion', 'hora_deteccion',
             'descripcion', 'acciones_inmediatas', 'categoria', 'subcategoria',
             'prioridad', 'estado', 'assigned_to', 'responsable', 'escalated_to_quality',
@@ -205,7 +205,7 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', # Added to return ID/Code after creation
             'provider', 'obra', 'cliente', 'cliente_rut', 'direccion_cliente', 'comuna', 'ciudad',
-            'sku', 'lote', 'factura_num', 'pedido_num', 'fecha_deteccion',
+            'lote', 'factura_num', 'pedido_num', 'fecha_deteccion',
             'hora_deteccion', 'descripcion', 'acciones_inmediatas', 'categoria',
             'subcategoria', 'prioridad', 'estado', 'assigned_to', 'responsable',
             'escalated_to_quality', 'escalated_to_internal_quality', 'escalated_to_supplier',
@@ -215,8 +215,7 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'code', 'fecha_reporte', 'sap_doc_num']
         extra_kwargs = {
             'fecha_deteccion': {'required': False},
-            'hora_deteccion': {'required': False},
-            'sku': {'required': False, 'allow_blank': True}
+            'hora_deteccion': {'required': False}
         }
     
     def validate(self, data):
@@ -245,7 +244,7 @@ class IncidentCreateUpdateSerializer(serializers.ModelSerializer):
                 data['technician_code'] = data['responsable'].sap_technician_id
         
         # Convert empty strings to None for optional fields
-        for field in ['cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'sku', 'lote', 'factura_num', 
+        for field in ['cliente_rut', 'direccion_cliente', 'comuna', 'ciudad', 'lote', 'factura_num', 
                      'pedido_num', 'acciones_inmediatas', 'subcategoria', 
                      'fecha_deteccion', 'hora_deteccion']:
             if field in data and data[field] == '':

@@ -1,17 +1,17 @@
 from django.urls import path
-from . import views
-from . import download_views
-from . import file_views
-from . import views_traceability
-from . import document_views
-from . import attachment_views
-from . import views_upload
-from . import views_quality
-from . import views_documents
-from . import incident_attachment_views
-from . import report_attachment_views
-from . import supplier_attachment_views
-from . import views_attachment
+from .views import main as views
+from .views import download
+from .views import file
+from .views import traceability as views_traceability
+from .views import document_generation as document_views
+from .views import attachments_legacy as attachment_views
+from .views import upload as views_upload
+from .views import quality as views_quality
+from .views import documents as views_documents
+from .views import incident_attachments as incident_attachment_views
+from .views import report_attachments as report_attachment_views
+from .views import supplier_attachments as supplier_attachment_views
+from .views import attachment as views_attachment
 
 urlpatterns = [
     # ==================== REPORTES DE CALIDAD ====================

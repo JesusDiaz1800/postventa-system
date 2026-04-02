@@ -64,17 +64,21 @@ LOCAL_APPS = [
     'apps.audit',
     'apps.ai',
     'apps.ai_orchestrator',
-    'apps.ai_agents',  # NEW: LangGraph-style multi-step reasoning agents
+    'apps.ai_agents',
     'apps.sap_integration',
     'apps.reports',
     'apps.dashboard',
-    # 'apps.advanced_reports',
-    # 'apps.backup',
-    # 'apps.monitoring',
 ]
 
-
 INSTALLED_APPS = ['daphne'] + DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
+
+# --- Caching (Performance) ---
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
 
 # --- Middleware ---
 MIDDLEWARE = [
@@ -89,8 +93,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # 'apps.audit.navigation_middleware.NavigationAuditMiddleware', # Desactivado para evitar logs basura
-    # 'apps.audit.middleware.AuditMiddleware', # Desactivado: Causa logs duplicados y genéricos. Usamos signals.py
 ]
 
 # --- URLs and Templates ---

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { usePWA } from '../context/PWAContext';
+import { usePWA } from '../contexts/PWAContext';
 import {
   DevicePhoneMobileIcon,
   XMarkIcon,

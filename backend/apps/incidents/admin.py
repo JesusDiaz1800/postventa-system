@@ -7,7 +7,7 @@ class IncidentAdmin(admin.ModelAdmin):
     """Admin interface for Incident model"""
     
     list_display = [
-        'code', 'cliente', 'provider', 'sku', 'lote', 'estado',
+        'code', 'cliente', 'provider', 'lote', 'estado',
         'prioridad', 'assigned_to', 'created_by', 'created_at'
     ]
     
@@ -17,7 +17,7 @@ class IncidentAdmin(admin.ModelAdmin):
     ]
     
     search_fields = [
-        'code', 'cliente', 'provider', 'obra', 'sku', 'lote',
+        'code', 'cliente', 'provider', 'obra', 'lote',
         'descripcion', 'factura_num', 'pedido_num'
     ]
     
@@ -31,7 +31,7 @@ class IncidentAdmin(admin.ModelAdmin):
             'fields': ('cliente', 'cliente_rut', 'direccion_cliente')
         }),
         ('Producto', {
-            'fields': ('sku', 'lote', 'factura_num', 'pedido_num', 'categoria', 'subcategoria')
+            'fields': ('lote', 'factura_num', 'pedido_num', 'categoria', 'subcategoria')
         }),
         ('Detalles del Incidente', {
             'fields': ('fecha_reporte', 'fecha_deteccion', 'hora_deteccion', 'descripcion', 'acciones_inmediatas')
