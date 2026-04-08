@@ -689,13 +689,7 @@ const VisitReportsPage: React.FC = () => {
                               </>
                             )}
                             
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleViewImages(report); }}
-                              className="w-12 h-12 flex items-center justify-center rounded-2xl bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white transition-all shadow-sm"
-                              title="Ver Galería de Fotos"
-                            >
-                              <PhotoIcon className="w-6 h-6" />
-                            </button>
+
 
                             <button
                               onClick={(e) => { e.stopPropagation(); handleUploadImages(report.id); }}

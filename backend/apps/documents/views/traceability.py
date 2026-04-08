@@ -974,8 +974,8 @@ def available_incidents(request):
         reported_incident_ids = VisitReport.objects.values_list('related_incident_id', flat=True)
         
         # Filtrar por estados abiertos (abierto, reporte_visita, calidad, proveedor)
-        # Excluimos 'cerrado'
-        incidents = Incident.objects.exclude(estado='cerrado').exclude(id__in=reported_incident_ids)
+        # Excluimos 'cerrado' y 'cancelada'
+        incidents = Incident.objects.exclude(estado__in=['cerrado', 'cancelada']).exclude(id__in=reported_incident_ids)
         
         # Aplicar búsqueda si existe
         search_query = request.query_params.get('search')
