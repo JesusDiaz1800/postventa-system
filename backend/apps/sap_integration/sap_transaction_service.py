@@ -24,10 +24,17 @@ class SAPTransactionService:
 
     def __init__(self, request_user=None):
         self.base_url = settings.SAP_SL_BASE_URL
-        country = get_current_country()
         self.request_user = request_user
         
-        # 1. Determinar base de datos según país
+        # 1. Determinar el país (Tenant) con prioridad: Usuario > Middleware
+        if request_user:
+            country = request_user.country_code
+            logger.info(f"SAP SL: País detectado por usuario {request_user.username}: {country}")
+        else:
+            country = get_current_country()
+            logger.info(f"SAP SL: País detectado por contexto de middleware: {country}")
+
+        # 2. Determinar base de datos según país
         if country == 'PE':
             self.company_db = settings.SAP_SL_COMPANY_DB_PE
             self.series = getattr(settings, 'SAP_SL_SERIES_PE', 36)
@@ -38,22 +45,26 @@ class SAPTransactionService:
             self.company_db = getattr(settings, 'SAP_SL_COMPANY_DB', 'TESTPOLIFUSION')
             self.series = -1
 
-        # 2. Determinar credenciales
+        # 3. Determinar credenciales con prioridad: Usuario (campos SAP) > Fallback Regional
         if request_user and request_user.sap_user and request_user.sap_password:
             self.user = request_user.sap_user
             self.password = request_user.sap_password
-            logger.info(f"SAP SL: Usando credenciales personalizadas de usuario para {request_user.username}")
+            logger.info(f"SAP SL: Usando credenciales personalizadas de {request_user.username} para DB {self.company_db}")
         elif country == 'PE':
-            self.user = settings.SAP_SL_USER_PE
-            self.password = settings.SAP_SL_PASSWORD_PE
+            # Fallback Perú: jefsertec_ppe / tec006
+            self.user = getattr(settings, 'SAP_SL_USER_PE', 'jefsertec_ppe') or 'jefsertec_ppe'
+            self.password = getattr(settings, 'SAP_SL_PASSWORD_PE', 'tec006') or 'tec006'
+            logger.info(f"SAP SL: Usando fallback regional PERU para DB {self.company_db}")
         elif country == 'CO':
-            self.user = settings.SAP_SL_USER_CO
-            self.password = settings.SAP_SL_PASSWORD_CO
+            # Fallback Colombia: jefsertec_pco / Js2024**
+            self.user = getattr(settings, 'SAP_SL_USER_CO', 'jefsertec_pco') or 'jefsertec_pco'
+            self.password = getattr(settings, 'SAP_SL_PASSWORD_CO', 'Js2024**') or 'Js2024**'
+            logger.info(f"SAP SL: Usando fallback regional COLOMBIA para DB {self.company_db}")
         else:
-            # Fallback explícito garantizado para Chile / General
-            # Si getattr() devuelve string vacío, el "or" asegura el fallback a 'ccalidad'
+            # Fallback Chile: ccalidad / Plf5647**
             self.user = getattr(settings, 'SAP_SL_USER', 'ccalidad') or 'ccalidad'
             self.password = getattr(settings, 'SAP_SL_PASSWORD', 'Plf5647**') or 'Plf5647**'
+            logger.info(f"SAP SL: Usando fallback regional CHILE para DB {self.company_db}")
             
         self.session_cookies = None
         self._executor = ThreadPoolExecutor(max_workers=5)

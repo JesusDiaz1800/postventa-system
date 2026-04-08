@@ -105,7 +105,6 @@ def generate_lab_report_document(request, report_id):
             'incidencia': {
                 'codigo': report.related_incident.code,
                 'cliente': report.related_incident.cliente,
-                'sku': report.related_incident.sku,
                 'lote': report.related_incident.lote,
             }
         }
@@ -169,7 +168,6 @@ def generate_supplier_report_document(request, report_id):
             'incidencia': {
                 'codigo': report.related_incident.code,
                 'cliente': report.related_incident.cliente,
-                'sku': report.related_incident.sku,
                 'lote': report.related_incident.lote,
             }
         }

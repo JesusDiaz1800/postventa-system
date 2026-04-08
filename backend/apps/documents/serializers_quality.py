@@ -19,7 +19,6 @@ class QualityReportSerializer(serializers.ModelSerializer):
     cliente = serializers.CharField(source='related_incident.cliente', read_only=True)
     provider = serializers.CharField(source='related_incident.provider', read_only=True)
     obra = serializers.CharField(source='related_incident.obra', read_only=True)
-    sku = serializers.CharField(source='related_incident.sku', read_only=True)
     categoria = serializers.SerializerMethodField()
     subcategoria = serializers.CharField(source='related_incident.subcategoria', read_only=True)
     incident_status = serializers.CharField(source='related_incident.estado', read_only=True)
@@ -63,7 +62,7 @@ class QualityReportSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'report_type', 'report_number', 'related_incident', 'related_incident_code',
             # Campos de incidencia expandidos
-            'incident_id', 'incident_code', 'incident', 'cliente', 'provider', 'obra', 'sku', 
+            'incident_id', 'incident_code', 'incident', 'cliente', 'provider', 'obra', 
             'categoria', 'subcategoria', 'incident_status',
             # Campos del reporte
             'title', 'date_created', 'created_by', 'created_by_username',

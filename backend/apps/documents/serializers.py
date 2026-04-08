@@ -35,6 +35,17 @@ class DocumentListSerializer(serializers.ModelSerializer):
             'is_final', 'created_by_name', 'incident', 'created_at', 'updated_at'
         ]
 
+class DocumentAttachmentListSerializer(serializers.ModelSerializer):
+    """Serializer para listar adjuntos de incidencia (modelo Document)"""
+    created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
+    
+    class Meta:
+        model = Document
+        fields = [
+            'id', 'filename', 'title', 'description', 'size', 
+            'created_at', 'created_by_name', 'is_public', 'document_type'
+        ]
+
 class DocumentDetailSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     incident = IncidentListSerializer(read_only=True)
@@ -180,13 +191,19 @@ class VisitReportListSerializer(serializers.ModelSerializer):
 
     
     def get_attachment_count(self, obj):
-        """Cuenta las imágenes/archivos adjuntos al reporte"""
+        """Usa el conteo anotado en el queryset para evitar N+1"""
+        # Priorizar la anotación del queryset por rendimiento
+        annotated_count = getattr(obj, 'annotated_attachment_count', None)
+        if annotated_count is not None:
+            return annotated_count
+            
+        # Fallback por si la vista no incluye la anotación (vistas heredadas o detalle)
         try:
             from .models import DocumentAttachment
             return DocumentAttachment.objects.filter(
                 document_id=obj.id,
                 document_type='visit_report'
-            ).count()
+            ).order_by().count()
         except:
             return 0
     

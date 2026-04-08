@@ -190,6 +190,20 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Return the full name of the user"""
         return f"{self.first_name} {self.last_name}".strip()
     
+    @property
+    def country_code(self):
+        """
+        Determina el código de país (Tenant) basado en el sufijo del username.
+        .pe -> Perú
+        .co -> Colombia
+        Resto -> Chile (Default)
+        """
+        if self.username.endswith('.pe'):
+            return 'PE'
+        if self.username.endswith('.co'):
+            return 'CO'
+        return 'CL'
+    
     def has_role(self, role):
         """Check if user has specific role"""
         return self.role == role

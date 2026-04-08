@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.filters import OrderingFilter
 
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db.models import Q, Count, OuterRef, Subquery, IntegerField
 from django.utils import timezone
 from apps.incidents.models import Incident
 import logging
@@ -15,32 +15,41 @@ import json
 import threading
 from apps.core.thread_local import get_current_country
 from ..services.report_sync_service import ReportSyncService
+from ..attachment_service import attachment_service
 
 
-from ..models import VisitReport, LabReport, SupplierReport
+from ..models import VisitReport, LabReport, SupplierReport, DocumentStatus
 from ..serializers import (
     VisitReportSerializer, VisitReportCreateSerializer, VisitReportListSerializer,
     LabReportSerializer, LabReportCreateSerializer,
     SupplierReportSerializer, SupplierReportCreateSerializer, SupplierReportListSerializer,
     DocumentWorkflowSerializer
 )
+from apps.core.mixins import UnifiedSearchMixin
 
 logger = logging.getLogger(__name__)
 
 # ==================== REPORTES DE VISITA ====================
 
-class VisitReportListCreateView(generics.ListCreateAPIView):
+class VisitReportListCreateView(UnifiedSearchMixin, generics.ListCreateAPIView):
     """
     Lista y crea reportes de visita
     """
+    model = VisitReport
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [OrderingFilter]
-    search_fields = ['report_number', 'project_name', 'client_name', 'order_number']
     ordering_fields = ['visit_date', 'created_at', 'report_number']
     ordering = ['-created_at']
     
+    default_select_related = ['related_incident', 'created_by']
+    search_fields_map = [
+        'report_number', 'order_number', 'client_name', 'project_name', 
+        'related_incident__code', 'related_incident__categoria__name', 
+        'related_incident__subcategoria'
+    ]
+    
     def get_queryset(self):
-        queryset = VisitReport.objects.select_related('related_incident', 'created_by').order_by('-created_at')
+        queryset = self.get_optimized_queryset()
         
         # Filtrar por incidencia relacionada
         incident_id = self.request.query_params.get('incident_id')
@@ -52,22 +61,10 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
             
-        # Búsqueda por tokens (profesional y multi-campo)
-        search = self.request.query_params.get('search')
-        if search:
-            tokens = search.split()
-            for token in tokens:
-                queryset = queryset.filter(
-                    Q(report_number__icontains=token) |
-                    Q(order_number__icontains=token) |
-                    Q(client_name__icontains=token) |
-                    Q(project_name__icontains=token) |
-                    Q(related_incident__code__icontains=token) |
-                    Q(related_incident__categoria__name__icontains=token) |
-                    Q(related_incident__subcategoria__icontains=token)
-                )
+        # Aplicar búsqueda centralizada
+        queryset = self.apply_search(queryset)
         
-        return queryset.distinct()
+        return queryset
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -453,14 +450,16 @@ class VisitReportListCreateView(generics.ListCreateAPIView):
                 
         logger.info(f"Importación SAP finalizada. Total importados: {imported_count}")
 
-class VisitReportRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+class VisitReportRetrieveUpdateDestroyView(UnifiedSearchMixin, generics.RetrieveUpdateDestroyAPIView):
     """
     Obtiene, actualiza o elimina un reporte de visita específico
     """
+    model = VisitReport
     permission_classes = [permissions.IsAuthenticated]
+    default_select_related = ['related_incident', 'created_by']
     
     def get_queryset(self):
-        return VisitReport.objects.select_related('related_incident', 'created_by').all()
+        return self.get_optimized_queryset()
     
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
@@ -527,117 +526,35 @@ def download_visit_report(request, pk):
     try:
         report = get_object_or_404(VisitReport, id=pk)
         
-        # Priorizar pdf_file (generado por signal) sobre pdf_path (legacy)
+        # Resolver ruta física del PDF (Priorizando pdf_file del modelo si existe)
+        file_path = None
         if report.pdf_file:
-            # PDF generado por signal y guardado como FileField
-            try:
-                file_handle = report.pdf_file.open('rb')
-                response = FileResponse(
-                    file_handle,
-                    content_type='application/pdf',
-                    as_attachment=False
-                )
-                response['Content-Disposition'] = f'inline; filename="{report.pdf_file.name.split("/")[-1]}"'
-                return response
-            except Exception as e:
-                logger.error(f"Error abriendo pdf_file: {str(e)}")
-                # Continuar al siguiente método de fallback
+            # Si el archivo existe físicamente en la ruta de pdf_file
+            if os.path.exists(report.pdf_file.path):
+                file_path = report.pdf_file.path
         
-        # Fallback: pdf_path (legacy)
-        if report.pdf_path:
-            # Intento 1: Ruta absoluta almacenada
-            if os.path.exists(report.pdf_path):
-                file_handle = open(report.pdf_path, 'rb')
-                response = FileResponse(
-                    file_handle,
-                    content_type='application/pdf',
-                    as_attachment=False
-                )
-                response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
-                return response
+        # Si no se encontró por pdf_file o no tiene, intentar resolución inteligente por pdf_path (legacy)
+        if not file_path:
+            file_path = attachment_service.resolve_file_path(
+                report.pdf_path, 
+                sub_folder='visit_reports', 
+                incident_id=report.related_incident.id
+            )
             
-            # Intento 2: Reconstrucción de ruta (Fallback para cambios de entorno/Docker)
-            logger.warning(f"Ruta absoluta no encontrada: {report.pdf_path}. Intentando reconstrucción...")
-            try:
-                from django.conf import settings
-                filename = os.path.basename(report.pdf_path)
-                country = get_current_country()
-                
-                # Probar en MEDIA_ROOT/[country]/visit_reports/incident_{id}/...
-                reconstructed_path = os.path.join(
-                    settings.MEDIA_ROOT, 
-                    country,
-                    'visit_reports', 
-                    f'incident_{report.related_incident.id}', 
-                    filename
-                )
-                
-                if not os.path.exists(reconstructed_path):
-                    # Probar sin country (legacy)
-                    reconstructed_path = os.path.join(
-                        settings.MEDIA_ROOT,
-                        'visit_reports',
-                        f'incident_{report.related_incident.id}',
-                        filename
-                    )
-                
-                if os.path.exists(reconstructed_path):
-                    logger.info(f"Archivo encontrado en ruta reconstruida: {reconstructed_path}")
-                    file_handle = open(reconstructed_path, 'rb')
-                    response = FileResponse(
-                        file_handle,
-                        content_type='application/pdf',
-                        as_attachment=False
-                    )
-                    response['Content-Disposition'] = f'inline; filename="{filename}"'
-                    return response
-                
-                # Probar en SHARED_DOCUMENTS_PATH si existe
-                shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None)
-                if shared_path:
-                    # Probar con country
-                    shared_reconstructed = os.path.join(
-                        shared_path, 
-                        country,
-                        'visit_reports', 
-                        f'incident_{report.related_incident.id}', 
-                        filename
-                    )
-                    
-                    if not os.path.exists(shared_reconstructed):
-                        # Probar sin country
-                        shared_reconstructed = os.path.join(
-                            shared_path,
-                            'visit_reports',
-                            f'incident_{report.related_incident.id}',
-                            filename
-                        )
-                        
-                    if os.path.exists(shared_reconstructed):
-                        logger.info(f"Archivo encontrado en ruta compartida: {shared_reconstructed}")
-
-                        file_handle = open(shared_reconstructed, 'rb')
-                        response = FileResponse(
-                            file_handle,
-                            content_type='application/pdf',
-                            as_attachment=False
-                        )
-                        response['Content-Disposition'] = f'inline; filename="{filename}"'
-                        return response
-                        
-            except Exception as reconstruction_error:
-                logger.error(f"Error en reconstrucción de ruta: {reconstruction_error}")
-                
+        if not file_path or not os.path.exists(file_path):
             return Response(
-                {'error': 'El archivo PDF no se encuentra en el servidor (Rutas verificadas)'},
+                {'error': 'El archivo físico del reporte no se encuentra en el servidor'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        # No hay PDF disponible
-        return Response(
-            {'error': 'Este reporte no tiene un PDF generado'},
-            status=status.HTTP_404_NOT_FOUND
+            
+        file_handle = open(file_path, 'rb')
+        response = FileResponse(
+            file_handle,
+            content_type='application/pdf',
+            as_attachment=False
         )
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
+        return response
         
     except Exception as e:
         logger.error(f"Error descargando reporte de visita: {str(e)}")
@@ -648,20 +565,24 @@ def download_visit_report(request, pk):
 
 # ==================== INFORMES DE LABORATORIO ====================
 
-class LabReportListCreateView(generics.ListCreateAPIView):
+class LabReportListCreateView(UnifiedSearchMixin, generics.ListCreateAPIView):
     """
     Lista y crea informes de laboratorio
     """
+    model = LabReport
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [OrderingFilter]
-    search_fields = ['report_number', 'client', 'applicant', 'related_incident__code']
     ordering_fields = ['request_date', 'created_at', 'report_number']
     ordering = ['-request_date']
     
+    default_select_related = ['related_incident', 'related_visit_report', 'created_by']
+    search_fields_map = [
+        'report_number', 'client', 'applicant', 
+        'related_incident__code', 'related_incident__categoria__name'
+    ]
+    
     def get_queryset(self):
-        queryset = LabReport.objects.select_related(
-            'related_incident', 'related_visit_report', 'created_by'
-        ).order_by('-created_at')
+        queryset = self.get_optimized_queryset()
         
         # Filtrar por incidencia relacionada
         incident_id = self.request.query_params.get('incident_id')
@@ -673,20 +594,10 @@ class LabReportListCreateView(generics.ListCreateAPIView):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
             
-        # Búsqueda por tokens (profesional y multi-campo)
-        search = self.request.query_params.get('search')
-        if search:
-            tokens = search.split()
-            for token in tokens:
-                queryset = queryset.filter(
-                    Q(report_number__icontains=token) |
-                    Q(client__icontains=token) |
-                    Q(applicant__icontains=token) |
-                    Q(related_incident__code__icontains=token) |
-                    Q(related_incident__categoria__name__icontains=token)
-                )
+        # Aplicar búsqueda centralizada
+        queryset = self.apply_search(queryset)
         
-        return queryset.distinct()
+        return queryset
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -696,16 +607,16 @@ class LabReportListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-class LabReportRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+class LabReportRetrieveUpdateDestroyView(UnifiedSearchMixin, generics.RetrieveUpdateDestroyAPIView):
     """
     Obtiene, actualiza o elimina un informe de laboratorio específico
     """
+    model = LabReport
     permission_classes = [permissions.IsAuthenticated]
+    default_select_related = ['related_incident', 'related_visit_report', 'created_by']
     
     def get_queryset(self):
-        return LabReport.objects.select_related(
-            'related_incident', 'related_visit_report', 'created_by'
-        ).all()
+        return self.get_optimized_queryset()
     
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
@@ -714,41 +625,35 @@ class LabReportRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 # ==================== INFORMES PARA PROVEEDORES ====================
 
-class SupplierReportListCreateView(generics.ListCreateAPIView):
+class SupplierReportListCreateView(UnifiedSearchMixin, generics.ListCreateAPIView):
     """
     Lista y crea informes para proveedores
     """
+    model = SupplierReport
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [OrderingFilter]
-    search_fields = ['report_number', 'supplier_name', 'subject', 'related_incident__code', 'related_incident__provider']
     ordering_fields = ['report_date', 'created_at', 'report_number']
     ordering = ['-report_date']
     
+    default_select_related = ['related_incident', 'related_lab_report', 'created_by']
+    search_fields_map = [
+        'report_number', 'supplier_name', 'subject', 
+        'related_incident__code', 'related_incident__provider', 
+        'related_incident__categoria__name'
+    ]
+    
     def get_queryset(self):
-        queryset = SupplierReport.objects.select_related(
-            'related_incident', 'related_lab_report', 'created_by'
-        ).order_by('-created_at')
+        queryset = self.get_optimized_queryset()
         
         # Filtrar por incidencia relacionada
         incident_id = self.request.query_params.get('incident_id')
         if incident_id:
             queryset = queryset.filter(related_incident_id=incident_id)
         
-        # Búsqueda por tokens (profesional y multi-campo)
-        search = self.request.query_params.get('search')
-        if search:
-            tokens = search.split()
-            for token in tokens:
-                queryset = queryset.filter(
-                    Q(report_number__icontains=token) |
-                    Q(supplier_name__icontains=token) |
-                    Q(subject__icontains=token) |
-                    Q(related_incident__code__icontains=token) |
-                    Q(related_incident__provider__icontains=token) |
-                    Q(related_incident__categoria__name__icontains=token)
-                )
+        # Aplicar búsqueda centralizada
+        queryset = self.apply_search(queryset)
         
-        return queryset.distinct()
+        return queryset
 
 
     
@@ -806,16 +711,16 @@ class SupplierReportListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-class SupplierReportRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+class SupplierReportRetrieveUpdateDestroyView(UnifiedSearchMixin, generics.RetrieveUpdateDestroyAPIView):
     """
     Obtiene, actualiza o elimina un informe para proveedor específico
     """
+    model = SupplierReport
     permission_classes = [permissions.IsAuthenticated]
+    default_select_related = ['related_incident', 'related_lab_report', 'created_by']
     
     def get_queryset(self):
-        return SupplierReport.objects.select_related(
-            'related_incident', 'related_lab_report', 'created_by'
-        ).all()
+        return self.get_optimized_queryset()
     
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
@@ -991,65 +896,27 @@ def download_supplier_report(request, pk):
                 status=status.HTTP_404_NOT_FOUND
             )
             
-        # Intento 1: Ruta absoluta almacenada
-        if os.path.exists(report.pdf_path):
-            file_handle = open(report.pdf_path, 'rb')
-            response = FileResponse(
-                file_handle,
-                content_type='application/pdf',
-                as_attachment=False
-            )
-            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report.pdf_path)}"'
-            return response
-            
-        # Intento 2: Reconstrucción de ruta (Fallback Regionalizado)
-        logger.warning(f"Ruta absoluta no encontrada: {report.pdf_path}. Intentando reconstrucción regionalizada...")
-        try:
-            from django.conf import settings
-            filename = os.path.basename(report.pdf_path)
-            country = get_current_country()
-            incident_id = report.related_incident.id if report.related_incident else 'general'
-            
-            # Determinar base path (Shared o Media)
-            shared_path = getattr(settings, 'SHARED_DOCUMENTS_PATH', None) or getattr(settings, 'MEDIA_ROOT', '')
-            
-            # Intentar primero con prefijo de país
-            reconstructed_path = os.path.join(
-                shared_path, 
-                country,
-                'supplier_reports', 
-                f'incident_{incident_id}', 
-                filename
-            )
-            
-            if not os.path.exists(reconstructed_path):
-                # Intentar sin prefijo de país (legacy)
-                reconstructed_path = os.path.join(
-                    shared_path,
-                    'supplier_reports',
-                    f'incident_{incident_id}',
-                    filename
-                )
-            
-            if os.path.exists(reconstructed_path):
-                logger.info(f"Archivo encontrado en ruta reconstruida: {reconstructed_path}")
-
-                file_handle = open(reconstructed_path, 'rb')
-                response = FileResponse(
-                    file_handle,
-                    content_type='application/pdf',
-                    as_attachment=False
-                )
-                response['Content-Disposition'] = f'inline; filename="{filename}"'
-                return response
-                
-        except Exception as reconstruction_error:
-            logger.error(f"Error en reconstrucción de ruta: {reconstruction_error}")
-            
-        return Response(
-            {'error': 'El archivo físico no se encuentra en el servidor'}, 
-            status=status.HTTP_404_NOT_FOUND
+        # Resolver ruta física mediante servicio centralizado
+        file_path = attachment_service.resolve_file_path(
+            report.pdf_path,
+            sub_folder='supplier_reports',
+            incident_id=report.related_incident.id if report.related_incident else 'general'
         )
+        
+        if not file_path or not os.path.exists(file_path):
+             return Response(
+                {'error': 'El archivo físico del reporte proveedor no se encuentra en el servidor'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        file_handle = open(file_path, 'rb')
+        response = FileResponse(
+            file_handle,
+            content_type='application/pdf',
+            as_attachment=False
+        )
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
+        return response
         
     except Exception as e:
         logger.error(f"Error descargando reporte de proveedor: {str(e)}", exc_info=True)

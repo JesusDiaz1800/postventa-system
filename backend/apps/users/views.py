@@ -330,9 +330,6 @@ def login_view(request):
     """
     User login endpoint (Instrumented for Debugging)
     """
-    print(f"\n>>> DEBUG LOGIN: {request.data.get('username')} | Suffix: {request.data.get('username', '').split('.')[-1]}")
-    print(f">>> HEADERS: X-Country-Code={request.headers.get('X-Country-Code')}")
-    
     logger.info("--- LOGIN ATTEMPT STARTED ---")
     try:
         # Log basic request info (sanitize password)

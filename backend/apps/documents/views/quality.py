@@ -154,8 +154,7 @@ def quality_reports_by_incident(request, incident_id):
             'incident': {
                 'id': incident.id,
                 'code': incident.code,
-                'cliente': incident.cliente,
-                'sku': incident.sku
+                'cliente': incident.cliente
             },
             'reports': serializer.data,
             'total': reports.count()
@@ -246,7 +245,6 @@ def generate_quality_report_document(request, report_id):
             'cliente': incident.cliente if incident else '',
             'provider': incident.provider if incident else '',
             'obra': incident.obra if incident else '',
-            'sku': incident.sku if incident else '',
             'categoria': str(incident.categoria) if incident and incident.categoria else '',
             'subcategoria': incident.subcategoria if incident else '',
             'descripcion_incidencia': incident.descripcion if incident else '',

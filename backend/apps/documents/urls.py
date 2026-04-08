@@ -29,12 +29,12 @@ urlpatterns = [
     
     # ==================== ADJUNTOS DE INCIDENCIAS ====================
     
-    path('incident-attachments/<int:incident_id>/', incident_attachment_views.list_incident_attachments, name='list_incident_attachments'),
-    path('incident-attachments/<int:incident_id>/upload/', incident_attachment_views.upload_incident_attachment, name='upload_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/', incident_attachment_views.IncidentAttachmentListCreateView.as_view(), name='list_incident_attachments'),
+    path('incident-attachments/<int:incident_id>/upload/', incident_attachment_views.IncidentAttachmentListCreateView.as_view(), name='upload_incident_attachment'),
     path('incident-attachments/<int:incident_id>/<int:attachment_id>/download/', incident_attachment_views.download_incident_attachment, name='download_incident_attachment'),
     path('incident-attachments/<int:incident_id>/<int:attachment_id>/view/', incident_attachment_views.view_incident_attachment, name='view_incident_attachment'),
-    path('incident-attachments/<int:incident_id>/<int:attachment_id>/delete/', incident_attachment_views.delete_incident_attachment, name='delete_incident_attachment'),
-    path('incident-attachments/<int:incident_id>/<int:attachment_id>/info/', incident_attachment_views.get_incident_attachment_info, name='get_incident_attachment_info'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/delete/', incident_attachment_views.IncidentAttachmentDetailView.as_view(), name='delete_incident_attachment'),
+    path('incident-attachments/<int:incident_id>/<int:attachment_id>/info/', incident_attachment_views.IncidentAttachmentDetailView.as_view(), name='get_incident_attachment_info'),
     
     # ==================== ADJUNTOS DE REPORTES ====================
     
