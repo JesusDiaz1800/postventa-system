@@ -15,19 +15,19 @@
 
 module.exports = {
     apps: [
-        // ==================== BACKEND (Django + Daphne ASGI) ====================
+        // ==================== SISTEMA UNIFICADO (Backend + Frontend) ====================
         {
-            name: "backend",
+            name: "postventa-unificado",
             script: "python-portable/python/python.exe",
-            args: "-m daphne -b 0.0.0.0 -p 8000 postventa_system.asgi:application",
+            args: "-m daphne -e ssl:8000:privateKey=../frontend/ssl/key.pem:certKey=../frontend/ssl/cert.pem postventa_system.asgi:application",
             cwd: "./backend",
             interpreter: "none",
 
             // Auto-restart configuration
             autorestart: true,
-            watch: false, // Disable file watching in production
+            watch: false,
             max_restarts: 10,
-            restart_delay: 3000, // 3 seconds between restarts
+            restart_delay: 3000,
 
             // Environment variables
             env: {
@@ -37,37 +37,27 @@ module.exports = {
             },
 
             // Logging
-            error_file: "./logs/backend-error.log",
-            out_file: "./logs/backend-out.log",
+            error_file: "../logs/backend-error.log",
+            out_file: "../logs/backend-out.log",
             log_date_format: "YYYY-MM-DD HH:mm:ss Z",
             merge_logs: true,
 
             // Health monitoring
-            max_memory_restart: "500M",
+            max_memory_restart: "600M",
         },
-
-        // ==================== FRONTEND (React + Vite) ====================
+        // ==================== TÚNEL DE CLOUDFLARE (Para accesos desde Internet) ====================
         {
-            name: "frontend",
-            script: "npm",
-            args: "run dev -- --host 0.0.0.0",
-            cwd: "./frontend",
+            name: "postventa-tunnel",
+            script: "cloudflared.exe",
+            args: "tunnel run postventa-tunnel",
+            cwd: "./",
             interpreter: "none",
-
-            // Auto-restart configuration
             autorestart: true,
-            watch: false,
             max_restarts: 10,
-            restart_delay: 2000,
-
-            // Logging
-            error_file: "./logs/frontend-error.log",
-            out_file: "./logs/frontend-out.log",
-            log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-            merge_logs: true,
-
-            // Health monitoring
-            max_memory_restart: "300M",
-        },
+            restart_delay: 5000,
+            error_file: "./logs/tunnel-error.log",
+            out_file: "./logs/tunnel-out.log",
+            log_date_format: "YYYY-MM-DD HH:mm:ss Z"
+        }
     ],
 };

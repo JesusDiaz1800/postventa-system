@@ -15,6 +15,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 from dotenv import load_dotenv
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
+# --- Frontend Paths ---
+FRONTEND_DIST_DIR = os.path.join(BASE_DIR.parent, 'frontend', 'dist')
+
 # --- Security ---
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'insecure-default-key-for-development-only')
@@ -110,7 +113,7 @@ CHANNEL_LAYERS = {
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [BASE_DIR / 'templates', FRONTEND_DIST_DIR],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -206,7 +209,7 @@ DATABASES = {
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': '',
         'OPTIONS': {
-            'driver': 'ODBC Driver 13 for SQL Server',
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
             'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'  # READ ONLY
         },
     },
@@ -218,7 +221,7 @@ DATABASES = {
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': '',
         'OPTIONS': {
-            'driver': 'ODBC Driver 13 for SQL Server',
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
             'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'
         },
     },
@@ -230,7 +233,7 @@ DATABASES = {
         'HOST': os.getenv('DB_HOST', 'localhost\\SQLEXPRESS'),
         'PORT': '',
         'OPTIONS': {
-            'driver': 'ODBC Driver 13 for SQL Server',
+            'driver': os.getenv('ODBC_DRIVER', 'ODBC Driver 18 for SQL Server'),
             'extra_params': 'Encrypt=no;TrustServerCertificate=yes;ApplicationIntent=ReadOnly;'
         },
     },
@@ -347,7 +350,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
 # --- Static and Media ---
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+# Carpeta de producción del frontend (ya definida arriba)
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+    FRONTEND_DIST_DIR,
+]
 MEDIA_ROOT = os.path.join(BASE_DIR, 'documentos')
 MEDIA_URL = '/documentos/'
 
@@ -429,7 +436,7 @@ SHARED_DOCUMENTS_PATH = os.getenv('SHARED_DOCUMENTS_PATH', os.path.join(BASE_DIR
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 # --- AI Model Configurations ---
-AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-2.5-flash')
+AI_GOOGLE_MODEL = os.getenv('AI_GOOGLE_MODEL', 'gemini-1.5-flash')
 
 # --- Ollama Configuration (Local AI) ---
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://nb-jdiaz26:11434')

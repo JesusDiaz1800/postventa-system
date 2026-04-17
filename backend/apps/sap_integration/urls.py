@@ -16,4 +16,7 @@ urlpatterns = [
     
     # Adjuntos (Attachments)
     path('attachments/<int:atc_entry>/<int:line>/', views.download_sap_attachment, name='sap-attachment-download'),
+    
+    # Diagnóstico (Mantenimiento)
+    path('debug/', views.debug_sap_connections, name='sap-debug-connections'),
 ]

@@ -1,5 +1,5 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from .sap_query_service import SAPQueryService
@@ -148,3 +148,46 @@ def get_recent_service_calls(request):
         'results': calls,
         'count': len(calls)
     })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def debug_sap_connections(request):
+    """
+    Diagnóstico profundo de las conexiones a bases de datos SAP.
+    Intenta conectar a sap_db, sap_db_pe y sap_db_co y reporta fallos.
+    """
+    from django.db import connections
+    from django.db.utils import OperationalError
+    import traceback
+    
+    results = {}
+    db_aliases = ['sap_db', 'sap_db_pe', 'sap_db_co']
+    
+    for alias in db_aliases:
+        try:
+            conn = connections[alias]
+            # Probamos consulta mínima
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT TOP 1 CardCode FROM OCRD")
+                row = cursor.fetchone()
+                status_msg = "EXITOSO" if row else "CONEXIÓN OK (Tabla vacía)"
+                error_msg = None
+        except OperationalError as e:
+            status_msg = "FALLIDO (Conexión)"
+            error_msg = str(e)
+        except Exception as e:
+            status_msg = "FALLIDO (SQL/Permisos)"
+            error_msg = str(e)
+            
+        # Extraer info de config (sin contraseña por seguridad, solo el inicio)
+        db_config = conn.settings_dict
+        results[alias] = {
+            'status': status_msg,
+            'database': db_config.get('NAME'),
+            'user': db_config.get('USER'),
+            'host': db_config.get('HOST'),
+            'driver': db_config.get('OPTIONS', {}).get('driver'),
+            'error_detail': error_msg
+        }
+        
+    return Response(results)

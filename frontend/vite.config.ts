@@ -10,6 +10,7 @@ const certPath = path.join(sslDir, 'cert.pem');
 const hasSSL = fs.existsSync(keyPath) && fs.existsSync(certPath);
 
 export default defineConfig({
+  base: '/static/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -56,10 +57,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-ui': ['@heroicons/react', 'lucide-react', 'react-hot-toast'],
-          'vendor-editor': ['@tiptap/react', '@tiptap/starter-kit', '@tiptap/pm'],
+          'vendor': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          'ui': ['@heroicons/react', 'lucide-react', 'react-hot-toast'],
         },
       },
     },

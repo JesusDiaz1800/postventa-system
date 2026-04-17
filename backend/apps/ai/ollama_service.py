@@ -20,7 +20,7 @@ class OllamaService:
         # Limpiar URL de posibles barras finales
         self.base_url = self.base_url.rstrip('/')
         
-    def generate_content(self, prompt: str, system_prompt: str = None) -> str:
+    def generate_content(self, prompt: str, system_prompt: str = None, timeout: int = 60) -> str:
         """Generar respuesta de texto simple"""
         url = f"{self.base_url}/api/generate"
         
@@ -30,11 +30,12 @@ class OllamaService:
             "stream": False,
         }
 
+
         if system_prompt:
             payload["system"] = system_prompt
 
         try:
-            response = requests.post(url, json=payload, timeout=60)
+            response = requests.post(url, json=payload, timeout=timeout)
             response.raise_for_status()
             return response.json().get('response', '')
         except Exception as e:
@@ -154,7 +155,7 @@ class OllamaService:
             logger.error(f"Error en Ollama analyze_real_image: {e}")
             raise
 
-    def chat(self, messages: List[Dict[str, str]]) -> str:
+    def chat(self, messages: List[Dict[str, str]], timeout: int = 60) -> str:
         """Mantener una conversación fluida"""
         url = f"{self.base_url}/api/chat"
         
@@ -165,7 +166,7 @@ class OllamaService:
         }
 
         try:
-            response = requests.post(url, json=payload, timeout=60)
+            response = requests.post(url, json=payload, timeout=timeout)
             response.raise_for_status()
             return response.json().get('message', {}).get('content', '')
         except Exception as e:
