@@ -1,0 +1,11 @@
+INSTRUCCIONES PARA ACCESO SEGURO - SISTEMA POSTVENTA
+Polifusion S.A.
+
+Para entrar al sistema sin advertencias de "Conexion no privada", siga estos pasos:
+
+1. Ejecute el archivo "CONFIGURAR_ACCESO.bat" (con doble clic).
+2. Si le pregunta por permisos, diga que SI (si no tiene permisos, no se preocupe, el script funcionara igual).
+3. Una vez que el script diga "¡CONFIGURACION COMPLETADA!", CIERRE totalmente su navegador Chrome.
+4. Abra Chrome de nuevo y entre a: https://192.168.1.234:5173
+
+Nota: Solo debe hacer esto UNA VEZ por computadora.

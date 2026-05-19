@@ -1,0 +1,66 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+import fs from 'fs';
+
+// SSL certificate paths
+const sslDir = path.resolve(process.cwd(), 'ssl');
+const keyPath = path.join(sslDir, 'key.pem');
+const certPath = path.join(sslDir, 'cert.pem');
+const hasSSL = fs.existsSync(keyPath) && fs.existsSync(certPath);
+
+export default defineConfig({
+  base: '/',
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve('./src'),
+    },
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+  },
+  server: {
+    port: 5174,
+    host: '0.0.0.0',
+    strictPort: true,
+    allowedHosts: ['sertec.polifusion.com'],
+    // HTTPS deshabilitado localmente para evitar bloqueos del navegador (ERR_FAILED)
+    hmr: {
+      overlay: true,
+      clientPort: 443,
+    },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+        secure: false,
+        timeout: 600000, // 10 minutos
+      },
+      '/ws': {
+        target: 'http://127.0.0.1:8001',
+        ws: true,
+        secure: false,
+        changeOrigin: false,
+      },
+      '/documentos': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          'ui': ['@heroicons/react', 'lucide-react', 'react-hot-toast'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
+});

@@ -1,0 +1,24 @@
+This is a placeholder for the lab report template. In a real implementation, this would be a Word document with placeholders.
+
+REPORTE DE LABORATORIO
+======================
+
+INCIDENCIA: {{INC_CODE}}
+FECHA: {{FECHA_ACTUAL}}
+
+DESCRIPCIÓN DE LA MUESTRA:
+{{MUESTRA}}
+
+ENSAYOS REALIZADOS:
+{{ENSAYOS}}
+
+OBSERVACIONES:
+{{OBSERVACIONES}}
+
+CONCLUSIONES TÉCNICAS:
+{{CONCLUSIONES}}
+
+Firma del Experto:
+{{EXPERTO}}
+
+Fecha: {{FECHA_ACTUAL}}

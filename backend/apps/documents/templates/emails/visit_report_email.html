@@ -1,0 +1,127 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #1e293b;
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafc;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+        .header {
+            background-color: #0f172a;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .greeting {
+            font-size: 18px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 20px;
+        }
+        .info-card {
+            background-color: #f1f5f9;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 25px 0;
+            border-left: 4px solid #3b82f6;
+        }
+        .info-item {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #64748b;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .info-value {
+            font-weight: 700;
+            color: #1e293b;
+            text-align: right;
+        }
+        .footer {
+            background-color: #f8fafc;
+            padding: 30px;
+            text-align: center;
+            border-top: 1px solid #e2e8f0;
+        }
+        .footer p {
+            font-size: 12px;
+            color: #94a3b8;
+            margin: 5px 0;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #3b82f6;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            margin-top: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SERTEC SYSTEM</h1>
+            <p style="color: #38bdf8; font-weight: 700; font-size: 12px; margin-top: 8px; letter-spacing: 0.2em;">POLIFUSIÓN S.A.</p>
+        </div>
+        <div class="content">
+            <p class="greeting">Reporte de Visita Técnica</p>
+            <p>Estimado/a,</p>
+            <p>Se adjunta el Reporte de Visita Técnica <strong>{{ report_number }}</strong> correspondiente a la visita realizada en la obra <strong>{{ project_name }}</strong>.</p>
+            
+            <div class="info-card">
+                <div class="info-item">
+                    <span class="info-label">Detalles de la Visita:</span>
+                </div>
+                <div style="margin-top: 10px;">
+                    <p style="margin: 5px 0;"><strong>• Cliente:</strong> {{ client_name }}</p>
+                    <p style="margin: 5px 0;"><strong>• Fecha:</strong> {{ visit_date|date:"d/m/Y" }}</p>
+                    <p style="margin: 5px 0;"><strong>• Técnico:</strong> {{ technician }}</p>
+                </div>
+            </div>
+
+            <p style="font-size: 14px; color: #64748b; margin-top: 25px;">Este es un correo automático generado por Sertec Polifusion System. Por favor, no responda a este mensaje.</p>
+        </div>
+        <div class="footer">
+            <p><strong>Polifusión S.A. - Departamento de Servicio Técnico</strong></p>
+            <p>Este es un correo automático, por favor no responder.</p>
+            <p>© {{ year }} Sertec System. Todos los derechos reservados.</p>
+        </div>
+    </div>
+</body>
+</html>

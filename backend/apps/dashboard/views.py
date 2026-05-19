@@ -1,0 +1,31 @@
+from django.views.decorators.cache import cache_page
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from .dashboard_metrics import visit_metrics
+import logging
+
+logger = logging.getLogger(__name__)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@cache_page(60 * 5) # Reducido a 5 min para mayor agilidad en producción
+def get_metrics(request):
+    """
+    Obtener métricas generales del dashboard (SERTEC v1.0)
+    """
+    try:
+        metrics = visit_metrics.get_comprehensive_dashboard()
+        
+        return Response({
+            'success': True,
+            'data': metrics
+        })
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo métricas del dashboard: {str(e)}")
+        return Response({
+            'success': False,
+            'error': f'Error obteniendo métricas: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

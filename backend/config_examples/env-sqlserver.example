@@ -1,0 +1,31 @@
+# Django Settings
+DEBUG=True
+SECRET_KEY=your-secret-key-change-in-production
+
+# SQL Server Database
+DB_NAME=postventa_system
+DB_USER=sa
+DB_PASSWORD=TuPassword123!
+DB_HOST=localhost
+DB_PORT=1433
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Shared Folder Path (Windows UNC path)
+SHARED_FOLDER_PATH=\\\\servidor\\compartido\\postventa
+# Alternative: Local path
+# SHARED_FOLDER_PATH=C:\\shared\\postventa
+
+# AI Providers (optional)
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+
+# Email Settings (optional)
+EMAIL_HOST=
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+DEFAULT_FROM_EMAIL=noreply@postventa.local

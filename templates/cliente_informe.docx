@@ -1,0 +1,26 @@
+This is a placeholder for the client report template. In a real implementation, this would be a Word document with placeholders like {{CLIENTE}}, {{FECHA_DETECCION}}, etc.
+
+For now, I'll create a simple text representation of what the template should contain:
+
+INFORME TÉCNICO - POSTVENTA
+============================
+
+Estimado/a {{CLIENTE}},
+
+En atención a su comunicación del {{FECHA_DETECCION}}, realizamos una verificación técnica del elemento reportado ({{SKU}}, lote {{LOTE}}). A continuación, presentamos los hallazgos y acciones propuestas:
+
+OBSERVACIONES:
+{{DESCRIPCION}}
+
+RESUMEN TÉCNICO:
+{{CONCLUSIONES_TECNICAS}}
+
+ACCIONES SUGERIDAS:
+{{RECOMENDACIONES}}
+
+Quedamos disponibles para coordinar la ejecución.
+
+Atentamente,
+{{FIRMANTE}} — {{FIRMA_CARGO}}
+
+Fecha: {{FECHA_ACTUAL}}
