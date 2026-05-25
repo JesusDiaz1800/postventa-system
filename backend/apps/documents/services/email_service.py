@@ -170,7 +170,6 @@ Polifusión S.A.
                 'city': visit.city or 'Santiago',
                 'visit_date': formatted_date,
                 'salesperson': visit.salesperson or 'No asignado',
-                'visit_reason': visit.visit_reason or 'Inspección Técnica',
                 'visit_url': visit_url,
                 'year': timezone.now().year
             }
@@ -192,7 +191,6 @@ Detalles de la Visita:
 - Dirección: {context['address']}
 - Comuna: {context['commune']}, {context['city']}
 - Vendedor: {context['salesperson']}
-- Motivo: {context['visit_reason']}
 
 Puede ver y editar esta visita accediendo al siguiente enlace:
 {visit_url}
@@ -202,19 +200,19 @@ Departamento de Postventa y Servicio Técnico
 Polifusión S.A.
             """
             
-            # Enviar el correo
+            # Enviar el correo (Redirigido temporalmente a jdiaz@polifusion.cl en pre-producción)
             email = EmailMessage(
                 subject=subject,
                 body=body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[technician_user.email],
+                to=['jdiaz@polifusion.cl'],
             )
             email.content_subtype = "html"
             email.body = html_content
             
             email.send(fail_silently=False)
-            logger.info(f"Notification email successfully sent to technician '{technician_user.email}' for visit {visit.report_number}")
-            return True, "Notificación enviada al técnico con éxito."
+            logger.info(f"Notification email successfully sent (Redirected to 'jdiaz@polifusion.cl' from '{technician_user.email}') for visit {visit.report_number}")
+            return True, "Notificación enviada al técnico con éxito (Redirigida a jdiaz@polifusion.cl)."
             
         except Exception as e:
             logger.error(f"Error sending technician notification: {str(e)}")

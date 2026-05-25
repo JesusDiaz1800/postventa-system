@@ -45,6 +45,32 @@ Se han implementado con éxito todas las soluciones planificadas y aprobadas par
   - **Carga de Cero Latencia**:
     - Retuvimos el hook de extracción masiva en memoria (`rawReports` con `@tanstack/react-query`) que realiza una única solicitud de red y luego corta y segmenta instantáneamente las colecciones en el cliente (0ms de latencia en filtros). Esto garantiza que el hermoso diseño premium no interfiera lo más mínimo con la velocidad de carga de la página.
 
+### 5. Ajuste y Optimización de Alturas y Nombres (Visual Cockpit Compacto)
+- **Archivo modificado**: [Dashboard.tsx](file:///C:/Users/jdiaz/Desktop/sertec-system/frontend/src/pages/Dashboard.tsx)
+- **Solución**:
+  - **Rebranding Visual**:
+    - Renombramos la sección *"Productividad de Técnicos"* a **"Número de Visitas por Técnico"** para que sea mucho más descriptivo.
+    - Renombramos la sección de listados de visitas *"Visitas bajo Selección"* a **"Últimas Acciones"** para denotar dinamismo.
+  - **Optimización de Proporciones y Alturas**:
+    - Incrementamos la altura del grid de gráficos inferior (`Número de Visitas por Técnico` y `Distribución Geográfica`) a **`220px`** (antes `175px`), dando mucha más presencia a las barras de Recharts y haciendo que los listados de comunas muestren más filas en pantalla de forma simultánea.
+    - Incrementamos la altura del listado de `Obras y Proyectos` a **`220px`** (antes `175px`) para que el listado sea sustancialmente más visible.
+    - Al dejar libre la altura del gráfico de fluctuaciones (`Fluctuación y Tendencia de Visitas` con `flex-1`) y el listado de `Últimas Acciones` (`flex-1`), ambos elementos se autoajustan de forma fluida y elástica al tamaño disponible de la pantalla, resolviendo de raíz el aspecto "aplastado".
+
+### 6. Notificaciones de Visita y Resumen de Itinerario Diario para Técnicos
+- **Archivos modificados**:
+  - [email_service.py](file:///C:/Users/jdiaz/Desktop/sertec-system/backend/apps/documents/services/email_service.py)
+  - [technician_notification_email.html](file:///C:/Users/jdiaz/Desktop/sertec-system/backend/apps/documents/templates/emails/technician_notification_email.html)
+  - [tasks.py](file:///C:/Users/jdiaz/Desktop/sertec-system/backend/apps/notifications/tasks.py)
+- **Solución**:
+  - **Eliminación del Motivo de Visita**: Removemos el campo `visit_reason` del contexto de la notificación HTML y del texto plano, ya que dicha información no está registrada ni es necesaria en la aplicación.
+  - **Resolución por Correo Registrado**: Aseguramos que las notificaciones se envíen de forma robusta al correo corporativo del respectivo usuario técnico registrado en el sistema (`technician_user.email`), emparejando el nombre textual de asignación con el perfil activo mediante normalización y coincidencia de strings aproximada.
+  - **Itinerario Diario Automatizado a las 6:00 AM (Lunes a Viernes)**:
+    - Creamos una tarea asíncrona periódica de Celery `send_daily_technician_itinerary` en `tasks.py`.
+    - Esta tarea extrae las visitas programadas (excluyendo aprobadas, cerradas o enviadas) asignadas para el día actual.
+    - Agrupa y ordena de manera inteligente las visitas de cada técnico según la **Comuna** para optimizar su transporte.
+    - Genera y despacha un correo electrónico interactivo con prioridad **Alta Importancia** (agregando los encabezados SMTP `X-Priority: 1` e `Importance: high`) conteniendo un cuadro de mando estructurado en tabla HTML con las columnas: Comuna, Obra, Cliente, Dirección y Botón a Ficha Móvil.
+    - Registramos dinámicamente la tarea periódica en el motor de base de datos de Celery Beat a las `6:00 AM` con crontab de lunes a viernes (`day_of_week='1-5'`) bajo la zona horaria del sistema `America/Santiago`.
+
 ---
 
 ## Resultados de Verificación
@@ -55,4 +81,4 @@ Se han implementado con éxito todas las soluciones planificadas y aprobadas par
 
 ### 2. Compilación del Frontend (TypeScript)
 - Se ejecutó `npm run build` en el directorio de la aplicación React.
-- **Resultado**: Compiló correctamente en **11.87s** sin advertencias ni errores en los tipos de TypeScript.
+- **Resultado**: Compiló correctamente en **11.69s** sin advertencias ni errores en los tipos de TypeScript.

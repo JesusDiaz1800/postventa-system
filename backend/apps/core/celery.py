@@ -1,5 +1,6 @@
 import os
 from celery import Celery
+from celery.schedules import crontab
 from django.conf import settings
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'apps.core.settings')
@@ -60,6 +61,11 @@ app.conf.beat_schedule = {
     'update-notification-metrics': {
         'task': 'apps.notifications.tasks.update_notification_metrics',
         'schedule': 300.0,  # 5 minutos
+        'options': {'queue': 'notifications'}
+    },
+    'send-daily-technician-itinerary': {
+        'task': 'apps.notifications.tasks.send_daily_technician_itinerary',
+        'schedule': crontab(minute='0', hour='6', day_of_week='1-5'),  # 6:00 AM, Lunes a Viernes
         'options': {'queue': 'notifications'}
     },
 }
