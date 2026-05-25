@@ -153,7 +153,7 @@ function App() {
 
             <div 
               id="main-scroll-container"
-              className={`flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out ${isSidebarOpen && !isLanding && !isVisitForm ? 'md:ml-72' : 'md:ml-0'} ${isLanding ? 'custom-scrollbar' : ''}`}
+              className={`flex-1 flex flex-col h-screen ${isDashboard ? 'lg:overflow-hidden overflow-y-auto' : 'overflow-y-auto'} overflow-x-hidden transition-all duration-300 ease-in-out ${isSidebarOpen && !isLanding && !isVisitForm ? 'md:ml-72' : 'md:ml-0'} ${isLanding ? 'custom-scrollbar' : ''}`}
             >
               {!isLanding && !isVisitForm && (
                 <Header
@@ -162,8 +162,8 @@ function App() {
               )}
 
 
-            <main className={`flex-1 relative z-0 transition-all duration-500 ${isLanding ? 'p-8 md:p-12 lg:p-14' : 'p-6 md:p-10 lg:p-12'}`}>
-              <div className="relative z-10">
+            <main className={`flex-1 relative z-0 transition-all duration-500 ${isLanding ? 'p-8 md:p-12 lg:p-14' : (isDashboard ? 'p-0 lg:overflow-hidden overflow-hidden' : 'p-6 md:p-10 lg:p-12')}`}>
+              <div className={`relative z-10 ${isDashboard ? 'h-full' : ''}`}>
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={location.pathname}
@@ -171,6 +171,7 @@ function App() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                    className={isDashboard ? 'h-full flex flex-col' : ''}
                   >
                     <Routes location={location} key={location.pathname}>
                       <Route path="/" element={user?.role === 'technical_service' || user?.role === 'tecnico' || user?.role === 'technician' ? <Navigate to="/visit-reports" replace /> : <Navigate to="/quick-actions" replace />} />
