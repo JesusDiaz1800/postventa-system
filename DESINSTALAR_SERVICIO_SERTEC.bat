@@ -1,6 +1,7 @@
 @echo off
 TITLE DESINSTALADOR DE SERVICIO SERTEC - TI
 SETLOCAL ENABLEDELAYEDEXPANSION
+COLOR 0C
 
 :: Verificar permisos de administrador
 net session >nul 2>&1
@@ -16,25 +17,21 @@ echo ============================================================
 echo.
 
 :: 1. Detener y eliminar procesos de PM2
-echo [INFO] Deteniendo procesos activos...
-call pm2 stop all
-call pm2 delete all
+echo [INFO] Deteniendo y eliminando procesos de Sertec en PM2...
+call pm2 stop sertec-server sertec-tunnel >nul 2>&1
+call pm2 delete sertec-server sertec-tunnel >nul 2>&1
+call pm2 save
 
 :: 2. Eliminar el inicio automatico de Windows
 echo [INFO] Eliminando el servicio de arranque de Windows...
 call pm2-startup uninstall
-
-:: 3. Limpiar configuracion guardada
-echo [INFO] Limpiando dump de PM2...
-if exist "%HOMEDRIVE%%HOMEPATH%\.pm2\dump.pm2" (
-    del "%HOMEDRIVE%%HOMEPATH%\.pm2\dump.pm2"
-)
 
 echo.
 echo ============================================================
 echo      DESINSTALACION COMPLETADA
 echo ============================================================
 echo El sistema SERTEC ya no se iniciara automaticamente con Windows.
-echo Los procesos han sido detenidos.
+echo Los servicios han sido removidos con exito.
 echo ============================================================
+echo.
 pause

@@ -95,29 +95,45 @@ class SAPQueryService:
                 tech_field = "Technician"
                 if country == 'PE':
                     # En Perú parece no existir o tener otro nombre, omitir por ahora si falla
-                    query = "SELECT CardName, SlpCode, E_Mail, Phone1 FROM OCRD WHERE CardCode = %s"
+                    query = """
+                        SELECT c.CardName, c.SlpCode, c.E_Mail, c.Phone1, s.Email as SalespersonEmail
+                        FROM OCRD c
+                        LEFT JOIN OSLP s ON c.SlpCode = s.SlpCode
+                        WHERE c.CardCode = %s
+                    """
                     cursor.execute(query, [card_code])
                 else:
                     try:
-                        query = "SELECT CardName, SlpCode, Technician, E_Mail, Phone1 FROM OCRD WHERE CardCode = %s"
+                        query = """
+                            SELECT c.CardName, c.SlpCode, c.Technician, c.E_Mail, c.Phone1, s.Email as SalespersonEmail
+                            FROM OCRD c
+                            LEFT JOIN OSLP s ON c.SlpCode = s.SlpCode
+                            WHERE c.CardCode = %s
+                        """
                         cursor.execute(query, [card_code])
                     except Exception:
                         # Fallback si falla por columna 'Technician'
-                        query = "SELECT CardName, SlpCode, E_Mail, Phone1 FROM OCRD WHERE CardCode = %s"
+                        query = """
+                            SELECT c.CardName, c.SlpCode, c.E_Mail, c.Phone1, s.Email as SalespersonEmail
+                            FROM OCRD c
+                            LEFT JOIN OSLP s ON c.SlpCode = s.SlpCode
+                            WHERE c.CardCode = %s
+                        """
                         cursor.execute(query, [card_code])
                 
                 row = cursor.fetchone()
                 if not row: return None
 
                 # Mapear columnas según el query ejecutado
-                if len(row) == 5: # Chile / Estándar con Technician
+                if len(row) == 6: # Chile / Estándar con Technician
                     data = {
                         'card_code': card_code,
                         'card_name': row[0],
                         'SalesEmployeeCode': row[1],
                         'TechnicianCode': row[2],
                         'email': row[3],
-                        'phone': row[4]
+                        'phone': row[4],
+                        'salesperson_email': row[5]
                     }
                 else: # Perú u otros sin Technician
                     data = {
@@ -126,7 +142,8 @@ class SAPQueryService:
                         'SalesEmployeeCode': row[1],
                         'TechnicianCode': None,
                         'email': row[2],
-                        'phone': row[3]
+                        'phone': row[3],
+                        'salesperson_email': row[4]
                     }
                 
                 cache.set(cache_key, data, self.CACHE_TIMEOUT)

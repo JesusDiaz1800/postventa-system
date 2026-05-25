@@ -60,17 +60,19 @@ const Users = () => {
     enabled: activeTab === 'users' // Only fetch if on users tab
   });
 
-  // Handle paginated response
+  // Handle paginated response - support all possible API shapes
   let users = [];
   if (usersData) {
-    if (Array.isArray(usersData)) {
-      users = usersData;
-    } else if (usersData.data && usersData.data.results) {
-      users = usersData.data.results;
-    } else if (usersData.results) {
-      users = usersData.results;
-    } else if (usersData.data && Array.isArray(usersData.data)) {
-      users = usersData.data;
+    // axios wraps response: usersData is the axios response object
+    const responseData = usersData.data ?? usersData;
+    if (Array.isArray(responseData)) {
+      users = responseData;
+    } else if (responseData?.results && Array.isArray(responseData.results)) {
+      users = responseData.results;
+    } else if (responseData?.data && Array.isArray(responseData.data)) {
+      users = responseData.data;
+    } else if (responseData?.data?.results && Array.isArray(responseData.data.results)) {
+      users = responseData.data.results;
     }
   }
 

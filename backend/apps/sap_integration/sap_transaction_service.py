@@ -67,6 +67,7 @@ class SAPTransactionService:
         return f"sap_session_{self.company_db}_{self.user}"
 
     def _login(self):
+        # 1. Intentar primero con la caché del usuario actual
         cache_key = self._get_cache_key()
         cached_cookies = cache.get(cache_key)
         
@@ -75,26 +76,66 @@ class SAPTransactionService:
             return True
 
         url = f"{self.base_url}/Login"
-        payload = {
-            "CompanyDB": self.company_db,
-            "UserName": self.user,
-            "Password": self.password
-        }
         
-        try:
-            logger.info(f"SAP SL: Login to {self.company_db} ({self.user})...")
-            response = requests.post(url, json=payload, verify=False, timeout=15)
+        # 2. Definir credenciales de fallback según el país
+        if self.country == 'PE':
+            sys_user = settings.SAP_SL_USER_PE
+            sys_pass = settings.SAP_SL_PASS_PE
+        elif self.country == 'CO':
+            sys_user = settings.SAP_SL_USER_CO
+            sys_pass = settings.SAP_SL_PASS_CO
+        else:
+            sys_user = settings.SAP_SL_USER_CL
+            sys_pass = settings.SAP_SL_PASS_CL
+
+        # Construir conjunto de credenciales a intentar
+        credential_sets = []
+        if self.user and self.password:
+            credential_sets.append((self.user, self.password, False))  # (user, pass, is_fallback)
+        
+        if sys_user and sys_user != self.user:
+            credential_sets.append((sys_user, sys_pass, True))
             
-            if response.status_code == 200:
-                self.session_cookies = response.cookies
-                cache.set(cache_key, self.session_cookies, timeout=1800)
+        if not credential_sets:
+            credential_sets.append((sys_user, sys_pass, True))
+
+        for user, password, is_fallback in credential_sets:
+            # Si estamos intentando el fallback, verificar si ya tiene caché propia
+            curr_cache_key = f"sap_session_{self.company_db}_{user}"
+            cached_cookies = cache.get(curr_cache_key)
+            if cached_cookies:
+                self.session_cookies = cached_cookies
+                # Guardar también en la caché del usuario original para no reintentar
+                if is_fallback:
+                    cache.set(cache_key, self.session_cookies, timeout=1800)
                 return True
-            else:
-                logger.error(f"SAP SL Login Error ({response.status_code}): {response.text}")
-                return False
-        except Exception as e:
-            logger.error(f"SAP SL Exception during login: {e}")
-            return False
+
+            payload = {
+                "CompanyDB": self.company_db,
+                "UserName": user,
+                "Password": password
+            }
+            
+            try:
+                logger.info(f"SAP SL: Login to {self.company_db} ({user})...")
+                response = requests.post(url, json=payload, verify=False, timeout=15)
+                
+                if response.status_code == 200:
+                    self.session_cookies = response.cookies
+                    # Cachear en la clave de la credencial intentada
+                    cache.set(curr_cache_key, self.session_cookies, timeout=1800)
+                    
+                    if is_fallback:
+                        logger.warning(f"SAP SL: Login falló para {self.user}, usando fallback de sistema {user}")
+                        # También cachear para el usuario original
+                        cache.set(cache_key, self.session_cookies, timeout=1800)
+                    return True
+                else:
+                    logger.error(f"SAP SL Login Error ({response.status_code}) para {user}: {response.text}")
+            except Exception as e:
+                logger.error(f"SAP SL Exception durante login con {user}: {e}")
+                
+        return False
 
     def upload_attachments(self, files):
         """

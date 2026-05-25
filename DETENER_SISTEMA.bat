@@ -1,53 +1,45 @@
 @echo off
-title Detener Sistema PostVenta
-color 0C
+TITLE DETENER SISTEMA SERTEC
+COLOR 0C
 
-echo.
-echo ========================================
-echo   DETENIENDO SISTEMA POSTVENTA
-echo ========================================
+set PM2_PATH=C:\Users\jdiaz\AppData\Roaming\npm\pm2.cmd
+
+echo ========================================================
+echo        DETENIENDO SERVICIOS DE SERTEC SYSTEM
+echo ========================================================
 echo.
 
-echo [1/3] Deteniendo Backend Django...
-taskkill /f /im python.exe >nul 2>&1
-if errorlevel 1 (
-    echo No hay procesos Python ejecutandose
-) else (
-    echo Backend Django detenido
+where pm2 >nul 2>&1
+if %errorLevel% equ 0 (
+    echo [INFO] Deteniendo servicios en PM2...
+    call "%PM2_PATH%" stop sertec-server sertec-tunnel >nul 2>&1
+    call "%PM2_PATH%" delete sertec-server sertec-tunnel >nul 2>&1
+    call "%PM2_PATH%" save
+    echo [OK] Procesos de PM2 eliminados.
 )
 
-echo.
-echo [2/3] Deteniendo Frontend React...
-taskkill /f /im node.exe >nul 2>&1
-if errorlevel 1 (
-    echo No hay procesos Node ejecutandose
-) else (
-    echo Frontend React detenido
+echo [INFO] Liberando puertos y procesos locales...
+
+:: Liberar selectivamente puerto 8001 (Servidor Daphne)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8001" ^| findstr "LISTENING"') do (
+    echo [INFO] Finalizando proceso Daphne en puerto 8001 (PID %%a)...
+    taskkill /f /pid %%a >nul 2>&1
 )
 
-echo.
-echo [3/3] Verificando detencion...
-timeout /t 2 >nul
-tasklist /fi "imagename eq python.exe" 2>nul | find /i "python.exe" >nul
-if not errorlevel 1 (
-    echo WARNING: Aun hay procesos Python ejecutandose
-) else (
-    echo OK: Todos los procesos Python detenidos
+:: Liberar selectivamente puerto 5174 (Vite)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5174" ^| findstr "LISTENING"') do (
+    echo [INFO] Finalizando proceso Vite en puerto 5174 (PID %%a)...
+    taskkill /f /pid %%a >nul 2>&1
 )
 
-tasklist /fi "imagename eq node.exe" 2>nul | find /i "node.exe" >nul
-if not errorlevel 1 (
-    echo WARNING: Aun hay procesos Node ejecutandose
-) else (
-    echo OK: Todos los procesos Node detenidos
-)
+:: Detener cloudflared si hay instancias locales huerfanas
+taskkill /f /im cloudflared.exe >nul 2>&1
 
 echo.
-echo ========================================
-echo   SISTEMA DETENIDO COMPLETAMENTE
-echo ========================================
-echo.
-echo Para reiniciar el sistema:
-echo   INICIAR_SISTEMA_PRODUCCION.bat
+echo ========================================================
+echo    SISTEMA SERTEC DETENIDO COMPLETAMENTE
+echo    Puertos 8001 y 5174 estan libres y disponibles.
+echo    Los puertos de Incidencias (8000/5173) no fueron alterados.
+echo ========================================================
 echo.
 pause

@@ -41,7 +41,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         ('management', 'Gerencia'),
         ('technical_service', 'Servicio Técnico'),
         ('quality', 'Calidad'),
-        ('supervisor', 'Supervisor Postventa'),
+        ('supervisor', 'Jefe SERTEC'),
         ('analyst', 'Analista Técnico'),
         ('customer_service', 'Atención al Cliente'),
         ('provider', 'Proveedor'),

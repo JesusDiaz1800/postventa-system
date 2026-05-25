@@ -178,10 +178,12 @@ def upload_report_attachment(request, report_id, report_type):
                 os.makedirs(report_folder, exist_ok=True)
                 pdf_path = os.path.join(report_folder, f"{report.report_number}.pdf")
                 
-                pdf_content = pdf_generator.generate_visit_report_pdf(pdf_data, pdf_path)
+                success = pdf_generator.generate_visit_report_pdf(pdf_data, pdf_path)
                 
-                if pdf_content:
-                    report.pdf_file.save(f"{report.report_number}.pdf", ContentFile(pdf_content), save=False)
+                if success and os.path.exists(pdf_path):
+                    with open(pdf_path, 'rb') as f:
+                        pdf_bytes = f.read()
+                    report.pdf_file.save(f"{report.report_number}.pdf", ContentFile(pdf_bytes), save=False)
                     report.save(update_fields=['pdf_file'])
                     logger.info(f"PDF regenerado automáticamente con imágenes en SERTEC: {pdf_path}")
                     

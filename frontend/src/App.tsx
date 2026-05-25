@@ -173,8 +173,8 @@ function App() {
                     transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
                   >
                     <Routes location={location} key={location.pathname}>
-                      <Route path="/" element={<Navigate to="/quick-actions" replace />} />
-                      <Route path="/quick-actions" element={<QuickActions />} />
+                      <Route path="/" element={user?.role === 'technical_service' || user?.role === 'tecnico' || user?.role === 'technician' ? <Navigate to="/visit-reports" replace /> : <Navigate to="/quick-actions" replace />} />
+                      <Route path="/quick-actions" element={user?.role === 'technical_service' || user?.role === 'tecnico' || user?.role === 'technician' ? <Navigate to="/visit-reports" replace /> : <QuickActions />} />
                       <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/users" element={<Users />} />
                       <Route path="/schedule-visit" element={<ScheduleVisitPage />} />
@@ -183,7 +183,7 @@ function App() {
                       <Route path="/visit-report-form/:id" element={<VisitReportForm />} />
                       <Route path="/visit-reports/:id/preview" element={<VisitReportPreview />} />
                       <Route path="/audit" element={<AuditPage />} />
-                      <Route path="*" element={<Navigate to="/quick-actions" replace />} />
+                      <Route path="*" element={user?.role === 'technical_service' || user?.role === 'tecnico' || user?.role === 'technician' ? <Navigate to="/visit-reports" replace /> : <Navigate to="/quick-actions" replace />} />
                     </Routes>
                   </motion.div>
                 </AnimatePresence>

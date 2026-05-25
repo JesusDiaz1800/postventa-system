@@ -52,9 +52,42 @@ def generate_visit_pdf(request, pk):
         serializer = VisitReportSerializer(report, context={'request': request})
         data = serializer.data
         
-        # Inyectar firma del técnico si existe en el perfil
-        if report.created_by and hasattr(report.created_by, 'digital_signature') and report.created_by.digital_signature:
-            data['technician_signature_path'] = report.created_by.digital_signature.path
+        # Inyectar firma del técnico si existe en el perfil del técnico asignado o del creador (si coinciden)
+        technician_user = None
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        # Intentar buscar por nombre del técnico primero
+        import unicodedata
+        def clean_str(s):
+            if not s: return ""
+            return "".join(
+                c for c in unicodedata.normalize('NFD', s.lower())
+                if unicodedata.category(c) != 'Mn'
+            ).strip()
+            
+        tech_name = report.technician
+        clean_tech = clean_str(tech_name)
+        
+        if clean_tech:
+            for u in User.objects.filter(is_active=True):
+                u_full = clean_str(f"{u.first_name} {u.last_name}")
+                u_username = clean_str(u.username)
+                if clean_tech == u_full or clean_tech == u_username or (len(clean_tech) > 3 and (clean_tech in u_full or u_full in clean_tech)):
+                    technician_user = u
+                    break
+                    
+        # Si no se encontró por nombre pero coincide con creador (o el técnico está vacío)
+        if not technician_user and report.created_by:
+            creator_full = clean_str(f"{report.created_by.first_name} {report.created_by.last_name}")
+            creator_username = clean_str(report.created_by.username)
+            if not clean_tech or clean_tech == creator_full or clean_tech == creator_username:
+                technician_user = report.created_by
+                
+        # Inyectar path si se resolvió el usuario y tiene firma
+        if technician_user and hasattr(technician_user, 'digital_signature') and technician_user.digital_signature:
+            data['technician_signature_path'] = technician_user.digital_signature.path
+
             
         success = generator.generate_visit_report_pdf(data, buffer)
         
@@ -101,6 +134,50 @@ def send_visit_report_email(request, pk):
         report = get_object_or_404(VisitReport, pk=pk)
         recipients = request.data.get('recipients', [])
         
+        # Limpiar, normalizar y separar destinatarios por coma o punto y coma
+        if isinstance(recipients, str):
+            recipients = [recipients]
+        
+        parsed_recipients = []
+        for r in recipients:
+            if not r:
+                continue
+            for email in r.replace(';', ',').split(','):
+                email_clean = email.strip()
+                if email_clean and email_clean not in parsed_recipients:
+                    parsed_recipients.append(email_clean)
+        recipients = parsed_recipients
+        
+        if not recipients:
+            if report.client_email:
+                for email in report.client_email.replace(';', ',').split(','):
+                    email_clean = email.strip()
+                    if email_clean and email_clean not in recipients:
+                        recipients.append(email_clean)
+            else:
+                # Si no está en el reporte, intentar obtenerlo en tiempo real de SAP (tabla OSLP)
+                try:
+                    from apps.sap_integration.sap_query_service import SAPQueryService
+                    sap_service = SAPQueryService()
+                    if report.client_rut:
+                        cust_details = sap_service.get_customer_full_details(report.client_rut)
+                        # NUNCA enviar al correo del cliente. Solo al del vendedor (OSLP)
+                        salesperson_email = cust_details.get('salesperson_email') if cust_details else None
+                        if salesperson_email:
+                            for email in salesperson_email.replace(';', ',').split(','):
+                                email_clean = email.strip()
+                                if email_clean and email_clean not in recipients:
+                                    recipients.append(email_clean)
+                except Exception as ex:
+                    logger.warning(f"Error recuperando correo del vendedor desde SAP en tiempo real: {ex}")
+        
+        # Si sigue vacío, lanzar un error explicativo
+        if not recipients:
+            return Response(
+                {"error": "Debe proporcionar al menos un correo electrónico de destino (o configurar el vendedor en SAP con su correo)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         from apps.documents.services.email_service import EmailService
         success, message = EmailService.send_visit_report(report, recipients)
         

@@ -68,13 +68,26 @@ const VisitReportsPage: React.FC = () => {
 
   const { user, getUserDisplayName } = useAuth();
   const userDisplayName = getUserDisplayName();
+
+  const isTechnician = useMemo(() => {
+    if (!user) return false;
+    const roleLower = user.role?.toLowerCase() || '';
+    return roleLower === 'technical_service' || roleLower === 'tecnico' || roleLower === 'technician';
+  }, [user]);
   
   const isJefe = useMemo(() => {
     if (!user) return false;
     const roleLower = user.role?.toLowerCase() || '';
     const usernameLower = user.username?.toLowerCase() || '';
     const nameLower = userDisplayName?.toLowerCase() || '';
-    return roleLower.includes('admin') || roleLower.includes('jefe') || usernameLower.includes('patricio') || nameLower.includes('patricio');
+    
+    // Roles administrativos / gerencia / supervisión / calidad de Sertec que gestionan reportes
+    const isSertecStaff = [
+      'admin', 'administrador', 'jefe', 'supervisor', 'quality', 'calidad', 
+      'analyst', 'analista', 'management', 'gerencia', 'customer_service'
+    ].some(role => roleLower.includes(role));
+    
+    return isSertecStaff || usernameLower.includes('patricio') || nameLower.includes('patricio');
   }, [user, userDisplayName]);
 
   // Initially always pre-loads with their own name (via 'me')
@@ -106,12 +119,16 @@ const VisitReportsPage: React.FC = () => {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailToSend, setEmailToSend] = useState('');
   const [reportForEmail, setReportForEmail] = useState<any>(null);
+  const [isFetchingEmail, setIsFetchingEmail] = useState(false);
 
   // Fetch visit reports from new /api/visits/ endpoint
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['visit-reports', currentPage, pageSize, debouncedSearch],
     queryFn: () => visitReportsAPI.list({ page: currentPage, page_size: pageSize, search: debouncedSearch }).then(res => res.data),
+    staleTime: 30_000,        // 30s — don't refetch on every focus
+    refetchOnWindowFocus: false,
   });
+
 
   const reports = useMemo(() => {
     if (!data) return [];
@@ -231,10 +248,31 @@ const VisitReportsPage: React.FC = () => {
     }
   };
 
-  const handleOpenEmailModal = (report: any) => {
+  const handleOpenEmailModal = async (report: any) => {
     setReportForEmail(report);
-    setEmailToSend(report.client_email || '');
     setShowEmailModal(true);
+    
+    if (report.client_email) {
+      setEmailToSend(report.client_email);
+    } else if (report.client_rut) {
+      setIsFetchingEmail(true);
+      setEmailToSend('Cargando correo desde SAP...');
+      try {
+        const detailRes = await sapAPI.getCustomerDetails(report.client_rut);
+        if (detailRes.data && detailRes.data.salesperson_email) {
+          setEmailToSend(detailRes.data.salesperson_email);
+        } else {
+          setEmailToSend('');
+        }
+      } catch (err) {
+        console.error("Error cargando correo del vendedor desde SAP:", err);
+        setEmailToSend('');
+      } finally {
+        setIsFetchingEmail(false);
+      }
+    } else {
+      setEmailToSend('');
+    }
   };
 
   const handleSendEmail = async () => {
@@ -254,76 +292,77 @@ const VisitReportsPage: React.FC = () => {
     }
   };
 
-  return (
-    <div className="space-y-6 px-2 pb-8">
 
-      {/* HEADER */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white/80 backdrop-blur-xl p-6 rounded-2xl border border-white/60 shadow-xl">
-        <div className="flex items-center gap-4">
-          <div className="bg-blue-600 p-3 rounded-xl shadow-lg shadow-blue-200">
-            <ClipboardDocumentListIcon className="h-7 w-7 text-white" />
+  return (
+    <div className="space-y-4 px-2 pb-6">
+
+      {/* HEADER — compact */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white/80 backdrop-blur-xl p-4 rounded-2xl border border-white/60 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-200">
+            <ClipboardDocumentListIcon className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
+            <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none flex items-center gap-2">
               Reportes de <span className="text-blue-600">Visita</span>
-              <BoltIcon className="w-5 h-5 text-cyan-500" />
+              <BoltIcon className="w-4 h-4 text-cyan-500" />
             </h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.25em] mt-1">
-              Historial completo · Sincronizado con SAP
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-0.5">
+              Historial · Sincronizado SAP
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-stretch sm:items-center">
+        <div className="flex flex-row gap-2 w-full sm:w-auto items-center">
           {isJefe && (
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Técnico:</span>
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 shadow-sm flex-1 sm:flex-none">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Tec:</span>
               <select
                 value={technicianFilter}
                 onChange={(e) => setTechnicianFilter(e.target.value)}
                 className="bg-transparent border-none p-0 text-xs font-black text-blue-600 focus:ring-0 cursor-pointer outline-none"
               >
-                <option value="me">Mi Usuario ({userDisplayName})</option>
-                <option value="all">-- Todos los Técnicos --</option>
+                <option value="me">{userDisplayName}</option>
+                <option value="all">— Todos —</option>
                 {sapTechs?.map((t: any) => (
                   <option key={t.id} value={t.name}>{t.name}</option>
                 ))}
               </select>
             </div>
           )}
-
           <button
             onClick={() => refetch()}
-            className="w-12 h-12 flex items-center justify-center text-slate-400 hover:text-blue-600 bg-white border border-slate-100 rounded-2xl shadow-sm transition-all"
+            className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-blue-600 bg-white border border-slate-100 rounded-xl shadow-sm transition-all flex-shrink-0"
             title="Refrescar"
           >
-            <ArrowPathIcon className="w-5 h-5" />
+            <ArrowPathIcon className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => navigate('/visit-report-form')}
-            className="flex-1 lg:flex-none px-8 py-3.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 hover:shadow-blue-300 transition-all flex items-center justify-center gap-2 hover:scale-[1.02]"
-          >
-            <PlusIcon className="h-5 w-5" />
-            Nuevo Reporte
-          </button>
+          {!isTechnician && (
+            <button
+              onClick={() => navigate('/visit-report-form')}
+              className="flex-1 sm:flex-none px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-200 hover:shadow-blue-300 transition-all flex items-center justify-center gap-2 hover:scale-[1.02] whitespace-nowrap"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Nuevo
+            </button>
+          )}
         </div>
       </div>
 
-
       {/* SEARCH */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg p-4 border border-white/60">
+      <div className="bg-white/70 backdrop-blur-xl rounded-xl shadow-sm p-3 border border-white/60">
         <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Buscar por número de reporte, cliente, proyecto, motivo..."
+            placeholder="Buscar por número, cliente, proyecto..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="block w-full pl-12 pr-12 py-3.5 bg-slate-50 border border-transparent rounded-xl text-sm font-bold text-slate-700 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all outline-none"
+            className="block w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-transparent rounded-lg text-sm font-bold text-slate-700 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all outline-none"
           />
           {searchTerm && (
-            <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-rose-500">
-              <XMarkIcon className="h-5 w-5" />
+            <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-rose-500">
+              <XMarkIcon className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -422,13 +461,15 @@ const VisitReportsPage: React.FC = () => {
                           <PencilSquareIcon className="w-4 h-4"/>
                         </button>
                       )}
-                      <button 
-                        onClick={() => handleDelete(report.id)} 
-                        className="p-2.5 rounded-xl bg-rose-50 text-rose-500 border border-rose-100 hover:bg-rose-500 hover:text-white transition-all"
-                        title="Eliminar"
-                      >
-                        <TrashIcon className="w-4 h-4"/>
-                      </button>
+                      {!isTechnician && (
+                        <button 
+                          onClick={() => handleDelete(report.id)} 
+                          className="p-2.5 rounded-xl bg-rose-50 text-rose-500 border border-rose-100 hover:bg-rose-500 hover:text-white transition-all"
+                          title="Eliminar"
+                        >
+                          <TrashIcon className="w-4 h-4"/>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -488,12 +529,14 @@ const VisitReportsPage: React.FC = () => {
                           <PencilSquareIcon className="w-4 h-4"/> Firmar
                         </button>
                       )}
-                      <button 
-                        onClick={() => handleDelete(report.id)} 
-                        className="p-3 bg-rose-50 text-rose-500 border border-rose-100 rounded-xl"
-                      >
-                        <TrashIcon className="w-5 h-5"/>
-                      </button>
+                      {!isTechnician && (
+                        <button 
+                          onClick={() => handleDelete(report.id)} 
+                          className="p-3 bg-rose-50 text-rose-500 border border-rose-100 rounded-xl"
+                        >
+                          <TrashIcon className="w-5 h-5"/>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -659,19 +702,23 @@ const VisitReportsPage: React.FC = () => {
         <ModalBody className="!pt-4">
           <div className="space-y-4">
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-              Ingrese el correo electrónico del cliente para enviar el reporte {reportForEmail?.report_number}
+              El reporte se enviará exclusivamente al vendedor de SAP asociado y a sus superiores (NUNCA directamente al cliente). Puede ingresar múltiples correos separados por coma (,) o punto y coma (;):
             </p>
             <div className="relative">
               <input
-                type="email"
-                placeholder="ejemplo@correo.com"
+                type="text"
+                placeholder="vendedor@sertec.cl (use ',' o ';' para múltiples correos)"
                 value={emailToSend}
+                disabled={isFetchingEmail}
                 onChange={(e) => {
                   e.stopPropagation();
                   setEmailToSend(e.target.value);
                 }}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all outline-none"
+                className={`w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all outline-none ${isFetchingEmail ? 'bg-slate-100 opacity-70' : 'bg-slate-50'}`}
               />
+              {isFetchingEmail && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              )}
             </div>
           </div>
         </ModalBody>

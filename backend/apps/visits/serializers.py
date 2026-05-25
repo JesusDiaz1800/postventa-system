@@ -7,6 +7,7 @@ User = get_user_model()
 class VisitReportSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    client_email = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     attachments = serializers.SerializerMethodField()
     

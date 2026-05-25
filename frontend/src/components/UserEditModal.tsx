@@ -78,6 +78,10 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
         if (key === 'digital_signature') {
           if (formData[key] instanceof File) {
             submitData.append(key, formData[key]);
+          } else if (typeof formData[key] === 'string') {
+            submitData.append(key, formData[key]);
+          } else if (formData[key] === null) {
+            submitData.append(key, '');
           }
         } else if (key === 'sap_password') {
           if (formData[key]) submitData.append(key, formData[key]); // Solo enviar si cambió explícitamente y no está vacío
@@ -211,7 +215,7 @@ const UserEditModal = ({ isOpen, onClose, onSubmit, user, isLoading }) => {
                                 <option value="management">Gerencia</option>
                                 <option value="technical_service">Servicio Técnico</option>
                                 <option value="quality">Calidad</option>
-                                <option value="supervisor">Supervisor</option>
+                                <option value="supervisor">Jefe SERTEC</option>
                                 <option value="analyst">Analista</option>
                                 <option value="customer_service">Atención al Cliente</option>
                                 <option value="provider">Proveedor</option>

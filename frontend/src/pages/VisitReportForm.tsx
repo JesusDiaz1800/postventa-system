@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { visitReportsAPI, sapAPI, documentsAPI } from '../services/api';
+import { visitReportsAPI, sapAPI, documentsAPI, api } from '../services/api';
 import SignatureCanvas from '../components/SignatureCanvas';
 import {
   ChevronLeftIcon,
@@ -31,6 +31,81 @@ import {
 } from '@heroicons/react/24/outline';
 import ReportAttachments from '../components/ReportAttachments';
 import { useSearchParams } from 'react-router-dom';
+
+// Helpers and components for secure image loading
+const isImageFile = (filename: string) => {
+  const ext = filename?.split('.').pop()?.toLowerCase();
+  return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext || '');
+};
+
+interface SecureReportImageProps {
+  reportId: string | number;
+  attachmentId: number;
+  alt?: string;
+  className?: string;
+}
+
+const SecureReportImage: React.FC<SecureReportImageProps> = ({ reportId, attachmentId, alt = "evidence", className = "" }) => {
+  const [src, setSrc] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<boolean>(false);
+
+  useEffect(() => {
+    let active = true;
+    let url = '';
+
+    const fetchImage = async () => {
+      try {
+        setLoading(true);
+        setError(false);
+        const response = await api.get(`/documents/report-attachments/${reportId}/visit/${attachmentId}/view/`, {
+          responseType: 'blob'
+        });
+        if (active) {
+          url = URL.createObjectURL(response.data);
+          setSrc(url);
+        }
+      } catch (err) {
+        console.error("Error loading secure image:", err);
+        if (active) {
+          setError(true);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchImage();
+
+    return () => {
+      active = false;
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [reportId, attachmentId]);
+
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-900/50 min-h-[100px]">
+        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-emerald-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-slate-500 text-[9px] p-2 text-center min-h-[100px]">
+        <span className="text-lg">⚠️</span>
+        <span>Error de carga</span>
+      </div>
+    );
+  }
+
+  return <img src={src} alt={alt} className={`${className} object-cover`} />;
+};
 
 // =============================================================================
 // FIELD COMPONENT (High Contrast Dashboard)
@@ -104,6 +179,7 @@ const VisitReportForm = () => {
     
     status: 'draft',
     client_signature: null,
+    technician_signature: null,
     sap_call_id: null,
     
     // Metadatos Técnicos SAP (Top-level en el modelo)
@@ -147,6 +223,27 @@ const VisitReportForm = () => {
     queryKey: ['visit-report', id],
     queryFn: () => visitReportsAPI.get(id!).then(res => res.data),
     enabled: isEditing,
+  });
+
+  // Load existing report attachments if editing
+  const { data: existingAttachments = [], refetch: refetchAttachments } = useQuery({
+    queryKey: ['report-attachments', id, 'visit'],
+    queryFn: () => documentsAPI.listAttachments(id!, 'visit').then(res => res.data || []),
+    enabled: isEditing,
+  });
+
+  // Mutation to delete an existing attachment
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attachmentId: number) => documentsAPI.deleteAttachment(id!, 'visit', attachmentId),
+    onSuccess: () => {
+      toast.success("Evidencia eliminada correctamente");
+      refetchAttachments();
+      queryClient.invalidateQueries({ queryKey: ['report-attachments', id, 'visit'] });
+    },
+    onError: (err) => {
+      console.error("Error al eliminar evidencia:", err);
+      toast.error("Error al eliminar la evidencia");
+    }
   });
 
   useEffect(() => {
@@ -297,7 +394,7 @@ const VisitReportForm = () => {
           ...prev,
           salesperson: details.salesperson_name || '',
           client_contact: details.contact_person || '', 
-          client_email: details.e_mail || '',
+          client_email: details.salesperson_email || '', // Exclusivamente correo de vendedor SAP
           telephone: details.phone1 || '',
           installer: details.installer || prev.installer,
           installer_phone: details.phone1 || prev.installer_phone,
@@ -491,7 +588,7 @@ const VisitReportForm = () => {
               <GlassField label="Dirección Obra" className="md:col-span-2"><input className={inputClass} value={form.address} onChange={e => updateField('address', e.target.value)}/></GlassField>
               <GlassField label="Persona Contacto SAP"><input className={inputClass} value={form.client_contact} onChange={e => updateField('client_contact', e.target.value)} placeholder="Nombre del contacto"/></GlassField>
               <GlassField label="Teléfono SAP"><input className={inputClass} value={form.telephone} onChange={e => updateField('telephone', e.target.value)} placeholder="Número de contacto"/></GlassField>
-              <GlassField label="Email de Envío"><input className={inputClass} value={form.client_email} onChange={e => updateField('client_email', e.target.value)} placeholder="ejemplo@correo.com"/></GlassField>
+              <GlassField label="Email Vendedor SAP (Envío)"><input className={inputClass} value={form.client_email} onChange={e => updateField('client_email', e.target.value)} placeholder="vendedor@sertec.cl (separe por ',' o ';' para incluir superiores)"/></GlassField>
               <GlassField label="Empresa Constructora" className="md:col-span-3"><input className={inputClass} value={form.construction_company} onChange={e => updateField('construction_company', e.target.value)}/></GlassField>
             </div>
           </div>
@@ -676,147 +773,259 @@ const VisitReportForm = () => {
                 <CameraIcon className="w-4 h-4"/> REGISTRO FOTOGRÁFICO Y EVIDENCIAS
               </h2>
               
-              {id ? (
-                <ReportAttachments 
-                  reportId={id} 
-                  reportType="visit"
-                  className="!bg-transparent !border-white/5"
-                />
+              {!showLocalCamera && !isEditing && existingAttachments.length === 0 ? (
+                <div className="p-12 text-center border-2 border-dashed border-white/10 rounded-2xl bg-white/5 flex flex-col items-center gap-4">
+                  <div className="p-4 bg-emerald-500/10 rounded-full">
+                    <CameraIcon className="w-10 h-10 text-emerald-500/50" />
+                  </div>
+                  <p className="text-slate-400 text-[10px] font-bold">Las fotos se guardarán localmente hasta que guarde el reporte.</p>
+                  <button 
+                    onClick={() => setShowLocalCamera(true)}
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    HABILITAR CÁMARA
+                  </button>
+                </div>
               ) : (
                 <div className="space-y-6">
-                  {!showLocalCamera ? (
-                    <div className="p-12 text-center border-2 border-dashed border-white/10 rounded-2xl bg-white/5 flex flex-col items-center gap-4">
-                      <div className="p-4 bg-emerald-500/10 rounded-full">
-                        <CameraIcon className="w-10 h-10 text-emerald-500/50" />
-                      </div>
-                      <p className="text-slate-400 text-[10px] font-bold">Las fotos se guardarán localmente hasta que guarde el reporte.</p>
+                  {/* Controles y Carga superior */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                      Gestión de Fotos y Evidencias
+                    </span>
+                    
+                    {/* Hidden Inputs */}
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      multiple
+                      ref={fileInputRef}
+                      className="hidden" 
+                      onChange={async (e) => {
+                        if (e.target.files?.length) {
+                          const files = Array.from(e.target.files);
+                          toast.loading(`Optimizando ${files.length} imágenes...`, { id: 'compressing' });
+                          for (const file of files) {
+                            try {
+                              const compressed = await compressImage(file);
+                              setPendingPhotos(prev => [...prev, { file: compressed, description: '' }]);
+                            } catch (err) { console.error("Error optimizando imagen:", err); }
+                          }
+                          toast.success('Imágenes optimizadas', { id: 'compressing' });
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment"
+                      ref={cameraInputRef}
+                      className="hidden" 
+                      onChange={async (e) => {
+                        if (e.target.files?.length) {
+                          const file = e.target.files[0];
+                          toast.loading(`Procesando foto...`, { id: 'compressing' });
+                          try {
+                            const compressed = await compressImage(file);
+                            setPendingPhotos(prev => [...prev, { file: compressed, description: '' }]);
+                            toast.success('Foto capturada', { id: 'compressing' });
+                          } catch (err) { toast.error('Error al procesar foto', { id: 'compressing' }); }
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+
+                    <div className="relative">
                       <button 
-                        onClick={() => setShowLocalCamera(true)}
-                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                        onClick={() => setShowPhotoOptions(!showPhotoOptions)}
+                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
                       >
-                        HABILITAR CÁMARA
+                        <CameraIcon className="w-4 h-4"/>
+                        AÑADIR EVIDENCIA
                       </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Fotos en Memoria ({pendingPhotos.length})</span>
-                        
-                        {/* Hidden Inputs */}
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          multiple
-                          ref={fileInputRef}
-                          className="hidden" 
-                          onChange={async (e) => {
-                            if (e.target.files?.length) {
-                              const files = Array.from(e.target.files);
-                              toast.loading(`Optimizando ${files.length} imágenes...`, { id: 'compressing' });
-                              for (const file of files) {
-                                try {
-                                  const compressed = await compressImage(file);
-                                  setPendingPhotos(prev => [...prev, { file: compressed, description: '' }]);
-                                } catch (err) { console.error("Error optimizando imagen:", err); }
-                              }
-                              toast.success('Imágenes optimizadas', { id: 'compressing' });
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          capture="environment"
-                          ref={cameraInputRef}
-                          className="hidden" 
-                          onChange={async (e) => {
-                            if (e.target.files?.length) {
-                              const file = e.target.files[0];
-                              toast.loading(`Procesando foto...`, { id: 'compressing' });
-                              try {
-                                const compressed = await compressImage(file);
-                                setPendingPhotos(prev => [...prev, { file: compressed, description: '' }]);
-                                toast.success('Foto capturada', { id: 'compressing' });
-                              } catch (err) { toast.error('Error al procesar foto', { id: 'compressing' }); }
-                              e.target.value = '';
-                            }
-                          }}
-                        />
 
-                        <div className="relative">
-                          <button 
-                            onClick={() => setShowPhotoOptions(!showPhotoOptions)}
-                            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
+                      <AnimatePresence>
+                        {showPhotoOptions && (
+                          <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                            className="absolute right-0 top-full mt-2 w-44 bg-slate-900/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[110]"
                           >
-                            <CameraIcon className="w-4 h-4"/>
-                            AÑADIR EVIDENCIA
-                          </button>
+                            <button 
+                              onClick={() => { cameraInputRef.current?.click(); setShowPhotoOptions(false); }}
+                              className="w-full p-4 flex items-center gap-3 hover:bg-emerald-500/10 text-white transition-colors border-b border-white/5"
+                            >
+                              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                                <CameraIcon className="w-4 h-4 text-emerald-400"/>
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider">Usar Cámara</span>
+                            </button>
+                            <button 
+                              onClick={() => { fileInputRef.current?.click(); setShowPhotoOptions(false); }}
+                              className="w-full p-4 flex items-center gap-3 hover:bg-cyan-500/10 text-white transition-colors"
+                            >
+                              <div className="p-2 bg-cyan-500/10 rounded-lg">
+                                <PhotoIcon className="w-4 h-4 text-cyan-400"/>
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider">De Galería</span>
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
 
-                          <AnimatePresence>
-                            {showPhotoOptions && (
-                              <motion.div 
-                                initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                                className="absolute right-0 top-full mt-2 w-44 bg-slate-900/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[110]"
-                              >
-                                <button 
-                                  onClick={() => { cameraInputRef.current?.click(); setShowPhotoOptions(false); }}
-                                  className="w-full p-4 flex items-center gap-3 hover:bg-emerald-500/10 text-white transition-colors border-b border-white/5"
-                                >
-                                  <div className="p-2 bg-emerald-500/10 rounded-lg">
-                                    <CameraIcon className="w-4 h-4 text-emerald-400"/>
-                                  </div>
-                                  <span className="text-[10px] font-bold uppercase tracking-wider">Usar Cámara</span>
-                                </button>
-                                <button 
-                                  onClick={() => { fileInputRef.current?.click(); setShowPhotoOptions(false); }}
-                                  className="w-full p-4 flex items-center gap-3 hover:bg-cyan-500/10 text-white transition-colors"
-                                >
-                                  <div className="p-2 bg-cyan-500/10 rounded-lg">
-                                    <PhotoIcon className="w-4 h-4 text-cyan-400"/>
-                                  </div>
-                                  <span className="text-[10px] font-bold uppercase tracking-wider">De Galería</span>
-                                </button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </div>
+                  {/* 1. SECCIÓN DE IMÁGENES GUARDADAS PREVIAMENTE */}
+                  {isEditing && existingAttachments.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">
+                        Fotos Cargadas en Servidor ({existingAttachments.length})
+                      </span>
                       
-                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        {existingAttachments.map((att: any) => {
+                          const isImg = isImageFile(att.filename);
+                          return (
+                            <div key={att.id} className="relative aspect-square rounded-2xl overflow-hidden border border-white/10 bg-slate-950 flex flex-col group/item shadow-lg hover:border-emerald-500/30 transition-all duration-300">
+                              <div className="flex-1 relative overflow-hidden bg-slate-900 flex items-center justify-center">
+                                {isImg ? (
+                                  <SecureReportImage 
+                                    reportId={id!} 
+                                    attachmentId={att.id} 
+                                    alt={att.description || att.filename}
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover/item:scale-105"
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center gap-2 text-slate-400 p-4 text-center">
+                                    <DocumentTextIcon className="w-10 h-10 text-slate-600 animate-pulse" />
+                                    <span className="text-[9px] font-medium truncate max-w-full">{att.filename}</span>
+                                  </div>
+                                )}
+                                
+                                {/* Overlay de hover interactivo */}
+                                <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover/item:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-2 backdrop-blur-[2px]">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        toast.loading("Cargando vista previa...", { id: 'viewing-file' });
+                                        const response = await api.get(`/documents/report-attachments/${id}/visit/${att.id}/view/`, {
+                                          responseType: 'blob'
+                                        });
+                                        const blob = new Blob([response.data], { type: response.headers['content-type'] });
+                                        const url = window.URL.createObjectURL(blob);
+                                        window.open(url, '_blank');
+                                        toast.success("Vista previa abierta", { id: 'viewing-file' });
+                                      } catch (err) {
+                                        console.error("Error viewing image:", err);
+                                        toast.error("Error al abrir la imagen", { id: 'viewing-file' });
+                                      }
+                                    }}
+                                    className="p-2 bg-slate-850 hover:bg-slate-700 text-emerald-400 rounded-xl transition-all hover:scale-110"
+                                    title="Ver a pantalla completa"
+                                  >
+                                    <EyeIcon className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        toast.loading("Descargando...", { id: 'downloading-file' });
+                                        const response = await api.get(`/documents/report-attachments/${id}/visit/${att.id}/download/`, {
+                                          responseType: 'blob'
+                                        });
+                                        const blob = new Blob([response.data]);
+                                        const url = window.URL.createObjectURL(blob);
+                                        const link = document.createElement('a');
+                                        link.href = url;
+                                        link.download = att.filename;
+                                        document.body.appendChild(link);
+                                        link.click();
+                                        document.body.removeChild(link);
+                                        window.URL.revokeObjectURL(url);
+                                        toast.success("Archivo descargado", { id: 'downloading-file' });
+                                      } catch (err) {
+                                        console.error("Error downloading file:", err);
+                                        toast.error("Error al descargar el archivo", { id: 'downloading-file' });
+                                      }
+                                    }}
+                                    className="p-2 bg-slate-850 hover:bg-slate-700 text-cyan-400 rounded-xl transition-all hover:scale-110"
+                                    title="Descargar archivo"
+                                  >
+                                    <CloudArrowDownIcon className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (confirm("¿Está seguro de eliminar esta evidencia permanentemente?")) {
+                                        deleteAttachmentMutation.mutate(att.id);
+                                      }
+                                    }}
+                                    className="p-2 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white rounded-xl transition-all hover:scale-110"
+                                    title="Eliminar evidencia"
+                                  >
+                                    <TrashIcon className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                              
+                              {/* Footer de Descripción */}
+                              <div className="bg-slate-900/90 border-t border-white/5 p-2 min-h-[36px] flex flex-col justify-center">
+                                <p className="text-[9px] text-slate-300 font-medium line-clamp-2 leading-tight">
+                                  {att.description || "Evidencia de visita"}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. SECCIÓN DE FOTOS NUEVAS EN MEMORIA (PENDIENTES DE GUARDAR) */}
+                  <div className="space-y-3 pt-2">
+                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">
+                      Fotos Nuevas a Guardar ({pendingPhotos.length})
+                    </span>
+                    
+                    {pendingPhotos.length === 0 ? (
+                      <p className="text-slate-500 text-[10px] font-medium italic">No hay fotos nuevas añadidas aún.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {pendingPhotos.map((photo, idx) => (
-                          <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-white/10 bg-white/5 flex flex-col">
-                            <div className="flex-1 relative">
+                          <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden border border-white/10 bg-slate-950 flex flex-col shadow-lg">
+                            <div className="flex-1 relative overflow-hidden bg-slate-900">
                               <img 
                                 src={URL.createObjectURL(photo.file)} 
                                 className="w-full h-full object-cover" 
                                 alt="preview"
                               />
                               <button 
+                                type="button"
                                 onClick={() => setPendingPhotos(prev => prev.filter((_, i) => i !== idx))}
-                                className="absolute top-1 right-1 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"
+                                className="absolute top-2 right-2 p-1.5 bg-red-500/80 hover:bg-red-500 text-white rounded-full transition-colors active:scale-95 shadow-md"
                               >
                                 <XMarkIcon className="w-3 h-3"/>
                               </button>
                             </div>
                             <input 
                               type="text" 
-                              placeholder="Nombre/Descripción..." 
+                              placeholder="Descripción..." 
                               value={photo.description}
                               onChange={(e) => {
                                 const newPhotos = [...pendingPhotos];
                                 newPhotos[idx].description = e.target.value;
                                 setPendingPhotos(newPhotos);
                               }}
-                              className="w-full text-[10px] bg-black/50 text-white placeholder-slate-400 p-1.5 outline-none border-t border-white/10"
+                              className="w-full text-[10px] bg-slate-900 text-white placeholder-slate-500 p-2 outline-none border-t border-white/5 font-semibold text-center"
                             />
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -882,31 +1091,32 @@ const VisitReportForm = () => {
         </div>
       )}
 
-      {/* Modal de Firma Directa */}
+      {/* Modal de Firma Directa (Cliente) */}
       {showSignatureModal && (createdReportId || id) && (
         <SignatureCanvas
-          isOpen={showSignatureModal}
           onClose={() => setShowSignatureModal(false)}
           onSave={async (signatureDataUrl) => {
-            // Convertir DataURL a Blob para FormData
-            const response = await fetch(signatureDataUrl);
-            const signatureBlob = await response.blob();
-
-            const formData = new FormData();
-            formData.append('signature', signatureBlob, 'signature.png');
-            formData.append('status', 'completed');
-            
-            toast.loading('Finalizando reporte...', { id: 'signing' });
+            toast.loading('Guardando firma del cliente...', { id: 'signing' });
             try {
-              await visitReportsAPI.sign(createdReportId || Number(id), formData);
-              toast.success('Reporte firmado y finalizado', { id: 'signing' });
+              const targetId = createdReportId || Number(id);
+              // 1. Guardar firma del cliente y marcar como final
+              await visitReportsAPI.update(targetId, {
+                client_signature: signatureDataUrl,
+                is_final: true
+              });
+              // 2. Generar PDF final y disparar SAP Sync
+              await visitReportsAPI.generatePDF(targetId, { final: true });
+              
+              toast.success('Reporte firmado y finalizado con éxito', { id: 'signing' });
               setShowSignatureModal(false);
               navigate('/visit-reports');
-            } catch (err) {
-              toast.error('Error al guardar firma', { id: 'signing' });
+            } catch (err: any) {
+              console.error("Error al guardar firma de cliente:", err);
+              toast.error('Error al guardar firma: ' + (err.response?.data?.error || err.message), { id: 'signing' });
             }
           }}
-          title="Firma del Cliente"
+          title="Firma de Recepción (Cliente)"
+          signerName={form.client_name || 'Representante de Obra'}
         />
       )}
     </div>

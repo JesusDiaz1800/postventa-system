@@ -94,7 +94,12 @@ export function useAuth() {
       toast.success(`¡Bienvenido, ${data.user.username}!`);
       
       // IMMEDIATE REDIRECT: Avoid flickering or intermediate pages
-      window.location.href = '/quick-actions';
+      // If the user is a technician, redirect to visit reports page, else to quick actions
+      if (data.user.role === 'technical_service' || data.user.role === 'tecnico' || data.user.role === 'technician') {
+        window.location.href = '/visit-reports';
+      } else {
+        window.location.href = '/quick-actions';
+      }
     } catch (error: any) {
       toast.error(error.message || 'Error al iniciar sesión');
     } finally {

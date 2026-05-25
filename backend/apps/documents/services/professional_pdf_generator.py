@@ -848,72 +848,85 @@ class ProfessionalPDFGenerator:
 
         
         # Obtener usuario y firma digital
-        user_full_name = "Personal Autorizado"
+        user_full_name = data.get('technician') or "Personal Autorizado"
         tech_sign_img = None
         
+        # 1. Intentar primero con technician_signature_path si fue pre-inyectada (prioridad absoluta)
+        tech_signature_path = data.get('technician_signature_path')
+        if tech_signature_path and os.path.exists(tech_signature_path):
+            try:
+                tech_sign_img = ReportLabImage(tech_signature_path, width=4*cm, height=2*cm)
+                tech_sign_img.hAlign = 'CENTER'
+                logger.info(f"Firma del técnico cargada desde technician_signature_path: {tech_signature_path}")
+            except Exception as img_error:
+                logger.warning(f"Error cargando firma desde technician_signature_path: {img_error}")
+
         try:
             from django.contrib.auth import get_user_model
             User = get_user_model()
-            
-            # 1. Intentar con technician_id (ID de SAP) - MÁXIMA PRIORIDAD
-            technician_id_val = data.get('technician_id')
             user = None
             
-            if technician_id_val:
-                user = User.objects.filter(pk=technician_id_val).first()
-                if user:
-                    logger.info(f"Usuario encontrado por technician_id (SAP): {user.username}")
+            # Limpiar nombre del técnico para búsqueda robusta
+            import unicodedata
+            def clean_str(s):
+                if not s: return ""
+                return "".join(
+                    c for c in unicodedata.normalize('NFD', s.lower())
+                    if unicodedata.category(c) != 'Mn'
+                ).strip()
+                
+            technician_name = data.get('technician')
+            clean_tech_name = clean_str(technician_name)
             
-            # 2. Si no se encontró, intentar con created_by
+            # A. Búsqueda robusta por coincidencia de nombre completo en Python (acentos/mayúsculas) de forma prioritaria
+            if clean_tech_name:
+                for u in User.objects.filter(is_active=True):
+                    u_full = clean_str(f"{u.first_name} {u.last_name}")
+                    u_username = clean_str(u.username)
+                    if clean_tech_name == u_full or clean_tech_name == u_username or (len(clean_tech_name) > 3 and (clean_tech_name in u_full or u_full in clean_tech_name)):
+                        user = u
+                        logger.info(f"Usuario técnico encontrado por nombre/username: {u.username}")
+                        break
+
+            # B. Si no se encontró por nombre, intentar con technician_id (ID de SAP o Django ID)
+            if not user:
+                technician_id_val = data.get('technician_id')
+                if technician_id_val:
+                    if isinstance(technician_id_val, int) or (isinstance(technician_id_val, str) and technician_id_val.isdigit()):
+                        user = User.objects.filter(pk=int(technician_id_val)).first()
+                        if user:
+                            logger.info(f"Usuario técnico encontrado por technician_id (SAP): {user.username}")
+
+            # C. Fallback a created_by solo si el técnico está vacío, coincide con el creador, o no se encontró y el creador tiene un nombre compatible
             if not user:
                 created_by_val = data.get('created_by')
                 if isinstance(created_by_val, dict): 
                     created_by_val = created_by_val.get('id')
                 
                 if created_by_val:
-                    user = User.objects.filter(pk=created_by_val).first()
-                    if user:
-                        logger.info(f"Usuario encontrado por created_by: {user.username}")
-            
-            # 3. Fallback: Intentar con technician (Nombre string o ID histórico)
-            if not user:
-                user_id_alt = data.get('technician')
-                
-                if user_id_alt:
-                    # Si es numérico
-                    if isinstance(user_id_alt, int) or (isinstance(user_id_alt, str) and user_id_alt.isdigit()):
-                        user = User.objects.filter(pk=user_id_alt).first()
-                    
-                    # Si es nombre string
-                    if not user and isinstance(user_id_alt, str):
-                        logger.info(f"Buscando usuario por nombre/username: {user_id_alt}")
-                        user = User.objects.filter(username__iexact=user_id_alt).first()
-                        
-                        if not user:
-                            parts = user_id_alt.split()
-                            if len(parts) >= 2:
-                                user = User.objects.filter(
-                                    first_name__iexact=parts[0], 
-                                    last_name__iexact=" ".join(parts[1:])
-                                ).first()
-                        
-                        if not user and not user_id_alt.isdigit():
-                            # Si definitivamente es un nombre pero no hay usuario, lo guardamos para el PDF
-                            user_full_name = user_id_alt
+                    creator_user = User.objects.filter(pk=created_by_val).first()
+                    if creator_user:
+                        creator_full = clean_str(f"{creator_user.first_name} {creator_user.last_name}")
+                        creator_username = clean_str(creator_user.username)
+                        if not clean_tech_name or clean_tech_name == creator_full or clean_tech_name == creator_username:
+                            user = creator_user
+                            logger.info(f"Usuario técnico asignado al creador por coincidencia o técnico vacío: {user.username}")
             
             if user:
-                logger.info(f"Usuario final para firma: {user.username} (ID: {user.id})")
-                signature_path = self._get_digital_signature(user)
-                
-                if signature_path:
-                    try:
-                        tech_sign_img = ReportLabImage(signature_path, width=4*cm, height=2*cm)
-                        tech_sign_img.hAlign = 'CENTER'
-                    except Exception as img_error:
-                        logger.warning(f"No se pudo crear Image desde firma: {img_error}")
-                
                 # Nombre del usuario
                 user_full_name = getattr(user, 'full_name', f"{user.first_name} {user.last_name}".strip()) or user.username
+                
+                # Si no se cargó la firma previamente por technician_signature_path, la buscamos en el perfil del usuario
+                if not tech_sign_img:
+                    logger.info(f"Usuario final para firma: {user.username} (ID: {user.id})")
+                    signature_path = self._get_digital_signature(user)
+                    
+                    if signature_path:
+                        try:
+                            tech_sign_img = ReportLabImage(signature_path, width=4*cm, height=2*cm)
+                            tech_sign_img.hAlign = 'CENTER'
+                        except Exception as img_error:
+                            logger.warning(f"No se pudo crear Image desde firma: {img_error}")
         except Exception as e:
             logger.warning(f"No se pudo resolver firma usuario: {e}")
 

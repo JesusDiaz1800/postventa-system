@@ -37,10 +37,16 @@ export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = 
     }
   };
 
+  const isTech = userRole === 'technical_service' || userRole === 'tecnico' || userRole === 'technician';
   const operationsNav = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'administrador', 'management'] },
-    { name: 'Reportes de Visita', href: '/visit-reports', icon: ClipboardList, roles: ['admin', 'administrador', 'management', 'tecnico', 'supervisor', 'technical_service'] },
-    { name: 'Programar Visita', href: '/schedule-visit', icon: Calendar, roles: ['admin', 'administrador', 'management'] },
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'administrador', 'management', 'supervisor'] },
+    { name: 'Reportes de Visita', href: '/visit-reports', icon: ClipboardList, roles: ['admin', 'administrador', 'management', 'tecnico', 'supervisor', 'technical_service', 'quality', 'analyst', 'customer_service', 'provider'] },
+    { 
+      name: isTech ? 'Calendario de Visitas' : 'Programar Visita', 
+      href: '/schedule-visit', 
+      icon: Calendar, 
+      roles: ['admin', 'administrador', 'management', 'supervisor', 'tecnico', 'technician', 'technical_service'] 
+    },
   ];
 
   const systemNav = [
@@ -57,27 +63,32 @@ export function Sidebar({ currentPath, onNavigate, userName, userRole, isOpen = 
       'servicio_tecnico': 'Servicio Técnico',
       'tecnico': 'Técnico',
       'quality': 'Calidad',
-      'supervisor': 'Supervisor',
+      'supervisor': 'Jefe SERTEC',
       'analyst': 'Analista',
       'customer_service': 'Atención al Cliente',
+      'provider': 'Proveedor',
     };
     return roleMap[role.toLowerCase()] || role;
   };
 
   const filterByRole = (items: any[]) => {
+    // Map route paths to their page permission keys
     const pageKeyMap: { [key: string]: string } = {
-      '/dashboard': 'dashboard',
-      '/visit-reports': 'visit-reports',
-      '/users': 'users',
-      '/audit': 'audit',
+      '/dashboard':       'dashboard',
+      '/visit-reports':   'visit-reports',
+      '/schedule-visit':  'schedule-visit',
+      '/users':           'users',
+      '/audit':           'audit',
     };
 
     return items.filter(item => {
       if (userRole === 'admin' || userRole === 'administrador') return true;
       const pageKey = pageKeyMap[item.href];
+      // If this page has a key AND the user has explicit accessible_pages, use that
       if (pageKey && accessiblePages && accessiblePages.length > 0) {
         return accessiblePages.includes(pageKey);
       }
+      // Fallback: check hardcoded roles array
       return item.roles.includes(userRole);
     });
   };

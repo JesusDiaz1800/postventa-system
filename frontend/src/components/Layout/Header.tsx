@@ -122,47 +122,45 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   return (
     <header className="sticky top-0 z-40 w-full no-print bg-[#030014]/80 backdrop-blur-xl border-b border-white/5">
-      <div className="h-16 flex justify-between items-center px-8 transition-all duration-300">
+      <div className="h-12 sm:h-14 flex justify-between items-center px-3 sm:px-6 transition-all duration-300">
 
         {/* Left Section: Menu & Title */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 sm:gap-6">
           <button
             onClick={onMenuClick}
-            className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-xl transition-all active:scale-95"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all active:scale-95"
           >
-            <Bars3Icon className="w-6 h-6" />
+            <Bars3Icon className="w-5 h-5" />
           </button>
 
           <div className="hidden sm:block">
-            <h1 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
+            <h1 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
               {pageTitle}
               <span className="w-1 h-1 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
-              <span className="text-[10px] text-slate-500 font-bold opacity-50">v 1.0</span>
+              <span className="text-[9px] text-slate-500 font-bold opacity-50">v 1.0</span>
             </h1>
           </div>
         </div>
 
         {/* Right Section: Actions & Profile */}
-        <div className="flex items-center gap-4">
-
-
-          <div className="flex items-center ml-2">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center">
             {/* Notification Center Removido */}
           </div>
 
-          <div className="h-4 w-px bg-white/10 mx-1" />
+          <div className="h-4 w-px bg-white/10" />
 
           <CountryFlag />
 
-          <div className="h-4 w-px bg-white/10 mx-1" />
+          <div className="h-4 w-px bg-white/10" />
 
           {/* Direct Logout Action */}
           <button
             onClick={() => setIsLogoutModalOpen(true)}
-            className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all active:scale-95 group"
+            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all active:scale-95 group"
             title="Cerrar Sesión"
           >
-            <ArrowRightOnRectangleIcon className="w-6 h-6 group-hover:rotate-12 transition-transform" />
+            <ArrowRightOnRectangleIcon className="w-5 h-5 group-hover:rotate-12 transition-transform" />
           </button>
         </div>
       </div>

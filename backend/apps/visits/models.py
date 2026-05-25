@@ -57,7 +57,7 @@ class VisitReport(models.Model):
     
     # Datos de contacto adicionales
     client_contact = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto")
-    client_email = models.EmailField(blank=True, null=True, verbose_name="Email del Cliente")
+    client_email = models.CharField(max_length=255, blank=True, null=True, verbose_name="Email del Cliente")
     telephone = models.CharField(max_length=50, blank=True, verbose_name="Teléfono Llamada SAP")
     fax = models.CharField(max_length=20, blank=True, verbose_name="Fax")
     contact_observations = models.TextField(blank=True, verbose_name="Observaciones de Contacto")
@@ -192,6 +192,17 @@ class VisitReport(models.Model):
 
             is_new = self.pk is None
             
+            # Detectar si cambió la fecha o el técnico para notificaciones
+            date_changed = False
+            technician_changed = False
+            if not is_new:
+                try:
+                    old_instance = VisitReport.objects.get(pk=self.pk)
+                    date_changed = (old_instance.visit_date != self.visit_date)
+                    technician_changed = (old_instance.technician != self.technician)
+                except VisitReport.DoesNotExist:
+                    pass
+            
             # 2. Generación de Número de Reporte correlativo
             if not self.report_number:
                 year = timezone.now().year
@@ -215,6 +226,44 @@ class VisitReport(models.Model):
 
             super().save(*args, **kwargs)
             logger.info(f"Reporte {self.report_number} guardado localmente (ID: {self.id})")
+            
+            # Enviar notificación por correo al técnico si es nueva visita o cambió fecha/técnico
+            if is_new or date_changed or technician_changed:
+                try:
+                    from django.db import transaction
+                    import threading
+                    
+                    country_code = get_current_country()
+                    visit_id = self.id
+                    
+                    is_new_local = is_new
+                    date_changed_local = date_changed
+                    technician_changed_local = technician_changed
+                    
+                    def run_notification():
+                        def thread_target():
+                            try:
+                                from apps.core.thread_local import set_current_country
+                                set_current_country(country_code)
+                                from apps.documents.services.email_service import EmailService
+                                EmailService.send_technician_notification(
+                                    visit_id=visit_id,
+                                    is_new=is_new_local,
+                                    date_changed=date_changed_local,
+                                    technician_changed=technician_changed_local
+                                )
+                            except Exception as th_err:
+                                logger.error(f"Error in technician notification thread: {th_err}")
+                        
+                        t = threading.Thread(target=thread_target, daemon=True)
+                        t.start()
+                    
+                    # Se usa on_commit para asegurar que los datos estén confirmados en la BD
+                    # antes de que el hilo de fondo intente leerlos.
+                    transaction.on_commit(run_notification)
+                    logger.info(f"Notification email to technician scheduled for visit {self.report_number}")
+                except Exception as email_err:
+                    logger.error(f"Error scheduling technician email: {email_err}")
             
             # 4. Sincronización con SAP (Llamadas de Servicio)
             # Solo si el reporte está APROBADO (Firmado) o CERRADO

@@ -124,3 +124,8 @@ dmypy.json
 # Temporary files
 *.tmp
 *.temp
+
+# Sertec specific media & scratch files
+backend/documentos/
+backend/scratch/
+backend/static_frontend/

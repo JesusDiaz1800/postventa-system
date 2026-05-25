@@ -41,6 +41,41 @@ class UserSerializer(serializers.ModelSerializer):
             # Fallback for safety
             return []
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        
+        # Force permissions_override to be a dict
+        po = data.get('permissions_override')
+        if isinstance(po, str):
+            import json
+            try:
+                data['permissions_override'] = json.loads(po)
+            except:
+                data['permissions_override'] = {}
+        elif po is None:
+            data['permissions_override'] = {}
+            
+        # Force pages_override to be a list
+        go = data.get('pages_override')
+        if isinstance(go, str):
+            import json
+            try:
+                data['pages_override'] = json.loads(go)
+            except:
+                data['pages_override'] = []
+        elif go is None:
+            data['pages_override'] = []
+
+        # Convert digital_signature to relative URL to avoid mixed content errors
+        if data.get('digital_signature'):
+            url = data['digital_signature']
+            if 'localhost' in url or '127.0.0.1' in url:
+                if '/documentos/' in url:
+                    data['digital_signature'] = url.split('/documentos/', 1)[1]
+                    data['digital_signature'] = f'/documentos/{data["digital_signature"]}'
+        
+        return data
+
 
 class RolePermissionSerializer(serializers.ModelSerializer):
     """
@@ -60,23 +95,6 @@ class RolePermissionSerializer(serializers.ModelSerializer):
             if code == obj.role:
                 return label
         return obj.role
-
-    
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        
-        # Convert digital_signature to relative URL to avoid mixed content errors
-        # When frontend is HTTPS and backend is HTTP (localhost)
-        if data.get('digital_signature'):
-            # Remove the domain part, keep only the path starting from /documentos/
-            url = data['digital_signature']
-            if 'localhost' in url or '127.0.0.1' in url:
-                # Extract just the path after the domain
-                if '/documentos/' in url:
-                    data['digital_signature'] = url.split('/documentos/', 1)[1]
-                    data['digital_signature'] = f'/documentos/{data["digital_signature"]}'
-        
-        return data
 
 
 class LoginSerializer(serializers.Serializer):
@@ -220,13 +238,19 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         Validate digital_signature field.
         Handle cases where empty objects or invalid data is sent.
         """
+        if isinstance(value, str):
+            if value and self.instance and self.instance.digital_signature:
+                return self.instance.digital_signature
+            return None
+
         # If value is None or empty, that's valid (field is optional)
         if value is None or value == '':
             return None
         
         # If it's not a proper uploaded file, ignore it
-        # This handles cases where FormData serialization fails
         if not hasattr(value, 'read'):
+            if self.instance and self.instance.digital_signature:
+                return self.instance.digital_signature
             return None
             
         return value

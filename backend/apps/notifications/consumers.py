@@ -76,7 +76,8 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                 'get_notifications': self._handle_get_notifications,
                 'get_unread_count': self._handle_get_unread_count,
                 'get_important': self._handle_get_important,
-                'mark_as_important': self._handle_mark_as_important
+                'mark_as_important': self._handle_mark_as_important,
+                'ping': self._handle_ping
             }
             
             handler = handlers.get(message_type)
@@ -100,6 +101,13 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                 'message': 'Error interno del servidor'
             }))
     
+    async def _handle_ping(self, data):
+        """Manejar ping para verificar conexión"""
+        await self.send(text_data=json.dumps({
+            'type': 'pong',
+            'timestamp': timezone.now().isoformat()
+        }))
+
     async def _handle_mark_as_read(self, data):
         notification_id = data.get('notification_id')
         if not notification_id:
